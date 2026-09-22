@@ -26,3 +26,10 @@ export function requireEmail(body: Body, key = 'email'): string {
 export function optionalString(body: Body, key: string, opts?: { min?: number; max?: number }): string | undefined {
   return body[key] === undefined ? undefined : requireString(body, key, opts);
 }
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export function requireUuidParam(value: string, name = 'id'): string {
+  if (!UUID_RE.test(value)) throw badRequest('Validation failed', { [name]: 'Must be a UUID' });
+  return value;
+}

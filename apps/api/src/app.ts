@@ -1,6 +1,7 @@
 import express from 'express';
 import { errorHandler, notFoundHandler, requireJsonForMutations } from './middleware/errors.js';
 import { authRouter } from './modules/auth/auth.routes.js';
+import { companiesRouter } from './modules/company/companies.routes.js';
 import { companyRouter } from './modules/company/company.routes.js';
 
 export function createApp() {
@@ -15,6 +16,7 @@ export function createApp() {
   });
   app.use('/api/auth', authRouter);
   app.use('/api/company', companyRouter);
+  app.use('/api/companies', companiesRouter);
 
   app.use(notFoundHandler);
   app.use(errorHandler);
