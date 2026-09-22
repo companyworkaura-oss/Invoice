@@ -78,3 +78,55 @@ export interface EmbroideryCategory {
   active: boolean;
   createdAt: string;
 }
+
+export type InvoiceStatus = 'draft' | 'issued' | 'cancelled';
+
+/**
+ * A saved invoice line item (Phase 7). Every field below this comment is
+ * a snapshot taken when the item was created — category_name, rate,
+ * formula_type, formula_config, and the exact calculation inputs used —
+ * so it never changes even if the category it came from is later edited,
+ * disabled, or its rate changes. calculatedUnitAmount and
+ * calculatedTotal are always computed server-side by the formula engine;
+ * the frontend never sends or determines these values.
+ */
+export interface InvoiceItem {
+  id: string;
+  invoiceId: string;
+  categoryId: string | null;
+  categoryName: string;
+  description: string | null;
+  stitches: number;
+  rate: Money;
+  formulaType: string;
+  formulaConfig: Record<string, unknown>;
+  calculationInputs: Record<string, unknown>;
+  calculatedUnitAmount: Money;
+  calculatedTotal: Money;
+  createdAt: string;
+}
+
+export interface Invoice {
+  id: string;
+  companyId: string;
+  customerId: string;
+  customerName: string;
+  invoiceNumber: string;
+  invoiceDate: string;
+  quantity: string;
+  notes: string | null;
+  status: InvoiceStatus;
+  createdAt: string;
+}
+
+/** Returned by GET /api/invoices (list) and as the summary row for GET /api/invoices/:id. */
+export interface InvoiceListEntry extends Invoice {
+  /** Sum of the items' calculatedTotal — derived on read, never stored. */
+  totalAmount: Money;
+}
+
+/** Returned by POST /api/invoices and GET /api/invoices/:id. */
+export interface InvoiceWithItems extends Invoice {
+  items: InvoiceItem[];
+  totalAmount: Money;
+}

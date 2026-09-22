@@ -7,9 +7,10 @@ import { CompanySwitcher } from './features/companies/CompanySwitcher';
 import { CompanyProfilePanel } from './features/company/CompanyProfilePanel';
 import { CustomersPage } from './features/customers/CustomersPage';
 import { CategoriesPage } from './features/formulas/CategoriesPage';
+import { InvoicesPage } from './features/invoices/InvoicesPage';
 
 type AuthView = 'login' | 'register';
-type DashboardTab = 'overview' | 'customers' | 'categories';
+type DashboardTab = 'overview' | 'customers' | 'categories' | 'invoices';
 
 function App() {
   const [me, setMe] = useState<Me | null | undefined>(undefined); // undefined = still checking
@@ -57,7 +58,7 @@ function App() {
 
   return (
     <div className="min-h-screen bg-slate-50 p-6">
-      <div className="mx-auto max-w-2xl rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
+      <div className="mx-auto max-w-3xl rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
         <div className="flex items-start justify-between">
           <div>
             <h1 className="text-lg font-semibold text-slate-900">{me.company.name}</h1>
@@ -75,7 +76,7 @@ function App() {
         </div>
 
         <div className="mt-4 flex gap-4 border-b border-slate-200">
-          {(['overview', 'customers', 'categories'] as const).map((t) => (
+          {(['overview', 'customers', 'categories', 'invoices'] as const).map((t) => (
             <button
               key={t}
               type="button"
@@ -113,6 +114,12 @@ function App() {
         {tab === 'categories' && (
           <div className="mt-4">
             <CategoriesPage key={me.company.id} />
+          </div>
+        )}
+
+        {tab === 'invoices' && (
+          <div className="mt-4">
+            <InvoicesPage key={me.company.id} />
           </div>
         )}
       </div>

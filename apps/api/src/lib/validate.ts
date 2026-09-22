@@ -39,6 +39,10 @@ export function requireUuidParam(value: string, name = 'id'): string {
   return value;
 }
 
+export function requireUuid(body: Body, key: string): string {
+  return requireUuidParam(requireString(body, key, { max: 100 }), key);
+}
+
 // Up to 12 integer digits and 2 decimal places — matches the numeric(14,2) columns.
 // Kept as a string end-to-end: money is never parsed into a float.
 const MONEY_RE = /^-?\d{1,12}(\.\d{1,2})?$/;
@@ -73,4 +77,42 @@ export function optionalJsonObject(
     throw badRequest('Validation failed', { [key]: `Must be under ${maxBytes} bytes` });
   }
   return raw as Record<string, unknown>;
+}
+
+/** A required positive whole number, e.g. a stitch count. */
+export function requirePositiveInt(body: Body, key: string, opts: { max?: number } = {}): number {
+  const raw = body[key];
+  const value = typeof raw === 'number' ? raw : Number(raw);
+  if (!Number.isInteger(value) || value <= 0 || (opts.max !== undefined && value > opts.max)) {
+    throw badRequest('Validation failed', { [key]: 'Must be a positive whole number' });
+  }
+  return value;
+}
+
+// Up to 12 integer digits and a configurable number of decimal places.
+function decimalPattern(decimals: number): RegExp {
+  return new RegExp(`^\\d{1,12}(\\.\\d{1,${decimals}})?$`);
+}
+
+/** A required positive decimal string (>0), e.g. an invoice's item quantity. */
+export function requirePositiveDecimal(body: Body, key: string, opts: { decimals?: number } = {}): string {
+  const decimals = opts.decimals ?? 2;
+  const raw = body[key];
+  if (typeof raw !== 'string' || !decimalPattern(decimals).test(raw) || Number(raw) <= 0) {
+    throw badRequest('Validation failed', {
+      [key]: `Must be a decimal greater than zero with up to ${decimals} decimal places`,
+    });
+  }
+  return raw;
+}
+
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+export function optionalDate(body: Body, key: string): string | undefined {
+  const raw = body[key];
+  if (raw === undefined) return undefined;
+  if (typeof raw !== 'string' || !DATE_RE.test(raw)) {
+    throw badRequest('Validation failed', { [key]: 'Must be a date like 2025-01-31' });
+  }
+  return raw;
 }
