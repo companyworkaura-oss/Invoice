@@ -3,9 +3,14 @@ import { useState } from 'react';
 import { CreateInvoiceForm } from './CreateInvoiceForm';
 import { InvoiceDetails } from './InvoiceDetails';
 import { InvoiceList } from './InvoiceList';
+import { InvoiceTemplateView } from './templates/InvoiceTemplateView';
 import * as invoicesApi from './api';
 
-type View = { name: 'list' } | { name: 'details'; invoice: InvoiceWithItems } | { name: 'form' };
+type View =
+  | { name: 'list' }
+  | { name: 'details'; invoice: InvoiceWithItems }
+  | { name: 'template'; invoice: InvoiceWithItems }
+  | { name: 'form' };
 
 export function InvoicesPage() {
   const [view, setView] = useState<View>({ name: 'list' });
@@ -50,7 +55,12 @@ export function InvoicesPage() {
               setRefreshToken((t) => t + 1);
               setView({ name: 'list' });
             }}
+            onViewTemplate={() => setView({ name: 'template', invoice: view.invoice })}
           />
+        )}
+
+        {view.name === 'template' && (
+          <InvoiceTemplateView invoice={view.invoice} onBack={() => setView({ name: 'details', invoice: view.invoice })} />
         )}
 
         {view.name === 'form' && (

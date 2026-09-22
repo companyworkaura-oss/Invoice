@@ -3,9 +3,10 @@ import type { InvoiceWithItems } from '@invoice/shared';
 interface Props {
   invoice: InvoiceWithItems;
   onBack: () => void;
+  onViewTemplate: () => void;
 }
 
-export function InvoiceDetails({ invoice, onBack }: Props) {
+export function InvoiceDetails({ invoice, onBack, onViewTemplate }: Props) {
   return (
     <div className="rounded-md border border-slate-200 p-4">
       <div className="flex items-start justify-between">
@@ -15,9 +16,14 @@ export function InvoiceDetails({ invoice, onBack }: Props) {
             {invoice.customerName} · {invoice.invoiceDate} · {invoice.status}
           </p>
         </div>
-        <button type="button" onClick={onBack} className="text-xs text-slate-500 underline">
-          Back
-        </button>
+        <div className="flex items-center gap-3">
+          <button type="button" onClick={onViewTemplate} className="text-xs text-slate-500 underline">
+            View / Print
+          </button>
+          <button type="button" onClick={onBack} className="text-xs text-slate-500 underline">
+            Back
+          </button>
+        </div>
       </div>
 
       <p className="mt-2 text-sm text-slate-600">Quantity: {invoice.quantity}</p>

@@ -1,6 +1,7 @@
 import type { CompanyProfile } from '@invoice/shared';
 import { useState } from 'react';
 import { ApiError } from '../../lib/api';
+import { INVOICE_TEMPLATES } from '../invoices/templates/registry';
 import * as companyApi from './api';
 
 interface Props {
@@ -11,7 +12,13 @@ interface Props {
 
 type FormState = Record<string, string>;
 
-const FIELDS: { key: keyof companyApi.ProfilePatch; label: string; type?: string; textarea?: boolean }[] = [
+const FIELDS: {
+  key: keyof companyApi.ProfilePatch;
+  label: string;
+  type?: string;
+  textarea?: boolean;
+  options?: { value: string; label: string }[];
+}[] = [
   { key: 'name', label: 'Company name' },
   { key: 'factoryName', label: 'Factory name' },
   { key: 'ownerName', label: 'Owner name' },
@@ -22,7 +29,11 @@ const FIELDS: { key: keyof companyApi.ProfilePatch; label: string; type?: string
   { key: 'taxNumber', label: 'Tax number' },
   { key: 'invoicePrefix', label: 'Invoice prefix' },
   { key: 'defaultCurrency', label: 'Default currency (3-letter code)' },
-  { key: 'defaultInvoiceTemplate', label: 'Default invoice template' },
+  {
+    key: 'defaultInvoiceTemplate',
+    label: 'Default invoice template',
+    options: INVOICE_TEMPLATES.map((t) => ({ value: t.id, label: t.label })),
+  },
   { key: 'invoiceTerms', label: 'Invoice terms', textarea: true },
 ];
 
@@ -44,7 +55,15 @@ export function CompanyProfileForm({ profile, canEdit, onSaved }: Props) {
     setSaved(false);
     setSaving(true);
     try {
-      const updated = await companyApi.updateProfile(form as companyApi.ProfilePatch);
+      // Only send fields that actually have a value. The server treats a
+      // present-but-blank optional field (e.g. email: "") as someone
+      // trying to set it to that, which fails validation — an untouched
+      // blank field should mean "leave it as is", not "clear it".
+      const patch: companyApi.ProfilePatch = {};
+      for (const [key, value] of Object.entries(form)) {
+        if (value.trim() !== '') patch[key as keyof companyApi.ProfilePatch] = value;
+      }
+      const updated = await companyApi.updateProfile(patch);
       setForm(toFormState(updated));
       onSaved(updated);
       setSaved(true);
@@ -57,12 +76,26 @@ export function CompanyProfileForm({ profile, canEdit, onSaved }: Props) {
 
   return (
     <form onSubmit={handleSubmit} className="mt-4 space-y-3">
-      {FIELDS.map(({ key, label, type, textarea }) => (
+      {FIELDS.map(({ key, label, type, textarea, options }) => (
         <div key={key}>
           <label htmlFor={`profile-${key}`} className="block text-xs font-medium text-slate-500">
             {label}
           </label>
-          {textarea ? (
+          {options ? (
+            <select
+              id={`profile-${key}`}
+              disabled={!canEdit}
+              value={form[key] ?? ''}
+              onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))}
+              className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-slate-500 focus:outline-none disabled:bg-slate-50"
+            >
+              {options.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          ) : textarea ? (
             <textarea
               id={`profile-${key}`}
               disabled={!canEdit}
