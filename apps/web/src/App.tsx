@@ -6,9 +6,10 @@ import { RegisterForm } from './features/auth/RegisterForm';
 import { CompanySwitcher } from './features/companies/CompanySwitcher';
 import { CompanyProfilePanel } from './features/company/CompanyProfilePanel';
 import { CustomersPage } from './features/customers/CustomersPage';
+import { CategoriesPage } from './features/formulas/CategoriesPage';
 
 type AuthView = 'login' | 'register';
-type DashboardTab = 'overview' | 'customers';
+type DashboardTab = 'overview' | 'customers' | 'categories';
 
 function App() {
   const [me, setMe] = useState<Me | null | undefined>(undefined); // undefined = still checking
@@ -74,7 +75,7 @@ function App() {
         </div>
 
         <div className="mt-4 flex gap-4 border-b border-slate-200">
-          {(['overview', 'customers'] as const).map((t) => (
+          {(['overview', 'customers', 'categories'] as const).map((t) => (
             <button
               key={t}
               type="button"
@@ -106,6 +107,12 @@ function App() {
         {tab === 'customers' && (
           <div className="mt-4">
             <CustomersPage key={me.company.id} />
+          </div>
+        )}
+
+        {tab === 'categories' && (
+          <div className="mt-4">
+            <CategoriesPage key={me.company.id} />
           </div>
         )}
       </div>

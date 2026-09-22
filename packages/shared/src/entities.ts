@@ -58,3 +58,23 @@ export interface Customer {
   status: CustomerStatus;
   createdAt: string;
 }
+
+/**
+ * A company-defined embroidery work category (Phase 5): the examples in
+ * the product brief (HS/HP, Daman Lace, Motia, ...) are just that —
+ * examples. Nothing in the app hard-codes them; every company creates
+ * its own. formulaType is a free-form label the application interprets;
+ * formulaConfig's shape depends on it. New formula types are added in
+ * code, never by changing this type or the database schema.
+ */
+export interface EmbroideryCategory {
+  id: string;
+  companyId: string;
+  name: string;
+  description: string | null;
+  defaultRate: Money;
+  formulaType: string;
+  formulaConfig: Record<string, unknown>;
+  active: boolean;
+  createdAt: string;
+}

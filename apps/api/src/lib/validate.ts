@@ -51,3 +51,26 @@ export function optionalMoney(body: Body, key: string): string | undefined {
   }
   return raw;
 }
+
+/**
+ * Any plain JSON object, unvalidated beyond shape and size — the meaning
+ * of its keys depends on a sibling "type" field the caller interprets
+ * (e.g. formula_config depends on formula_type). Keeping this generic is
+ * what lets new types be added without a schema change.
+ */
+export function optionalJsonObject(
+  body: Body,
+  key: string,
+  opts: { maxBytes?: number } = {},
+): Record<string, unknown> | undefined {
+  const raw = body[key];
+  if (raw === undefined) return undefined;
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+    throw badRequest('Validation failed', { [key]: 'Must be a JSON object' });
+  }
+  const maxBytes = opts.maxBytes ?? 10_000;
+  if (Buffer.byteLength(JSON.stringify(raw)) > maxBytes) {
+    throw badRequest('Validation failed', { [key]: `Must be under ${maxBytes} bytes` });
+  }
+  return raw as Record<string, unknown>;
+}
