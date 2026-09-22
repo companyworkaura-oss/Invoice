@@ -13,7 +13,7 @@ import {
   requiredVariables,
   roundMoney,
   validateFormula,
-} from '../src/modules/formulas/engine/index.js';
+} from '../src/formula-engine/index.js';
 
 function amount(expression: string, inputs: Record<string, string | number>): string {
   return roundMoney(evaluateFormula(expression, inputs));
@@ -139,7 +139,7 @@ test('does not evaluate arbitrary JavaScript embedded in a formula string', () =
 });
 
 test('the engine source never calls eval() or the Function constructor', () => {
-  const engineDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'src', 'modules', 'formulas', 'engine');
+  const engineDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'src', 'formula-engine');
   for (const file of readdirSync(engineDir)) {
     if (!file.endsWith('.ts')) continue;
     // Strip comments first so a doc comment that merely *mentions* eval()

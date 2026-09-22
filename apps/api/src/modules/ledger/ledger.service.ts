@@ -1,6 +1,6 @@
 import { pool, withTransaction } from '../../db/pool.js';
 import { badRequest, notFound } from '../../lib/http-error.js';
-import { Decimal, roundMoney } from '../formulas/engine/index.js';
+import { Decimal, roundMoney } from '@invoice/shared';
 
 export type LedgerEntryType = 'OPENING_BALANCE' | 'INVOICE' | 'PAYMENT' | 'ADJUSTMENT';
 

@@ -8,6 +8,6 @@
     "lint": "npm run lint -w @invoice/api && npm run lint -w @invoice/web",
     "typecheck": "npm run build -w @invoice/shared && npm run typecheck -w @invoice/api && npm run typecheck -w @invoice/web",
     "build": "npm run build -w @invoice/shared && npm run build -w @invoice/api && npm run build -w @invoice/web",
-    "test": "npm run test -w @invoice/api"
+    "test": "npm run test -w @invoice/shared && npm run build -w @invoice/shared && npm run test -w @invoice/api"
   }
 }

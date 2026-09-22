@@ -57,11 +57,11 @@ export function InvoiceDetails({ invoice, onBack }: Props) {
       </table>
 
       <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-1 border-t border-slate-200 pt-3 text-sm sm:grid-cols-5">
-        <StatRow label="Previous balance" value={invoice.previousBalance} />
-        <StatRow label="Current invoice amount" value={invoice.totalAmount} />
-        <StatRow label="Total receivable" value={invoice.totalReceivable} />
-        <StatRow label="Amount paid" value={invoice.amountPaid} />
-        <StatRow label="Current balance" value={invoice.currentBalance} emphasize />
+        <StatRow label="Previous Balance" value={invoice.previousBalance} />
+        <StatRow label="Current Bill" value={invoice.totalAmount} />
+        <StatRow label="Total Receivable" value={invoice.totalReceivable} />
+        <StatRow label="Amount Paid" value={invoice.amountPaid} />
+        <StatRow label="Current Balance" value={invoice.currentBalance} emphasize />
       </dl>
     </div>
   );

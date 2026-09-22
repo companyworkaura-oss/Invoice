@@ -14,7 +14,6 @@
   },
   "dependencies": {
     "@invoice/shared": "*",
-    "decimal.js": "^10.6.0",
     "express": "^5.2.1",
     "multer": "^2.4.0",
     "pg": "^8.23.0"

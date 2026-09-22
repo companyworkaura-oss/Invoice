@@ -7,7 +7,7 @@ import {
   type FormulaVariable,
   evaluateFormula,
   roundMoney,
-} from '../formulas/engine/index.js';
+} from '@invoice/shared';
 import { getBalanceBefore, getCustomerBalance, postLedgerEntry } from '../ledger/ledger.service.js';
 
 export type InvoiceStatus = 'draft' | 'issued' | 'cancelled';
