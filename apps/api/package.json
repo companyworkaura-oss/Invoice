@@ -1,5 +1,5 @@
 {
-  "name": "embroidery-billing-server",
+  "name": "@invoice/api",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -9,9 +9,11 @@
     "start": "node --env-file=.env dist/index.js",
     "migrate": "tsx --env-file=.env src/db/migrate-cli.ts",
     "typecheck": "tsc --noEmit",
+    "lint": "eslint src test",
     "test": "tsx --env-file=.env.test --test test/*.test.ts"
   },
   "dependencies": {
+    "@invoice/shared": "*",
     "express": "^5.2.1",
     "pg": "^8.23.0"
   },
@@ -20,8 +22,11 @@
     "@types/node": "^26.6.2",
     "@types/pg": "^8.23.1",
     "@types/supertest": "^7.2.1",
+    "eslint": "^10.11.0",
     "supertest": "^7.3.0",
     "tsx": "^4.23.15",
-    "typescript": "^7.0.2"
+    "typescript": "^6.0.2",
+    "typescript-eslint": "^8.70.1",
+    "@eslint/js": "^10.0.1"
   }
 }

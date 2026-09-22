@@ -1,0 +1,13 @@
+{
+  "name": "embroidery-billing",
+  "private": true,
+  "workspaces": ["apps/*", "packages/*"],
+  "scripts": {
+    "dev:api": "npm run dev -w @invoice/api",
+    "dev:web": "npm run dev -w @invoice/web",
+    "lint": "npm run lint -w @invoice/api && npm run lint -w @invoice/web",
+    "typecheck": "npm run build -w @invoice/shared && npm run typecheck -w @invoice/api && npm run typecheck -w @invoice/web",
+    "build": "npm run build -w @invoice/shared && npm run build -w @invoice/api && npm run build -w @invoice/web",
+    "test": "npm run test -w @invoice/api"
+  }
+}
