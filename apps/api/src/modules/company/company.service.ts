@@ -4,10 +4,47 @@ import { notFound } from '../../lib/http-error.js';
 export interface Company {
   id: string;
   name: string;
-  currencyCode: string;
+  defaultCurrency: string;
+  factoryName: string | null;
+  ownerName: string | null;
+  logoUrl: string | null;
+  phone: string | null;
+  whatsapp: string | null;
+  email: string | null;
+  address: string | null;
+  taxNumber: string | null;
+  invoicePrefix: string;
+  defaultInvoiceTemplate: string;
+  invoiceTerms: string | null;
 }
 
-const COLUMNS = 'id, name, currency_code AS "currencyCode"';
+export interface CompanyProfilePatch {
+  name?: string;
+  defaultCurrency?: string;
+  factoryName?: string;
+  ownerName?: string;
+  phone?: string;
+  whatsapp?: string;
+  email?: string;
+  address?: string;
+  taxNumber?: string;
+  invoicePrefix?: string;
+  defaultInvoiceTemplate?: string;
+  invoiceTerms?: string;
+}
+
+const COLUMNS = `
+  id, name,
+  default_currency AS "defaultCurrency",
+  factory_name AS "factoryName",
+  owner_name AS "ownerName",
+  logo_url AS "logoUrl",
+  phone, whatsapp, email, address,
+  tax_number AS "taxNumber",
+  invoice_prefix AS "invoicePrefix",
+  default_invoice_template AS "defaultInvoiceTemplate",
+  invoice_terms AS "invoiceTerms"
+`;
 
 export async function getCompany(companyId: string): Promise<Company> {
   const { rows } = await pool.query<Company>(`SELECT ${COLUMNS} FROM companies WHERE id = $1`, [companyId]);
@@ -15,18 +52,57 @@ export async function getCompany(companyId: string): Promise<Company> {
   return rows[0];
 }
 
-export async function updateCompany(
-  companyId: string,
-  patch: { name?: string; currencyCode?: string },
-): Promise<Company> {
+export async function updateCompany(companyId: string, patch: CompanyProfilePatch): Promise<Company> {
   const { rows } = await pool.query<Company>(
     `UPDATE companies
         SET name = COALESCE($2, name),
-            currency_code = COALESCE($3, currency_code),
+            default_currency = COALESCE($3, default_currency),
+            factory_name = COALESCE($4, factory_name),
+            owner_name = COALESCE($5, owner_name),
+            phone = COALESCE($6, phone),
+            whatsapp = COALESCE($7, whatsapp),
+            email = COALESCE($8, email),
+            address = COALESCE($9, address),
+            tax_number = COALESCE($10, tax_number),
+            invoice_prefix = COALESCE($11, invoice_prefix),
+            default_invoice_template = COALESCE($12, default_invoice_template),
+            invoice_terms = COALESCE($13, invoice_terms),
             updated_at = now()
       WHERE id = $1
       RETURNING ${COLUMNS}`,
-    [companyId, patch.name ?? null, patch.currencyCode ?? null],
+    [
+      companyId,
+      patch.name ?? null,
+      patch.defaultCurrency ?? null,
+      patch.factoryName ?? null,
+      patch.ownerName ?? null,
+      patch.phone ?? null,
+      patch.whatsapp ?? null,
+      patch.email ?? null,
+      patch.address ?? null,
+      patch.taxNumber ?? null,
+      patch.invoicePrefix ?? null,
+      patch.defaultInvoiceTemplate ?? null,
+      patch.invoiceTerms ?? null,
+    ],
+  );
+  if (!rows[0]) throw notFound('Company not found');
+  return rows[0];
+}
+
+export async function getLogoUrl(companyId: string): Promise<string | null> {
+  const { rows } = await pool.query<{ logoUrl: string | null }>(
+    'SELECT logo_url AS "logoUrl" FROM companies WHERE id = $1',
+    [companyId],
+  );
+  if (!rows[0]) throw notFound('Company not found');
+  return rows[0].logoUrl;
+}
+
+export async function setLogoUrl(companyId: string, logoUrl: string | null): Promise<Company> {
+  const { rows } = await pool.query<Company>(
+    `UPDATE companies SET logo_url = $2, updated_at = now() WHERE id = $1 RETURNING ${COLUMNS}`,
+    [companyId, logoUrl],
   );
   if (!rows[0]) throw notFound('Company not found');
   return rows[0];

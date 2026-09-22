@@ -81,7 +81,7 @@ export async function logout(sessionId: string): Promise<void> {
 export async function getMe(userId: string, companyId: string) {
   const { rows } = await pool.query(
     `SELECT u.id, u.email, u.full_name AS "fullName", m.role,
-            json_build_object('id', c.id, 'name', c.name, 'currencyCode', c.currency_code) AS company
+            json_build_object('id', c.id, 'name', c.name, 'defaultCurrency', c.default_currency) AS company
        FROM users u
        JOIN company_members m ON m.user_id = u.id AND m.company_id = $2
        JOIN companies c ON c.id = m.company_id

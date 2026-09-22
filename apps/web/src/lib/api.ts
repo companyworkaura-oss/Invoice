@@ -13,9 +13,11 @@ export class ApiError extends Error {
 
 /** Thin fetch wrapper: same-origin, cookie session auth, JSON in/out. */
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
+  // FormData sets its own multipart Content-Type (with boundary) — never override it.
+  const isFormData = init?.body instanceof FormData;
   const res = await fetch(`/api${path}`, {
     credentials: 'include',
-    headers: init?.body ? { 'Content-Type': 'application/json' } : undefined,
+    headers: init?.body && !isFormData ? { 'Content-Type': 'application/json' } : undefined,
     ...init,
   });
   const body = await res.json().catch(() => ({ error: 'Invalid server response' }));

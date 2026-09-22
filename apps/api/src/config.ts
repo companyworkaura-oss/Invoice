@@ -9,4 +9,6 @@ export const config = {
   port: Number(process.env.PORT ?? 4000),
   cookieSecure: process.env.COOKIE_SECURE === 'true',
   sessionTtlHours: Number(process.env.SESSION_TTL_HOURS ?? 168),
+  uploadsDir: process.env.UPLOADS_DIR ?? 'uploads',
+  maxLogoBytes: Number(process.env.MAX_LOGO_BYTES ?? 2 * 1024 * 1024),
 };

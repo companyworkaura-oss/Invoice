@@ -1,13 +1,18 @@
 import { pool, withTransaction } from '../../db/pool.js';
 import { forbidden } from '../../lib/http-error.js';
 import type { Role } from '../../middleware/auth.js';
-import type { Company } from './company.service.js';
 
-export interface CompanyMembership extends Company {
+// Lightweight shape for cross-company listing/switching — the full profile
+// (logo, address, invoice settings, ...) is only fetched for the active
+// tenant via GET /api/company.
+export interface CompanyMembership {
+  id: string;
+  name: string;
+  defaultCurrency: string;
   role: Role;
 }
 
-const COLUMNS = 'c.id, c.name, c.currency_code AS "currencyCode", m.role';
+const COLUMNS = 'c.id, c.name, c.default_currency AS "defaultCurrency", m.role';
 
 /** Every company the user belongs to, with their role in each. */
 export async function listMyCompanies(userId: string): Promise<CompanyMembership[]> {
@@ -32,8 +37,8 @@ export async function createCompany(
   name: string,
 ): Promise<CompanyMembership> {
   return withTransaction(async (client) => {
-    const company = await client.query<Company>(
-      'INSERT INTO companies (name) VALUES ($1) RETURNING id, name, currency_code AS "currencyCode"',
+    const company = await client.query<Omit<CompanyMembership, 'role'>>(
+      'INSERT INTO companies (name) VALUES ($1) RETURNING id, name, default_currency AS "defaultCurrency"',
       [name],
     );
     const companyId = company.rows[0].id;

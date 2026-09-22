@@ -1,4 +1,5 @@
 import express from 'express';
+import { config } from './config.js';
 import { errorHandler, notFoundHandler, requireJsonForMutations } from './middleware/errors.js';
 import { authRouter } from './modules/auth/auth.routes.js';
 import { companiesRouter } from './modules/company/companies.routes.js';
@@ -8,6 +9,8 @@ export function createApp() {
   const app = express();
   app.disable('x-powered-by');
   app.set('trust proxy', 1);
+  // Uploaded logos (local storage backend); served read-only, no directory listing.
+  app.use('/uploads', express.static(config.uploadsDir, { index: false }));
   app.use(express.json({ limit: '100kb' }));
   app.use('/api', requireJsonForMutations);
 

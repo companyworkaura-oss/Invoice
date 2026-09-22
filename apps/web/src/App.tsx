@@ -4,12 +4,14 @@ import * as authApi from './features/auth/api';
 import { LoginForm } from './features/auth/LoginForm';
 import { RegisterForm } from './features/auth/RegisterForm';
 import { CompanySwitcher } from './features/companies/CompanySwitcher';
+import { CompanyProfilePanel } from './features/company/CompanyProfilePanel';
 
 type AuthView = 'login' | 'register';
 
 function App() {
   const [me, setMe] = useState<Me | null | undefined>(undefined); // undefined = still checking
   const [authView, setAuthView] = useState<AuthView>('login');
+  const [showProfile, setShowProfile] = useState(false);
 
   function refreshMe() {
     authApi
@@ -67,6 +69,16 @@ function App() {
             Log out
           </button>
         </div>
+
+        <button
+          type="button"
+          onClick={() => setShowProfile((s) => !s)}
+          className="mt-4 text-sm font-medium text-slate-900 underline"
+        >
+          {showProfile ? 'Hide company profile' : 'Company profile'}
+        </button>
+        {showProfile && <CompanyProfilePanel key={me.company.id} role={me.role} />}
+
         <CompanySwitcher activeCompanyId={me.company.id} onSwitched={refreshMe} />
       </div>
     </div>

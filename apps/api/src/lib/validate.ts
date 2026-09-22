@@ -27,6 +27,11 @@ export function optionalString(body: Body, key: string, opts?: { min?: number; m
   return body[key] === undefined ? undefined : requireString(body, key, opts);
 }
 
+export function optionalEmail(body: Body, key: string): string | undefined {
+  if (body[key] === undefined) return undefined;
+  return requireEmail(body, key);
+}
+
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export function requireUuidParam(value: string, name = 'id'): string {
