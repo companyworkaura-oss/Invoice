@@ -125,8 +125,51 @@ export interface InvoiceListEntry extends Invoice {
   totalAmount: Money;
 }
 
+/**
+ * The ledger-derived statement for one invoice (Phase 8), generated from
+ * ledger_entries on every read and never stored:
+ *   previousBalance — customer's balance immediately before this invoice
+ *   totalAmount      — this invoice's own total ("Current Invoice Amount")
+ *   totalReceivable  — previousBalance + totalAmount
+ *   currentBalance    — the customer's live overall balance right now
+ *   amountPaid        — totalReceivable - currentBalance
+ */
+export interface InvoiceLedgerSummary {
+  previousBalance: Money;
+  totalReceivable: Money;
+  amountPaid: Money;
+  currentBalance: Money;
+}
+
 /** Returned by POST /api/invoices and GET /api/invoices/:id. */
-export interface InvoiceWithItems extends Invoice {
+export interface InvoiceWithItems extends Invoice, InvoiceLedgerSummary {
   items: InvoiceItem[];
   totalAmount: Money;
+}
+
+export type LedgerEntryType = 'OPENING_BALANCE' | 'INVOICE' | 'PAYMENT' | 'ADJUSTMENT';
+
+/**
+ * One row of a customer's ledger (Phase 8). Append-only: entries are
+ * never edited or deleted, so a customer's balance — total debit minus
+ * total credit — can always be regenerated from this table alone.
+ */
+export interface LedgerEntry {
+  id: string;
+  companyId: string;
+  customerId: string;
+  type: LedgerEntryType;
+  referenceId: string | null;
+  debit: Money;
+  credit: Money;
+  date: string;
+  notes: string | null;
+  createdAt: string;
+}
+
+/** Returned by GET /api/customers/:customerId/ledger. */
+export interface CustomerLedger {
+  customerId: string;
+  entries: LedgerEntry[];
+  balance: Money;
 }

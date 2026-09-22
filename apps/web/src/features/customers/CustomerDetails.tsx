@@ -1,6 +1,7 @@
 import type { Customer } from '@invoice/shared';
 import { useState } from 'react';
 import { ApiError } from '../../lib/api';
+import { CustomerLedgerPanel } from '../ledger/CustomerLedgerPanel';
 import * as customersApi from './api';
 
 interface Props {
@@ -77,6 +78,8 @@ export function CustomerDetails({ customer, onBack, onEdit, onArchived }: Props)
           </button>
         )}
       </div>
+
+      <CustomerLedgerPanel customerId={customer.id} />
     </div>
   );
 }

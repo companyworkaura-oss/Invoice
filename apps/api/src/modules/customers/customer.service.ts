@@ -1,5 +1,6 @@
-import { pool } from '../../db/pool.js';
+import { pool, withTransaction } from '../../db/pool.js';
 import { notFound } from '../../lib/http-error.js';
+import { postLedgerEntry } from '../ledger/ledger.service.js';
 
 export type CustomerStatus = 'active' | 'archived';
 
@@ -34,7 +35,10 @@ export interface CustomerPatch {
   phone?: string;
   whatsapp?: string;
   address?: string;
-  openingBalance?: string;
+  // No openingBalance here: once a customer exists, its opening balance
+  // is fixed (it already seeded a ledger entry). A later correction is
+  // its own ADJUSTMENT entry, posted through the ledger, not a silent
+  // edit to this column — see modules/ledger.
   notes?: string;
 }
 
@@ -57,22 +61,39 @@ const COLUMNS = `
 // isolation boundary for this whole module.
 
 export async function createCustomer(companyId: string, input: CustomerInput): Promise<Customer> {
-  const { rows } = await pool.query<Customer>(
-    `INSERT INTO customers (company_id, name, business_name, phone, whatsapp, address, opening_balance, notes)
-     VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7::numeric, 0), $8)
-     RETURNING ${COLUMNS}`,
-    [
-      companyId,
-      input.name,
-      input.businessName ?? null,
-      input.phone ?? null,
-      input.whatsapp ?? null,
-      input.address ?? null,
-      input.openingBalance ?? null,
-      input.notes ?? null,
-    ],
-  );
-  return rows[0];
+  return withTransaction(async (client) => {
+    const { rows } = await client.query<Customer>(
+      `INSERT INTO customers (company_id, name, business_name, phone, whatsapp, address, opening_balance, notes)
+       VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7::numeric, 0), $8)
+       RETURNING ${COLUMNS}`,
+      [
+        companyId,
+        input.name,
+        input.businessName ?? null,
+        input.phone ?? null,
+        input.whatsapp ?? null,
+        input.address ?? null,
+        input.openingBalance ?? null,
+        input.notes ?? null,
+      ],
+    );
+    const customer = rows[0];
+
+    // Seed the ledger so the customer's balance is derivable from ledger
+    // rows alone from day one — opening_balance above is just the input
+    // that produced this entry, never read again as the source of truth.
+    if (Number(customer.openingBalance) > 0) {
+      await postLedgerEntry(client, {
+        companyId,
+        customerId: customer.id,
+        type: 'OPENING_BALANCE',
+        debit: customer.openingBalance,
+        notes: 'Opening balance',
+      });
+    }
+
+    return customer;
+  });
 }
 
 export async function listCustomers(companyId: string, filter: ListFilter): Promise<Customer[]> {
@@ -112,8 +133,7 @@ export async function updateCustomer(companyId: string, customerId: string, patc
             phone = COALESCE($5, phone),
             whatsapp = COALESCE($6, whatsapp),
             address = COALESCE($7, address),
-            opening_balance = COALESCE($8, opening_balance),
-            notes = COALESCE($9, notes),
+            notes = COALESCE($8, notes),
             updated_at = now()
       WHERE id = $1 AND company_id = $2
       RETURNING ${COLUMNS}`,
@@ -125,7 +145,6 @@ export async function updateCustomer(companyId: string, customerId: string, patc
       patch.phone ?? null,
       patch.whatsapp ?? null,
       patch.address ?? null,
-      patch.openingBalance ?? null,
       patch.notes ?? null,
     ],
   );

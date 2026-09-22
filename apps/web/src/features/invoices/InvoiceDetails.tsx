@@ -55,6 +55,23 @@ export function InvoiceDetails({ invoice, onBack }: Props) {
           </tr>
         </tfoot>
       </table>
+
+      <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-1 border-t border-slate-200 pt-3 text-sm sm:grid-cols-5">
+        <StatRow label="Previous balance" value={invoice.previousBalance} />
+        <StatRow label="Current invoice amount" value={invoice.totalAmount} />
+        <StatRow label="Total receivable" value={invoice.totalReceivable} />
+        <StatRow label="Amount paid" value={invoice.amountPaid} />
+        <StatRow label="Current balance" value={invoice.currentBalance} emphasize />
+      </dl>
+    </div>
+  );
+}
+
+function StatRow({ label, value, emphasize }: { label: string; value: string; emphasize?: boolean }) {
+  return (
+    <div>
+      <dt className="text-xs text-slate-500">{label}</dt>
+      <dd className={emphasize ? 'font-semibold text-slate-900' : 'text-slate-700'}>{value}</dd>
     </div>
   );
 }

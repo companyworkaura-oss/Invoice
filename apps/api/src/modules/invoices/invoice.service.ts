@@ -8,6 +8,7 @@ import {
   evaluateFormula,
   roundMoney,
 } from '../formulas/engine/index.js';
+import { getBalanceBefore, getCustomerBalance, postLedgerEntry } from '../ledger/ledger.service.js';
 
 export type InvoiceStatus = 'draft' | 'issued' | 'cancelled';
 
@@ -57,9 +58,25 @@ export interface Invoice {
   createdAt: string;
 }
 
-export interface InvoiceWithItems extends Invoice {
+/**
+ * The ledger-derived statement for one invoice (Phase 8):
+ *   previousBalance   — customer's balance immediately before this invoice was posted
+ *   totalAmount        — this invoice's own total ("Current Invoice Amount")
+ *   totalReceivable    — previousBalance + totalAmount
+ *   currentBalance      — the customer's live balance right now (total debit - total credit, overall)
+ *   amountPaid          — totalReceivable - currentBalance
+ * All five are generated from ledger_entries on every read, never stored.
+ */
+export interface InvoiceLedgerSummary {
+  previousBalance: string;
+  totalReceivable: string;
+  amountPaid: string;
+  currentBalance: string;
+}
+
+export interface InvoiceWithItems extends Invoice, InvoiceLedgerSummary {
   items: InvoiceItem[];
-  /** Sum of items' calculated_total — derived on read, never stored. */
+  /** Sum of items' calculated_total — derived on read, never stored. Also "Current Invoice Amount". */
   totalAmount: string;
 }
 
@@ -93,6 +110,20 @@ const ITEM_COLUMNS = `
 
 function sumDecimalStrings(values: string[]): string {
   return roundMoney(values.reduce((sum, value) => sum.plus(new Decimal(value)), new Decimal(0)));
+}
+
+async function buildLedgerSummary(
+  client: Queryable,
+  companyId: string,
+  customerId: string,
+  invoiceAmount: string,
+  invoiceLedgerCreatedAt: string,
+): Promise<InvoiceLedgerSummary> {
+  const previousBalance = await getBalanceBefore(client, companyId, customerId, invoiceLedgerCreatedAt);
+  const totalReceivable = roundMoney(new Decimal(previousBalance).plus(invoiceAmount));
+  const currentBalance = await getCustomerBalance(client, companyId, customerId);
+  const amountPaid = roundMoney(new Decimal(totalReceivable).minus(currentBalance));
+  return { previousBalance, totalReceivable, amountPaid, currentBalance };
 }
 
 /**
@@ -244,6 +275,20 @@ export async function createInvoice(companyId: string, input: InvoiceInput): Pro
     for (const itemInput of input.items) {
       items.push(await createInvoiceItem(client, companyId, invoiceId, quantity, itemInput));
     }
+    const totalAmount = sumDecimalStrings(items.map((item) => item.calculatedTotal));
+
+    // Posting this in the same transaction as the invoice and its items
+    // means all of it commits together or none of it does.
+    const ledgerEntry = await postLedgerEntry(client, {
+      companyId,
+      customerId: input.customerId,
+      type: 'INVOICE',
+      referenceId: invoiceId,
+      debit: totalAmount,
+      date: invoiceDate,
+      notes: `Invoice ${invoiceNumber}`,
+    });
+    const summary = await buildLedgerSummary(client, companyId, input.customerId, totalAmount, ledgerEntry.createdAt);
 
     return {
       id: invoiceId,
@@ -257,7 +302,8 @@ export async function createInvoice(companyId: string, input: InvoiceInput): Pro
       status: input.status ?? 'draft',
       createdAt,
       items,
-      totalAmount: sumDecimalStrings(items.map((item) => item.calculatedTotal)),
+      totalAmount,
+      ...summary,
     };
   });
 }
@@ -301,6 +347,17 @@ export async function getInvoice(companyId: string, invoiceId: string): Promise<
     `SELECT ${ITEM_COLUMNS} FROM invoice_items WHERE invoice_id = $1 ORDER BY created_at`,
     [invoiceId],
   );
+  const totalAmount = sumDecimalStrings(itemsRes.rows.map((i) => i.calculatedTotal));
 
-  return { ...header, items: itemsRes.rows, totalAmount: sumDecimalStrings(itemsRes.rows.map((i) => i.calculatedTotal)) };
+  const ledgerRes = await pool.query<{ createdAt: string }>(
+    `SELECT created_at AS "createdAt" FROM ledger_entries WHERE reference_id = $1 AND type = 'INVOICE' LIMIT 1`,
+    [invoiceId],
+  );
+  // Every invoice posts its own INVOICE entry at creation time (see
+  // createInvoice), so this should always be found; fall back to "now"
+  // defensively rather than fail the whole read if it somehow isn't.
+  const ledgerCreatedAt = ledgerRes.rows[0]?.createdAt ?? new Date().toISOString();
+  const summary = await buildLedgerSummary(pool, companyId, header.customerId, totalAmount, ledgerCreatedAt);
+
+  return { ...header, items: itemsRes.rows, totalAmount, ...summary };
 }

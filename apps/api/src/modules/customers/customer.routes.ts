@@ -52,7 +52,6 @@ customersRouter.patch('/:customerId', async (req, res) => {
     phone: optionalString(body, 'phone', { max: 40 }),
     whatsapp: optionalString(body, 'whatsapp', { max: 40 }),
     address: optionalString(body, 'address', { max: 500 }),
-    openingBalance: optionalMoney(body, 'openingBalance'),
     notes: optionalString(body, 'notes', { max: 2000 }),
   });
   res.json(customer);

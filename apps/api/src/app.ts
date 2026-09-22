@@ -7,6 +7,7 @@ import { companyRouter } from './modules/company/company.routes.js';
 import { customersRouter } from './modules/customers/customer.routes.js';
 import { categoriesRouter } from './modules/formulas/category.routes.js';
 import { invoicesRouter } from './modules/invoices/invoice.routes.js';
+import { ledgerRouter } from './modules/ledger/ledger.routes.js';
 
 export function createApp() {
   const app = express();
@@ -23,6 +24,7 @@ export function createApp() {
   app.use('/api/auth', authRouter);
   app.use('/api/company', companyRouter);
   app.use('/api/companies', companiesRouter);
+  app.use('/api/customers/:customerId/ledger', ledgerRouter);
   app.use('/api/customers', customersRouter);
   app.use('/api/categories', categoriesRouter);
   app.use('/api/invoices', invoicesRouter);
