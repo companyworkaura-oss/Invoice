@@ -38,3 +38,16 @@ export function requireUuidParam(value: string, name = 'id'): string {
   if (!UUID_RE.test(value)) throw badRequest('Validation failed', { [name]: 'Must be a UUID' });
   return value;
 }
+
+// Up to 12 integer digits and 2 decimal places — matches the numeric(14,2) columns.
+// Kept as a string end-to-end: money is never parsed into a float.
+const MONEY_RE = /^-?\d{1,12}(\.\d{1,2})?$/;
+
+export function optionalMoney(body: Body, key: string): string | undefined {
+  const raw = body[key];
+  if (raw === undefined) return undefined;
+  if (typeof raw !== 'string' || !MONEY_RE.test(raw)) {
+    throw badRequest('Validation failed', { [key]: 'Must be a decimal amount like 123.45' });
+  }
+  return raw;
+}

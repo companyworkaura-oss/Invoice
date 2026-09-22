@@ -41,3 +41,20 @@ export interface Me {
   role: Role;
   company: Company;
 }
+
+export type CustomerStatus = 'active' | 'archived';
+
+/** Returned by the customers endpoints (Phase 4). */
+export interface Customer {
+  id: string;
+  companyId: string;
+  name: string;
+  businessName: string | null;
+  phone: string | null;
+  whatsapp: string | null;
+  address: string | null;
+  openingBalance: Money;
+  notes: string | null;
+  status: CustomerStatus;
+  createdAt: string;
+}

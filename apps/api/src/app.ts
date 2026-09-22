@@ -4,6 +4,7 @@ import { errorHandler, notFoundHandler, requireJsonForMutations } from './middle
 import { authRouter } from './modules/auth/auth.routes.js';
 import { companiesRouter } from './modules/company/companies.routes.js';
 import { companyRouter } from './modules/company/company.routes.js';
+import { customersRouter } from './modules/customers/customer.routes.js';
 
 export function createApp() {
   const app = express();
@@ -20,6 +21,7 @@ export function createApp() {
   app.use('/api/auth', authRouter);
   app.use('/api/company', companyRouter);
   app.use('/api/companies', companiesRouter);
+  app.use('/api/customers', customersRouter);
 
   app.use(notFoundHandler);
   app.use(errorHandler);
