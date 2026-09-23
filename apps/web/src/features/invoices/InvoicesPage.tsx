@@ -1,16 +1,26 @@
-import type { InvoiceWithItems } from '@invoice/shared';
+import type { InvoiceListEntry, InvoiceWithItems } from '@invoice/shared';
 import { useState } from 'react';
+import { ApiError } from '../../lib/api';
 import { CreateInvoiceForm } from './CreateInvoiceForm';
 import { InvoiceDetails } from './InvoiceDetails';
-import { InvoiceList } from './InvoiceList';
+import { InvoiceList, type InvoiceRowAction } from './InvoiceList';
 import { InvoiceTemplateView } from './templates/InvoiceTemplateView';
 import * as invoicesApi from './api';
+
+type TemplateInitialAction = 'print' | 'download' | 'whatsapp';
 
 type View =
   | { name: 'list' }
   | { name: 'details'; invoice: InvoiceWithItems }
-  | { name: 'template'; invoice: InvoiceWithItems }
+  | { name: 'template'; invoice: InvoiceWithItems; initialAction?: TemplateInitialAction; returnTo: 'list' | 'details' }
   | { name: 'form' };
+
+const ROW_ACTION_TO_INITIAL_ACTION: Record<InvoiceRowAction, TemplateInitialAction | undefined> = {
+  print: 'print',
+  pdf: 'download',
+  whatsapp: 'whatsapp',
+  duplicate: undefined, // handled separately — never opens the template view
+};
 
 export function InvoicesPage() {
   const [view, setView] = useState<View>({ name: 'list' });
@@ -23,6 +33,22 @@ export function InvoicesPage() {
       setView({ name: 'details', invoice: await invoicesApi.getInvoice(id) });
     } catch {
       setLoadError('Could not load that invoice.');
+    }
+  }
+
+  async function handleRowAction(action: InvoiceRowAction, entry: InvoiceListEntry) {
+    setLoadError(null);
+    try {
+      if (action === 'duplicate') {
+        const created = await invoicesApi.duplicateInvoice(entry.id);
+        setRefreshToken((t) => t + 1);
+        setView({ name: 'details', invoice: created });
+        return;
+      }
+      const full = await invoicesApi.getInvoice(entry.id);
+      setView({ name: 'template', invoice: full, initialAction: ROW_ACTION_TO_INITIAL_ACTION[action], returnTo: 'list' });
+    } catch (err) {
+      setLoadError(err instanceof ApiError ? err.body.details?.items ?? err.body.error : 'Something went wrong');
     }
   }
 
@@ -45,7 +71,7 @@ export function InvoicesPage() {
 
       <div className="mt-3">
         {view.name === 'list' && (
-          <InvoiceList refreshToken={refreshToken} onSelect={(entry) => openInvoice(entry.id)} />
+          <InvoiceList refreshToken={refreshToken} onSelect={(entry) => openInvoice(entry.id)} onAction={handleRowAction} />
         )}
 
         {view.name === 'details' && (
@@ -55,13 +81,24 @@ export function InvoicesPage() {
               setRefreshToken((t) => t + 1);
               setView({ name: 'list' });
             }}
-            onViewTemplate={() => setView({ name: 'template', invoice: view.invoice })}
+            onViewTemplate={() => setView({ name: 'template', invoice: view.invoice, returnTo: 'details' })}
             onInvoiceUpdated={(invoice) => setView({ name: 'details', invoice })}
           />
         )}
 
         {view.name === 'template' && (
-          <InvoiceTemplateView invoice={view.invoice} onBack={() => setView({ name: 'details', invoice: view.invoice })} />
+          <InvoiceTemplateView
+            invoice={view.invoice}
+            initialAction={view.initialAction}
+            onBack={() => {
+              if (view.returnTo === 'details') {
+                setView({ name: 'details', invoice: view.invoice });
+              } else {
+                setRefreshToken((t) => t + 1);
+                setView({ name: 'list' });
+              }
+            }}
+          />
         )}
 
         {view.name === 'form' && (

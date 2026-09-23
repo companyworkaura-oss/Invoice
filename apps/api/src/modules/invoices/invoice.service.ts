@@ -80,13 +80,22 @@ export interface InvoiceWithItems extends Invoice, InvoiceLedgerSummary {
   totalAmount: string;
 }
 
+export type InvoicePaymentStatus = 'PAID' | 'PARTIAL' | 'UNPAID' | 'CANCELLED';
+
 export interface InvoiceListEntry extends Invoice {
   totalAmount: string;
+  paid: string;
+  balance: string;
+  paymentStatus: InvoicePaymentStatus;
 }
 
 export interface InvoiceListFilter {
   status?: string;
   customerId?: string;
+  from?: string;
+  to?: string;
+  paymentStatus?: InvoicePaymentStatus;
+  search?: string;
 }
 
 // A pg Pool and a pg PoolClient (inside a transaction) share this shape,
@@ -308,26 +317,102 @@ export async function createInvoice(companyId: string, input: InvoiceInput): Pro
   });
 }
 
+/**
+ * Invoice history (Phase 15). Each row's `paid`/`balance`/`paymentStatus`
+ * apply standard AR aging: a customer's payments/credits pay off their
+ * *oldest* debt first (same FIFO rule as the dashboard's unpaid/partial
+ * count — see dashboard.service.ts), so an invoice already fully covered
+ * by later payments shows PAID even if the customer has since run up a
+ * new, unpaid balance elsewhere. This needs the customer's *entire*
+ * ledger to compute correctly, so the FIFO CTEs below are scoped only by
+ * company_id — every other filter (customer/date/status/search) is
+ * applied in the outer WHERE, after paymentStatus is already computed,
+ * never by trimming which ledger rows feed the FIFO math.
+ *
+ * A cancelled invoice's own ledger debit is *not* currently reversed
+ * (this app has no route that actually sets status='cancelled' yet), so
+ * if that's ever added, the FIFO math here would need the same reversal
+ * to keep other invoices' paymentStatus correct.
+ */
 export async function listInvoices(companyId: string, filter: InvoiceListFilter): Promise<InvoiceListEntry[]> {
-  const conditions = ['i.company_id = $1'];
+  const conditions = ['1 = 1'];
   const params: unknown[] = [companyId];
 
   if (filter.status) {
     params.push(filter.status);
-    conditions.push(`i.status = $${params.length}`);
+    conditions.push(`status = $${params.length}`);
   }
   if (filter.customerId) {
     params.push(filter.customerId);
-    conditions.push(`i.customer_id = $${params.length}`);
+    conditions.push(`"customerId" = $${params.length}`);
+  }
+  if (filter.from) {
+    params.push(filter.from);
+    conditions.push(`"invoiceDate" >= $${params.length}`);
+  }
+  if (filter.to) {
+    params.push(filter.to);
+    conditions.push(`"invoiceDate" <= $${params.length}`);
+  }
+  if (filter.paymentStatus) {
+    params.push(filter.paymentStatus);
+    conditions.push(`"paymentStatus" = $${params.length}`);
+  }
+  if (filter.search) {
+    params.push(`%${filter.search}%`);
+    conditions.push(`("invoiceNumber" ILIKE $${params.length} OR "customerName" ILIKE $${params.length})`);
   }
 
   const { rows } = await pool.query<InvoiceListEntry>(
-    `SELECT ${INVOICE_HEADER_COLUMNS},
-            COALESCE((SELECT SUM(it.calculated_total) FROM invoice_items it WHERE it.invoice_id = i.id), 0) AS "totalAmount"
+    `WITH balances AS (
+       SELECT customer_id, SUM(debit) - SUM(credit) AS current_balance
+         FROM ledger_entries WHERE company_id = $1 GROUP BY customer_id
+     ),
+     ordered AS (
+       SELECT
+         le.customer_id,
+         le.reference_id AS invoice_id,
+         le.debit,
+         SUM(le.debit) OVER (
+           PARTITION BY le.customer_id
+           ORDER BY le.created_at DESC, le.id DESC
+           ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+         ) AS cumulative_before
+       FROM ledger_entries le
+       WHERE le.company_id = $1 AND le.type = 'INVOICE' AND le.debit > 0
+     ),
+     paid_amounts AS (
+       SELECT
+         o.invoice_id,
+         o.debit - LEAST(o.debit, GREATEST(b.current_balance - COALESCE(o.cumulative_before, 0), 0)) AS paid
+       FROM ordered o
+       JOIN balances b ON b.customer_id = o.customer_id
+     ),
+     invoice_rows AS (
+       SELECT
+         i.id, i.company_id AS "companyId", i.customer_id AS "customerId", c.name AS "customerName",
+         i.invoice_number AS "invoiceNumber", i.invoice_date AS "invoiceDate", i.quantity, i.notes,
+         i.status, i.created_at AS "createdAt",
+         COALESCE(items.total, 0) AS "totalAmount",
+         COALESCE(pa.paid, 0) AS paid,
+         COALESCE(items.total, 0) - COALESCE(pa.paid, 0) AS balance,
+         CASE
+           WHEN i.status = 'cancelled' THEN 'CANCELLED'
+           WHEN COALESCE(items.total, 0) - COALESCE(pa.paid, 0) <= 0 THEN 'PAID'
+           WHEN COALESCE(pa.paid, 0) > 0 THEN 'PARTIAL'
+           ELSE 'UNPAID'
+         END AS "paymentStatus"
        FROM invoices i
        JOIN customers c ON c.id = i.customer_id
+       LEFT JOIN paid_amounts pa ON pa.invoice_id = i.id
+       LEFT JOIN LATERAL (
+         SELECT SUM(it.calculated_total) AS total FROM invoice_items it WHERE it.invoice_id = i.id
+       ) items ON true
+       WHERE i.company_id = $1
+     )
+     SELECT * FROM invoice_rows
       WHERE ${conditions.join(' AND ')}
-      ORDER BY i.created_at DESC
+      ORDER BY "createdAt" DESC
       LIMIT 200`,
     params,
   );
@@ -360,4 +445,37 @@ export async function getInvoice(companyId: string, invoiceId: string): Promise<
   const summary = await buildLedgerSummary(pool, companyId, header.customerId, totalAmount, ledgerCreatedAt);
 
   return { ...header, items: itemsRes.rows, totalAmount, ...summary };
+}
+
+/**
+ * Duplicates an invoice's items into a brand-new draft (Phase 15).
+ * Goes through createInvoice exactly like any other new invoice, so
+ * every amount is recalculated fresh from the current formula engine
+ * and category state, and exactly one new ledger entry is posted for
+ * the new invoice — the original's payments and ledger entries are
+ * never touched or copied. A deleted category (categoryId now null)
+ * can't be re-validated by createInvoice, so that's rejected up front
+ * with a clear reason instead of silently dropping the item.
+ */
+export async function duplicateInvoice(companyId: string, invoiceId: string): Promise<InvoiceWithItems> {
+  const original = await getInvoice(companyId, invoiceId);
+
+  if (original.items.some((item) => !item.categoryId)) {
+    throw badRequest('Validation failed', {
+      items: 'One or more items reference a deleted category and cannot be duplicated',
+    });
+  }
+
+  return createInvoice(companyId, {
+    customerId: original.customerId,
+    quantity: original.quantity,
+    notes: original.notes ?? undefined,
+    status: 'draft',
+    items: original.items.map((item) => ({
+      categoryId: item.categoryId as string,
+      description: item.description ?? undefined,
+      stitches: item.stitches,
+      rate: item.rate,
+    })),
+  });
 }

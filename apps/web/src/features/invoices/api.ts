@@ -1,4 +1,10 @@
-import type { InvoiceListEntry, InvoiceStatus, InvoiceWithItems, WhatsAppSharePayload } from '@invoice/shared';
+import type {
+  InvoiceListEntry,
+  InvoicePaymentStatus,
+  InvoiceStatus,
+  InvoiceWithItems,
+  WhatsAppSharePayload,
+} from '@invoice/shared';
 import { ApiError, api } from '../../lib/api';
 
 export interface InvoiceItemInput {
@@ -21,12 +27,20 @@ export interface InvoiceInput {
 export interface ListParams {
   status?: string;
   customerId?: string;
+  from?: string;
+  to?: string;
+  paymentStatus?: InvoicePaymentStatus;
+  search?: string;
 }
 
 export function listInvoices(params: ListParams = {}) {
   const query = new URLSearchParams();
   if (params.status) query.set('status', params.status);
   if (params.customerId) query.set('customerId', params.customerId);
+  if (params.from) query.set('from', params.from);
+  if (params.to) query.set('to', params.to);
+  if (params.paymentStatus) query.set('paymentStatus', params.paymentStatus);
+  if (params.search) query.set('search', params.search);
   const qs = query.toString();
   return api<InvoiceListEntry[]>(`/invoices${qs ? `?${qs}` : ''}`);
 }
@@ -64,3 +78,11 @@ export async function fetchInvoicePdf(invoiceId: string, templateId?: string): P
  */
 export const getWhatsAppShare = (invoiceId: string) =>
   api<WhatsAppSharePayload>(`/invoices/${invoiceId}/whatsapp-share`);
+
+/**
+ * Copies this invoice's items into a brand-new draft (server-side, via
+ * the exact same createInvoice path a fresh invoice takes) — never
+ * copies payments or ledger entries. See apps/api's duplicateInvoice.
+ */
+export const duplicateInvoice = (invoiceId: string) =>
+  api<InvoiceWithItems>(`/invoices/${invoiceId}/duplicate`, { method: 'POST' });

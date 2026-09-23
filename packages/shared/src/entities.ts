@@ -119,10 +119,23 @@ export interface Invoice {
   createdAt: string;
 }
 
+/**
+ * A per-invoice payment status (Phase 15), distinct from the invoice's
+ * own workflow `status` (draft/issued/cancelled). Computed by applying
+ * a customer's payments/credits FIFO against their oldest debt first —
+ * see apps/api's invoice.service.ts `listInvoices` for the query.
+ */
+export type InvoicePaymentStatus = 'PAID' | 'PARTIAL' | 'UNPAID' | 'CANCELLED';
+
 /** Returned by GET /api/invoices (list) and as the summary row for GET /api/invoices/:id. */
 export interface InvoiceListEntry extends Invoice {
-  /** Sum of the items' calculatedTotal — derived on read, never stored. */
+  /** Sum of the items' calculatedTotal — derived on read, never stored. Also "Current Bill". */
   totalAmount: Money;
+  /** This invoice's own FIFO-allocated paid amount (Phase 15). */
+  paid: Money;
+  /** totalAmount - paid. */
+  balance: Money;
+  paymentStatus: InvoicePaymentStatus;
 }
 
 /**

@@ -1,15 +1,19 @@
 import type { Customer, CompanyProfile, InvoiceWithItems } from '@invoice/shared';
 import { buildInvoiceViewModel, invoicePdfFilename } from '@invoice/shared';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ApiError } from '../../../lib/api';
 import * as companyApi from '../../company/api';
 import * as customersApi from '../../customers/api';
 import * as invoicesApi from '../api';
 import { INVOICE_TEMPLATES, getTemplate } from './registry';
 
+type InitialAction = 'print' | 'download' | 'whatsapp';
+
 interface Props {
   invoice: InvoiceWithItems;
   onBack: () => void;
+  /** Auto-fires the matching action once, right after the template is ready — used by Invoice History's row buttons so they don't need their own copy of this logic. */
+  initialAction?: InitialAction;
 }
 
 /**
@@ -20,7 +24,7 @@ interface Props {
  * template (Phase 3's defaultInvoiceTemplate), switchable here for a
  * one-off preview without changing that default.
  */
-export function InvoiceTemplateView({ invoice, onBack }: Props) {
+export function InvoiceTemplateView({ invoice, onBack, initialAction }: Props) {
   const [company, setCompany] = useState<CompanyProfile | null>(null);
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [templateId, setTemplateId] = useState<string | null>(null);
@@ -28,6 +32,7 @@ export function InvoiceTemplateView({ invoice, onBack }: Props) {
   const [downloadError, setDownloadError] = useState<string | null>(null);
   const [sharing, setSharing] = useState(false);
   const [shareError, setShareError] = useState<string | null>(null);
+  const firedInitialAction = useRef(false);
 
   useEffect(() => {
     companyApi.fetchProfile().then((c) => {
@@ -37,13 +42,9 @@ export function InvoiceTemplateView({ invoice, onBack }: Props) {
     customersApi.getCustomer(invoice.customerId).then(setCustomer);
   }, [invoice.customerId]);
 
-  if (!company || !customer) {
-    return <p className="text-sm text-slate-400">Loading…</p>;
-  }
-
   const template = getTemplate(templateId);
-  const viewModel = buildInvoiceViewModel(invoice, company, customer);
-  const filename = invoicePdfFilename(invoice.invoiceNumber, customer.name);
+  const viewModel = company && customer ? buildInvoiceViewModel(invoice, company, customer) : null;
+  const filename = customer ? invoicePdfFilename(invoice.invoiceNumber, customer.name) : '';
 
   function handlePrint() {
     // Chrome/Edge suggest document.title as the default filename when
@@ -94,6 +95,27 @@ export function InvoiceTemplateView({ invoice, onBack }: Props) {
     } finally {
       setSharing(false);
     }
+  }
+
+  useEffect(() => {
+    if (!company || !customer || !initialAction || firedInitialAction.current) return;
+    firedInitialAction.current = true;
+    // Deferred to a microtask so the action's own setState calls
+    // (downloading/sharing) aren't triggered synchronously from within
+    // this effect. handlePrint/handleDownload/handleShare close over
+    // state declared above and are redefined every render, so they're
+    // deliberately left out of the dependency array — the
+    // firedInitialAction guard is what keeps this to firing once.
+    queueMicrotask(() => {
+      if (initialAction === 'print') handlePrint();
+      else if (initialAction === 'download') void handleDownload();
+      else if (initialAction === 'whatsapp') void handleShare();
+    });
+    // oxlint-disable-next-line react-hooks/exhaustive-deps
+  }, [company, customer, initialAction]);
+
+  if (!company || !customer || !viewModel) {
+    return <p className="text-sm text-slate-400">Loading…</p>;
   }
 
   return (

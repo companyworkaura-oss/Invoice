@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Router, type Request } from 'express';
 import { badRequest } from '../../lib/http-error.js';
 import {
   asBody,
@@ -19,6 +19,7 @@ export const invoicesRouter = Router();
 invoicesRouter.use(requireAuth);
 
 const STATUSES = ['draft', 'issued'] as const;
+const PAYMENT_STATUSES = ['PAID', 'PARTIAL', 'UNPAID', 'CANCELLED'] as const;
 
 function parseItems(body: Record<string, unknown>): service.InvoiceItemInput[] {
   const raw = body.items;
@@ -58,15 +59,37 @@ invoicesRouter.post('/', async (req, res) => {
   res.status(201).json(invoice);
 });
 
+function queryString(req: Request, key: string): string | undefined {
+  return typeof req.query[key] === 'string' ? (req.query[key] as string) : undefined;
+}
+
 invoicesRouter.get('/', async (req, res) => {
-  const status = typeof req.query.status === 'string' ? req.query.status : undefined;
-  const customerId = typeof req.query.customerId === 'string' ? req.query.customerId : undefined;
-  res.json(await service.listInvoices(auth(req).companyId, { status, customerId }));
+  const status = queryString(req, 'status');
+  const customerId = queryString(req, 'customerId');
+  const search = queryString(req, 'search');
+  const from = optionalDate({ from: req.query.from }, 'from');
+  const to = optionalDate({ to: req.query.to }, 'to');
+
+  const paymentStatusRaw = queryString(req, 'paymentStatus');
+  if (paymentStatusRaw && !(PAYMENT_STATUSES as readonly string[]).includes(paymentStatusRaw)) {
+    throw badRequest('Validation failed', { paymentStatus: `Must be one of: ${PAYMENT_STATUSES.join(', ')}` });
+  }
+  const paymentStatus = paymentStatusRaw as service.InvoicePaymentStatus | undefined;
+
+  res.json(await service.listInvoices(auth(req).companyId, { status, customerId, from, to, paymentStatus, search }));
 });
 
 invoicesRouter.get('/:invoiceId', async (req, res) => {
   const invoiceId = requireUuidParam(req.params.invoiceId, 'invoiceId');
   res.json(await service.getInvoice(auth(req).companyId, invoiceId));
+});
+
+// Copies this invoice's items into a brand-new draft; never copies
+// payments or ledger entries — see duplicateInvoice in invoice.service.ts.
+invoicesRouter.post('/:invoiceId/duplicate', async (req, res) => {
+  const invoiceId = requireUuidParam(req.params.invoiceId, 'invoiceId');
+  const invoice = await service.duplicateInvoice(auth(req).companyId, invoiceId);
+  res.status(201).json(invoice);
 });
 
 // A4 PDF, rendered server-side from this invoice's saved snapshots — see
