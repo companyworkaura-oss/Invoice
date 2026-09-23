@@ -1,7 +1,7 @@
 # Project memory — Embroidery Billing SaaS
 
 Read this before making changes. It captures architecture, conventions, and
-decisions from Phases 1–17 so future work stays consistent instead of
+decisions from Phases 1–18 so future work stays consistent instead of
 re-deriving (or accidentally contradicting) what's already here.
 
 ## What this is
@@ -104,6 +104,7 @@ across workspaces in dependency order (shared → api/web). `test` builds
 | formulas (categories) | `/api/categories` | CRUD + enable/disable (soft); `formula_type` free text, `formula_config` jsonb |
 | invoices | `/api/invoices`, `.../pdf`, `.../whatsapp-share`, `.../duplicate` | create (all calc server-side)/list/view only — **no PATCH/edit**, by design; PDF and WhatsApp share are read-only derivations of a saved invoice; duplicate creates a brand-new draft via createInvoice itself, never a copy at the DB row level |
 | ledger | `/api/customers/:customerId/ledger`, `.../payments`, `.../adjustments`, `.../statement`, `.../statement/pdf` | view ledger+balance, record a payment (credit) or adjustment (exactly one of debit/credit), and a full printable/PDF statement |
+| audit | `/api/audit-logs` | owner/admin-only (`audit.view`); read-only, no tables written to besides `audit_logs` itself |
 | dashboard | `/api/dashboard` | read-only summary (cards + recent lists) computed live from invoices/payments/ledger; no tables of its own |
 
 Frontend: `apps/web/src/features/invoices/templates/` (Phase 10) — 5
@@ -388,6 +389,53 @@ produced a genuine 2-page PDF with every row intact.
   assuming the shape — do the same in any new validator that reads
   `req.params` on a route with more than one handler.
 
+## Audit Log (Phase 18)
+
+- `audit_logs` (migration `008_audit_logs.sql`): append-only, same
+  spirit as `ledger_entries` — company_id, user_id (nullable, `ON DELETE
+  SET NULL`), action, entity_type, entity_id, metadata (jsonb),
+  created_at. One index on `(company_id, created_at DESC)`.
+- `apps/api/src/modules/audit/audit.service.ts`'s `postAuditLog(client,
+  entry)` is the **only** way a row is ever written — always called
+  with the *same* transaction client as the write it's auditing (same
+  convention as `postLedgerEntry`), so an audit entry and the change it
+  describes commit or roll back together. It's one indexed INSERT, no
+  triggers, no synchronous computation — that's what keeps it from
+  affecting core transaction performance, not some separate async
+  queue. **Do not** make this fire-and-forget or move it outside the
+  transaction "for performance" — the whole point is that a lightweight
+  synchronous insert inside an existing transaction is already cheap
+  enough; a best-effort side channel would just risk the audit trail
+  drifting from what actually happened.
+- Where each action fires: `createInvoice` → `INVOICE_CREATED`
+  (`duplicateInvoice` reuses this same path, so a duplicate is also
+  `INVOICE_CREATED`, with `duplicatedFromInvoiceId`/
+  `duplicatedFromInvoiceNumber` in metadata — not a separate action
+  type); `createPayment` → `PAYMENT_CREATED`; `updateCategory` →
+  `RATE_CHANGED` and/or `FORMULA_CHANGED`, **only when those specific
+  fields actually changed** (compared against one cheap indexed SELECT
+  of the pre-update row, inside the same transaction — a name-only edit
+  logs neither); `updateCompany` → `COMPANY_SETTINGS_CHANGED`, with
+  `metadata.changedFields` naming whichever patch fields were provided
+  (not a full old/new diff — several profile fields are free text, so
+  "what changed" is the useful fact here). `INVOICE_EDITED`,
+  `INVOICE_CANCELLED`, and `PAYMENT_EDITED` are defined in the fixed
+  action list (`packages/shared/src/audit.ts`) but **nothing posts them
+  yet** — same "no route exists yet" situation Phase 17 already left
+  `invoice.edit`/`invoice.cancel` in (invoices still have no PATCH/edit
+  or cancel endpoint, payments have no edit endpoint). Wire these up
+  the moment those routes are added, not before.
+- `GET /api/audit-logs` is gated by a new `audit.view` permission
+  (added to `packages/shared/src/permissions.ts`'s `PERMISSIONS`).
+  Owner gets it automatically (owner is `PERMISSIONS` itself); admin
+  gets it automatically too (admin is `PERMISSIONS` minus
+  `users.manage` — no new rule needed); staff's explicit list doesn't
+  include it. This is "Owner/Admin can view logs" with zero new
+  authorization code, just one more string in the Phase 17 map.
+- Frontend: the Audit tab in `App.tsx` only renders when
+  `me.permissions.includes('audit.view')` — invisible to staff, not
+  just blocked after a failed request.
+
 ## Known gotchas / things to check before starting work
 
 - **Postgres cluster is often stopped** when a session starts:
@@ -429,7 +477,8 @@ produced a genuine 2-page PDF with every row intact.
   (`auth.test.ts`, `customers.test.ts`, `categories.test.ts`,
   `invoices.test.ts`, `ledger.test.ts`, `payments.test.ts`,
   `whatsapp.test.ts`, `dashboard.test.ts`, `invoice-history.test.ts`,
-  `statement.test.ts`, `permissions.test.ts`, `tenant-isolation.test.ts`,
+  `statement.test.ts`, `permissions.test.ts`, `audit.test.ts`,
+  `tenant-isolation.test.ts`,
   `company-profile.test.ts`, `invoice-pdf-html.test.ts` — fast, no
   browser, tests the HTML string directly — and `invoice-pdf.test.ts` —
   full pipeline through a real headless Chromium, checks actual PDF
@@ -490,6 +539,11 @@ produced a genuine 2-page PDF with every row intact.
     permission list via one ROLE_PERMISSIONS map (shared by both apps),
     enforced everywhere by a single requirePermission middleware — see
     "Role Permissions (Phase 17)" above
+18. Audit Log: append-only audit_logs table, one postAuditLog() call
+    inside the same transaction as the write it's auditing, wired into
+    invoice/payment creation, category rate/formula changes, and
+    company settings changes; owner/admin-only via a new audit.view
+    permission — see "Audit Log (Phase 18)" above
 
 Repo also went through a monorepo restructure (`server/` → `apps/api` +
 new `apps/web` + `packages/shared`) between Phase 1 and Phase 2.
