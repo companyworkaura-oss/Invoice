@@ -1,1 +1,16 @@
 @import "tailwindcss";
+
+/*
+ * A4 print output for invoice templates (Phase 11). margin: 0 here is
+ * deliberate — each invoice template's own root element is sized to
+ * exactly 210mm x 297mm with its own internal padding standing in for
+ * the page margin, so the on-screen preview (already that same size)
+ * and what actually prints are the same box, not two independent
+ * margin systems fighting each other.
+ */
+@media print {
+  @page {
+    size: A4;
+    margin: 0;
+  }
+}

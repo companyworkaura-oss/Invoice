@@ -1,8 +1,8 @@
-import type { InvoiceViewModel } from './types';
+import type { InvoiceViewModel } from '@invoice/shared';
 
 export function MinimalCleanTemplate({ invoice }: { invoice: InvoiceViewModel }) {
   return (
-    <div className="mx-auto max-w-3xl bg-white p-10 text-slate-900">
+    <div className="mx-auto w-[210mm] min-h-[297mm] bg-white p-10 text-slate-900">
       <div className="flex items-start justify-between">
         <div className="flex items-center gap-3">
           {invoice.company.logoUrl && <img src={invoice.company.logoUrl} alt="" className="h-10 w-10 object-contain" />}
@@ -42,7 +42,7 @@ export function MinimalCleanTemplate({ invoice }: { invoice: InvoiceViewModel })
         </thead>
         <tbody>
           {invoice.items.map((item) => (
-            <tr key={item.id} className="border-b border-slate-100">
+            <tr key={item.id} className="break-inside-avoid border-b border-slate-100">
               <td className="py-2">{item.description}</td>
               <td className="py-2 text-right font-mono">{item.stitches}</td>
               <td className="py-2 text-right font-mono">{item.rate}</td>
@@ -52,7 +52,7 @@ export function MinimalCleanTemplate({ invoice }: { invoice: InvoiceViewModel })
         </tbody>
       </table>
 
-      <div className="mt-8 flex justify-end">
+      <div className="mt-8 flex justify-end break-inside-avoid">
         <div className="w-56 space-y-1.5 text-sm">
           <Row label="Current Bill" value={invoice.currentBill} />
           <Row label="Previous Balance" value={invoice.previousBalance} />
@@ -65,7 +65,7 @@ export function MinimalCleanTemplate({ invoice }: { invoice: InvoiceViewModel })
       </div>
 
       {invoice.terms && (
-        <div className="mt-12 text-xs text-slate-400">
+        <div className="mt-12 break-inside-avoid text-xs text-slate-400">
           <p className="whitespace-pre-line">{invoice.terms}</p>
         </div>
       )}

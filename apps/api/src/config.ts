@@ -11,4 +11,7 @@ export const config = {
   sessionTtlHours: Number(process.env.SESSION_TTL_HOURS ?? 168),
   uploadsDir: process.env.UPLOADS_DIR ?? 'uploads',
   maxLogoBytes: Number(process.env.MAX_LOGO_BYTES ?? 2 * 1024 * 1024),
+  // playwright-core ships no browser of its own — point it at one already
+  // installed on the host (see deployment notes in pdf.service.ts).
+  chromiumExecutablePath: process.env.CHROMIUM_EXECUTABLE_PATH || undefined,
 };

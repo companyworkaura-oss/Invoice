@@ -1,8 +1,8 @@
-import type { InvoiceViewModel } from './types';
+import type { InvoiceViewModel } from '@invoice/shared';
 
 export function IndustrialBlueTemplate({ invoice }: { invoice: InvoiceViewModel }) {
   return (
-    <div className="mx-auto max-w-3xl border-4 border-blue-800 bg-white text-slate-900 shadow print:shadow-none">
+    <div className="mx-auto w-[210mm] min-h-[297mm] border-4 border-blue-800 bg-white text-slate-900 shadow print:shadow-none">
       <div className="flex items-center justify-between bg-blue-800 px-6 py-4 text-white">
         <div className="flex items-center gap-3">
           {invoice.company.logoUrl && (
@@ -36,7 +36,7 @@ export function IndustrialBlueTemplate({ invoice }: { invoice: InvoiceViewModel 
         </thead>
         <tbody>
           {invoice.items.map((item) => (
-            <tr key={item.id} className="border-b border-blue-100">
+            <tr key={item.id} className="break-inside-avoid border-b border-blue-100">
               <td className="px-6 py-2">{item.description}</td>
               <td className="px-3 py-2 text-right">{item.stitches}</td>
               <td className="px-3 py-2 text-right">{item.rate}</td>
@@ -46,7 +46,7 @@ export function IndustrialBlueTemplate({ invoice }: { invoice: InvoiceViewModel 
         </tbody>
       </table>
 
-      <div className="flex justify-end border-t-2 border-blue-800 px-6 py-4">
+      <div className="flex break-inside-avoid justify-end border-t-2 border-blue-800 px-6 py-4">
         <div className="w-64 space-y-1 text-sm">
           <Row label="Current Bill" value={invoice.currentBill} />
           <Row label="Previous Balance" value={invoice.previousBalance} />
@@ -59,7 +59,7 @@ export function IndustrialBlueTemplate({ invoice }: { invoice: InvoiceViewModel 
       </div>
 
       {invoice.terms && (
-        <div className="border-t-2 border-blue-800 px-6 py-3 text-xs text-slate-600">
+        <div className="break-inside-avoid border-t-2 border-blue-800 px-6 py-3 text-xs text-slate-600">
           <p className="font-bold uppercase tracking-wide text-blue-800">Terms</p>
           <p className="mt-1 whitespace-pre-line">{invoice.terms}</p>
         </div>

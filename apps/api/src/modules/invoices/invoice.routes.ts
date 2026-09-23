@@ -12,6 +12,7 @@ import {
 } from '../../lib/validate.js';
 import { auth, requireAuth } from '../../middleware/auth.js';
 import * as service from './invoice.service.js';
+import { generateInvoicePdf } from './pdf/pdf.service.js';
 
 export const invoicesRouter = Router();
 invoicesRouter.use(requireAuth);
@@ -65,4 +66,16 @@ invoicesRouter.get('/', async (req, res) => {
 invoicesRouter.get('/:invoiceId', async (req, res) => {
   const invoiceId = requireUuidParam(req.params.invoiceId, 'invoiceId');
   res.json(await service.getInvoice(auth(req).companyId, invoiceId));
+});
+
+// A4 PDF, rendered server-side from this invoice's saved snapshots — see
+// pdf/pdf.service.ts. ?template= previews a different template for this
+// one download without changing the company's default.
+invoicesRouter.get('/:invoiceId/pdf', async (req, res) => {
+  const invoiceId = requireUuidParam(req.params.invoiceId, 'invoiceId');
+  const templateId = typeof req.query.template === 'string' ? req.query.template : undefined;
+  const { buffer, filename } = await generateInvoicePdf(auth(req).companyId, invoiceId, templateId);
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  res.send(buffer);
 });

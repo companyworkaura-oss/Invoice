@@ -1,5 +1,5 @@
 import type { InvoiceListEntry, InvoiceStatus, InvoiceWithItems } from '@invoice/shared';
-import { api } from '../../lib/api';
+import { ApiError, api } from '../../lib/api';
 
 export interface InvoiceItemInput {
   categoryId: string;
@@ -39,3 +39,19 @@ export const createInvoice = (input: InvoiceInput) => api<InvoiceWithItems>('/in
   method: 'POST',
   body: JSON.stringify(input),
 });
+
+/**
+ * The PDF endpoint returns a binary body, not JSON, so this bypasses the
+ * api() wrapper and talks to fetch directly. The PDF itself is rendered
+ * server-side from the invoice's saved snapshots (see apps/api's
+ * pdf.service.ts) — this call has no input beyond which template to use.
+ */
+export async function fetchInvoicePdf(invoiceId: string, templateId?: string): Promise<Blob> {
+  const qs = templateId ? `?template=${encodeURIComponent(templateId)}` : '';
+  const res = await fetch(`/api/invoices/${invoiceId}/pdf${qs}`, { credentials: 'include' });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ error: 'Could not generate the PDF' }));
+    throw new ApiError(res.status, body);
+  }
+  return res.blob();
+}

@@ -1,8 +1,8 @@
-import type { InvoiceViewModel } from './types';
+import type { InvoiceViewModel } from '@invoice/shared';
 
 export function PremiumModernTemplate({ invoice }: { invoice: InvoiceViewModel }) {
   return (
-    <div className="mx-auto max-w-3xl bg-white text-slate-800 shadow print:shadow-none">
+    <div className="mx-auto w-[210mm] min-h-[297mm] bg-white text-slate-800 shadow print:shadow-none">
       <div className="flex items-center justify-between bg-slate-900 px-8 py-6">
         <div className="flex items-center gap-3">
           {invoice.company.logoUrl && (
@@ -47,7 +47,7 @@ export function PremiumModernTemplate({ invoice }: { invoice: InvoiceViewModel }
           </thead>
           <tbody>
             {invoice.items.map((item) => (
-              <tr key={item.id} className="border-b border-slate-100">
+              <tr key={item.id} className="break-inside-avoid border-b border-slate-100">
                 <td className="py-2.5">{item.description}</td>
                 <td className="py-2.5 text-right">{item.stitches}</td>
                 <td className="py-2.5 text-right">{item.rate}</td>
@@ -57,7 +57,7 @@ export function PremiumModernTemplate({ invoice }: { invoice: InvoiceViewModel }
           </tbody>
         </table>
 
-        <div className="mt-6 flex justify-end">
+        <div className="mt-6 flex justify-end break-inside-avoid">
           <div className="w-64 space-y-1.5 text-sm">
             <Row label="Current Bill" value={invoice.currentBill} />
             <Row label="Previous Balance" value={invoice.previousBalance} />
@@ -70,7 +70,7 @@ export function PremiumModernTemplate({ invoice }: { invoice: InvoiceViewModel }
         </div>
 
         {invoice.terms && (
-          <div className="mt-10 border-t border-slate-100 pt-4 text-xs text-slate-400">
+          <div className="mt-10 break-inside-avoid border-t border-slate-100 pt-4 text-xs text-slate-400">
             <p className="font-semibold uppercase tracking-widest text-slate-400">Terms</p>
             <p className="mt-1 whitespace-pre-line">{invoice.terms}</p>
           </div>

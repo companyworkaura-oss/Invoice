@@ -1,8 +1,8 @@
-import type { InvoiceViewModel } from './types';
+import type { InvoiceViewModel } from '@invoice/shared';
 
 export function ClassicNavyTemplate({ invoice }: { invoice: InvoiceViewModel }) {
   return (
-    <div className="mx-auto max-w-3xl bg-white p-8 font-serif text-slate-800 shadow print:shadow-none">
+    <div className="mx-auto w-[210mm] min-h-[297mm] bg-white p-8 font-serif text-slate-800 shadow print:shadow-none">
       <div className="flex items-start justify-between border-b-4 border-blue-950 pb-4">
         <div className="flex items-center gap-3">
           {invoice.company.logoUrl && (
@@ -41,7 +41,7 @@ export function ClassicNavyTemplate({ invoice }: { invoice: InvoiceViewModel }) 
         </thead>
         <tbody>
           {invoice.items.map((item) => (
-            <tr key={item.id} className="border-b border-slate-200">
+            <tr key={item.id} className="break-inside-avoid border-b border-slate-200">
               <td className="py-2">{item.description}</td>
               <td className="py-2 text-right">{item.stitches}</td>
               <td className="py-2 text-right">{item.rate}</td>
@@ -51,7 +51,7 @@ export function ClassicNavyTemplate({ invoice }: { invoice: InvoiceViewModel }) 
         </tbody>
       </table>
 
-      <div className="mt-6 flex justify-end">
+      <div className="mt-6 flex justify-end break-inside-avoid">
         <div className="w-64 space-y-1 border-t-2 border-blue-950 pt-2 text-sm">
           <Row label="Current Bill" value={invoice.currentBill} />
           <Row label="Previous Balance" value={invoice.previousBalance} />
@@ -61,7 +61,7 @@ export function ClassicNavyTemplate({ invoice }: { invoice: InvoiceViewModel }) 
       </div>
 
       {invoice.terms && (
-        <div className="mt-8 border-t border-slate-200 pt-3 text-xs text-slate-500">
+        <div className="mt-8 break-inside-avoid border-t border-slate-200 pt-3 text-xs text-slate-500">
           <p className="font-semibold uppercase tracking-wide text-slate-400">Terms</p>
           <p className="mt-1 whitespace-pre-line">{invoice.terms}</p>
         </div>

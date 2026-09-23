@@ -1,4 +1,4 @@
-import type { Customer, CompanyProfile, InvoiceWithItems } from '@invoice/shared';
+import type { Customer, CompanyProfile, InvoiceWithItems } from './entities.js';
 
 /**
  * Exactly what a printable invoice is allowed to show — deliberately a
@@ -86,4 +86,19 @@ export function buildInvoiceViewModel(
     currentBalance: invoice.currentBalance,
     terms: company.invoiceTerms,
   };
+}
+
+/**
+ * The {invoice_number}-{customer_name}.pdf convention, with both parts
+ * made filesystem-safe. Shared so the browser (naming a downloaded
+ * blob) and the server (the PDF endpoint's Content-Disposition header)
+ * never disagree on the filename.
+ */
+export function invoicePdfFilename(invoiceNumber: string, customerName: string): string {
+  const safe = (value: string) =>
+    value
+      .trim()
+      .replace(/[^a-zA-Z0-9-_ ]/g, '')
+      .replace(/\s+/g, '-') || 'invoice';
+  return `${safe(invoiceNumber)}-${safe(customerName)}.pdf`;
 }

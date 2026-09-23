@@ -1,8 +1,8 @@
-import type { InvoiceViewModel } from './types';
+import type { InvoiceViewModel } from '@invoice/shared';
 
 export function ModernCurveTemplate({ invoice }: { invoice: InvoiceViewModel }) {
   return (
-    <div className="mx-auto max-w-3xl overflow-hidden rounded-3xl bg-white shadow print:shadow-none">
+    <div className="mx-auto w-[210mm] min-h-[297mm] overflow-hidden rounded-3xl bg-white shadow print:shadow-none print:rounded-none">
       <div className="relative overflow-hidden bg-violet-600 px-8 pb-10 pt-8 text-white">
         <div className="pointer-events-none absolute -bottom-16 -right-16 h-48 w-48 rounded-full bg-violet-500/50" />
         <div className="relative flex items-start justify-between">
@@ -45,7 +45,7 @@ export function ModernCurveTemplate({ invoice }: { invoice: InvoiceViewModel }) 
             </thead>
             <tbody>
               {invoice.items.map((item) => (
-                <tr key={item.id} className="border-t border-violet-100">
+                <tr key={item.id} className="break-inside-avoid border-t border-violet-100">
                   <td className="px-4 py-2">{item.description}</td>
                   <td className="px-4 py-2 text-right">{item.stitches}</td>
                   <td className="px-4 py-2 text-right">{item.rate}</td>
@@ -56,7 +56,7 @@ export function ModernCurveTemplate({ invoice }: { invoice: InvoiceViewModel }) 
           </table>
         </div>
 
-        <div className="mt-6 flex justify-end">
+        <div className="mt-6 flex justify-end break-inside-avoid">
           <div className="w-64 space-y-1 rounded-2xl bg-violet-600 p-4 text-sm text-white">
             <Row label="Current Bill" value={invoice.currentBill} />
             <Row label="Previous Balance" value={invoice.previousBalance} />
@@ -69,7 +69,7 @@ export function ModernCurveTemplate({ invoice }: { invoice: InvoiceViewModel }) 
         </div>
 
         {invoice.terms && (
-          <div className="mt-6 rounded-xl bg-slate-50 p-3 text-xs text-slate-500">
+          <div className="mt-6 break-inside-avoid rounded-xl bg-slate-50 p-3 text-xs text-slate-500">
             <p className="font-semibold uppercase tracking-wide text-slate-400">Terms</p>
             <p className="mt-1 whitespace-pre-line">{invoice.terms}</p>
           </div>

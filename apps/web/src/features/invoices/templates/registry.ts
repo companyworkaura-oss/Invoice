@@ -3,7 +3,7 @@ import { IndustrialBlueTemplate } from './IndustrialBlueTemplate';
 import { MinimalCleanTemplate } from './MinimalCleanTemplate';
 import { ModernCurveTemplate } from './ModernCurveTemplate';
 import { PremiumModernTemplate } from './PremiumModernTemplate';
-import type { InvoiceViewModel } from './types';
+import type { InvoiceViewModel } from '@invoice/shared';
 
 export interface InvoiceTemplate {
   id: string;
@@ -13,7 +13,7 @@ export interface InvoiceTemplate {
 
 /**
  * The full set of invoice designs. Every template renders the same
- * InvoiceViewModel (see types.ts) — adding a new one is one new
+ * InvoiceViewModel (see @invoice/shared's invoice-view-model.ts) — adding a new one is one new
  * component file plus one entry here; nothing about how an invoice is
  * created, calculated, or saved (apps/api) ever needs to change.
  *
