@@ -1,7 +1,7 @@
 # Project memory — Embroidery Billing SaaS
 
 Read this before making changes. It captures architecture, conventions, and
-decisions from Phases 1–10 so future work stays consistent instead of
+decisions from Phases 1–11 so future work stays consistent instead of
 re-deriving (or accidentally contradicting) what's already here.
 
 ## What this is
@@ -34,7 +34,11 @@ packages/shared/  Types + the formula engine, used by both apps
   single-card dashboard (Overview / Customers / Categories / Invoices).
 - `packages/shared/src/` — `entities.ts` (all shared types), `api.ts`
   (`ApiErrorBody`), `formula-engine/` (moved here in Phase 9 so the
-  frontend's live preview uses the *exact* server calculation code).
+  frontend's live preview uses the *exact* server calculation code),
+  `invoice-view-model.ts` (moved here in Phase 11: `InvoiceViewModel` +
+  `buildInvoiceViewModel()` + `invoicePdfFilename()`, shared by the
+  browser preview and the server-side PDF renderer so both build from
+  identical, deliberately restricted data).
 
 Root scripts (`package.json`): `typecheck`, `lint`, `build`, `test` all run
 across workspaces in dependency order (shared → api/web). `test` builds
@@ -112,6 +116,32 @@ changes. Default template is chosen per-company via the Company Profile
 form's select (`CompanyProfile.defaultInvoiceTemplate`, stored as a plain
 string, no DB enum — so new templates never need a migration).
 
+**PDF** (Phase 11): `GET /api/invoices/:invoiceId/pdf` renders an A4 PDF
+server-side via `playwright-core` + a headless Chromium at
+`config.chromiumExecutablePath` (env `CHROMIUM_EXECUTABLE_PATH`, this repo's
+dev/test envs point it at `/opt/pw-browsers/chromium`). Its own template
+"registry" is `apps/api/src/modules/invoices/pdf/themes.ts` — a
+`PdfTheme` (colors/borders/font, pure data) per template id, consumed by
+one shared HTML layout function (`render-html.ts`), not 5 duplicated
+layouts. Logo is always inlined as a base64 `data:` URI
+(`pdf/logo.ts`, fetched via HTTP against the API's own `/uploads` route
+— storage-backend-agnostic) since a headless page has no session cookie
+for a live `<img src>`. The browser preview/print path (React/Tailwind)
+and the PDF path (server HTML string + Chromium) are two independent
+renderers by design — they only share the *data* (`InvoiceViewModel`),
+not rendering code, since a browser page and a PDF print engine have
+different capabilities/constraints. On-screen preview uses a
+`relative left-1/2 -mx-[50vw]` full-bleed trick to escape the narrower
+dashboard card and show the whole A4 page without horizontal scrolling;
+`@page { size: A4; margin: 0 }` (in `index.css`) plus each template's own
+padding is the one page-margin model for browser print, while the PDF
+path uses `page.pdf({ margin: 0 })` for the same reason — margin lives in
+the HTML/CSS content, never in two places fighting each other.
+`break-inside-avoid` (Tailwind, web) / `break-inside: avoid` (CSS, PDF
+HTML) on every item row and the summary box is what keeps them from being
+sliced across a page boundary — verified with a real 30-item invoice that
+produced a genuine 2-page PDF with every row intact.
+
 ## Known gotchas / things to check before starting work
 
 - **Postgres cluster is often stopped** when a session starts:
@@ -140,13 +170,22 @@ string, no DB enum — so new templates never need a migration).
   for CSRF protection, not a `Content-Type` check alone.
 - Build artifacts (`dist/`, `apps/api/uploads/`) are gitignored and get
   cleaned up after smoke tests — don't commit them.
+- **PDF generation needs a Chromium binary** (`CHROMIUM_EXECUTABLE_PATH`).
+  In this sandbox it's pre-installed at `/opt/pw-browsers/chromium` and
+  already set in `apps/api/.env{,.test,.example}`. `playwright-core` (not
+  `playwright`) is the dependency — it bundles no browser of its own on
+  purpose, so a real deployment must set this env var to wherever its own
+  Chromium lives (e.g. `npx playwright install chromium` as a build step).
 
 ## Testing conventions
 
 - `node:test` + `supertest`, one file per module in `apps/api/test/`
   (`auth.test.ts`, `customers.test.ts`, `categories.test.ts`,
   `invoices.test.ts`, `ledger.test.ts`, `tenant-isolation.test.ts`,
-  `company-profile.test.ts`) and `packages/shared/test/formula-engine.test.ts`.
+  `company-profile.test.ts`, `invoice-pdf-html.test.ts` — fast, no
+  browser, tests the HTML string directly — and `invoice-pdf.test.ts` —
+  full pipeline through a real headless Chromium, checks actual PDF
+  magic bytes) and `packages/shared/test/formula-engine.test.ts`.
 - Every module's tests include an explicit tenant-isolation case (cross-
   company access → 404) and, where relevant, a snapshot-immutability case.
 - Real bugs have been found by writing these tests before assuming
@@ -173,13 +212,15 @@ string, no DB enum — so new templates never need a migration).
    (moved formula engine to `packages/shared` for this), keyboard-friendly
 10. Invoice template engine: 5 selectable print designs, registry-based,
     default per company
+11. Print & PDF: A4 print preview + browser print with correct margins
+    and no split rows, plus a real downloadable PDF (headless Chromium,
+    server-side, from saved snapshots) preserving the selected template
 
 Repo also went through a monorepo restructure (`server/` → `apps/api` +
 new `apps/web` + `packages/shared`) between Phase 1 and Phase 2.
 
 ## Not yet built (candidates for future phases)
 
-- PDF export beyond the browser's native print-to-PDF
 - Payments/expenses as their own module (currently only ledger PAYMENT
   entries exist, recorded from the customer ledger panel)
 - Invoice editing/cancellation (only create/view/list exist, by design —
