@@ -2,11 +2,12 @@ import { Router } from 'express';
 import { clearSessionCookie, setSessionCookie } from '../../lib/cookies.js';
 import { asBody, requireEmail, requireString } from '../../lib/validate.js';
 import { auth, requireAuth } from '../../middleware/auth.js';
+import { loginRateLimiter, registerRateLimiter } from '../../middleware/rate-limit.js';
 import * as service from './auth.service.js';
 
 export const authRouter = Router();
 
-authRouter.post('/register', async (req, res) => {
+authRouter.post('/register', registerRateLimiter, async (req, res) => {
   const body = asBody(req.body);
   const session = await service.register({
     companyName: requireString(body, 'companyName'),
@@ -18,7 +19,7 @@ authRouter.post('/register', async (req, res) => {
   res.status(201).json({ ok: true });
 });
 
-authRouter.post('/login', async (req, res) => {
+authRouter.post('/login', loginRateLimiter, async (req, res) => {
   const body = asBody(req.body);
   const session = await service.login(requireEmail(body), requireString(body, 'password', { max: 128 }));
   setSessionCookie(res, session.token, session.expiresAt);
