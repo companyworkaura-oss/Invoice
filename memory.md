@@ -479,6 +479,69 @@ areas confirmed clean without a new, concrete reason to suspect them.
   where XSS is actually possible, since everything else renders through
   React's default escaping.
 
+## Production Deployment (Phase 20)
+
+Prepared the existing app to run in production without rebuilding
+anything. See `DEPLOYMENT.md` at the repo root for the operator-facing
+guide (env vars, backups, health checks, startup) — not repeated here.
+
+- **`config.ts`** gained `nodeEnv`/`isProduction`/`isTest` (from
+  `NODE_ENV`, default `development`), `serveFrontend` (`SERVE_FRONTEND`,
+  default off), `webDistDir`. A startup `console.warn` fires if
+  `NODE_ENV=production` and `COOKIE_SECURE` isn't `true` — loud
+  misconfiguration beats a silent plain-HTTP session cookie.
+- **Health endpoints**: `GET /api/health` (liveness, never touches the
+  DB) vs `GET /api/health/ready` (readiness, runs `SELECT 1`, 503 if
+  unreachable) — standard k8s/orchestrator split, both unauthenticated.
+- **Request-id correlation**: `middleware/logging.ts`'s `requestLogging`
+  reuses an incoming `X-Request-Id` header (from an upstream proxy) or
+  generates one via `randomUUID()`, echoes it in the response header,
+  and logs one structured JSON line per request (method/path/status/
+  duration — **never** body/headers/cookies). Suppressed only under
+  `NODE_ENV=test` (the log line, not the id assignment) to keep `npm
+  test` output readable — see `.env.test`'s new `NODE_ENV=test` line.
+- **Error reporting**: `lib/error-reporter.ts` — an `ErrorReporter`
+  interface + default `ConsoleErrorReporter` (structured JSON to
+  stderr, includes requestId/stack, never sent to the client) + a
+  `getErrorReporter()` factory, same pluggable-interface shape as
+  `LogoStorage`/`WhatsAppService`. Swapping in a real monitoring SDK
+  later is an implementation swap in the factory, not a call-site
+  change. `errorHandler` (`middleware/errors.ts`) now includes the
+  `requestId` in every 500 response body for client-side correlation.
+- **Graceful shutdown**: `index.ts` now handles `SIGTERM`/`SIGINT` —
+  stop accepting connections (`server.close()`), let in-flight requests
+  finish, close the DB pool, exit; forced-exit safety net after 10s.
+  Verified for real by sending SIGTERM to a running production-mode
+  process and confirming a clean exit with the expected log lines.
+- **Optional single-process frontend serving**: `app.ts`, gated behind
+  `SERVE_FRONTEND=true` (never inferred from whether `apps/web/dist`
+  happens to exist, so it can never change behavior incidentally — e.g.
+  in tests, which build/clean that directory independently). Serves
+  `apps/web/dist` via `express.static` + an SPA fallback to
+  `index.html` for any non-`/api`, non-`/uploads` GET. Verified live:
+  built the app, ran the API with `SERVE_FRONTEND=true` in production
+  mode, and drove register → login → session-persists-on-reload through
+  a real Chromium via Playwright with zero console errors.
+- **`apps/api/package.json`'s `start` script** now uses
+  `node --env-file-if-exists=.env` (not `--env-file=.env`) — a real
+  deployment injects env vars via the platform/orchestrator and has no
+  `.env` file on disk; the old flag would crash on boot in that case.
+  Root `package.json` gained a matching `start` script.
+- **`scripts/backup.sh` / `scripts/restore.sh`**: thin wrappers around
+  `pg_dump --format=custom` / `pg_restore`, reading `DATABASE_URL` from
+  the environment like the app itself — no hard-coded credentials.
+  `restore.sh` prompts for confirmation before overwriting. Verified
+  live: backed up the dev DB, restored into a scratch DB, confirmed the
+  round-trip.
+- New `test/production-readiness.test.ts` (6 tests): both health
+  endpoints, `X-Request-Id` header format + echo-back, a 500 response's
+  `requestId` matches the header and leaks no internals, health
+  endpoints need no auth. The `SERVE_FRONTEND` static-serving path is
+  **not** covered by an automated test — `config` freezes at
+  module-import time from `.env.test` (where it's off), so toggling it
+  mid-test-run isn't practical; it's covered by the live Playwright
+  smoke test instead, same as every other phase's browser-only checks.
+
 ## Known gotchas / things to check before starting work
 
 - **Postgres cluster is often stopped** when a session starts:
@@ -592,6 +655,11 @@ areas confirmed clean without a new, concrete reason to suspect them.
     two confirmed fixes (rate limiting on login/register, a duplicate-
     email race in register()) plus new regression tests — see
     "Security Audit (Phase 19)" above
+20. Production Deployment: NODE_ENV-driven config, health/readiness
+    split, request-id correlation + structured logging, pluggable
+    error-reporter, graceful shutdown, optional single-process frontend
+    serving, backup/restore scripts, `DEPLOYMENT.md` — see "Production
+    Deployment (Phase 20)" above
 
 Repo also went through a monorepo restructure (`server/` → `apps/api` +
 new `apps/web` + `packages/shared`) between Phase 1 and Phase 2.
