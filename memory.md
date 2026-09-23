@@ -1,7 +1,7 @@
 # Project memory — Embroidery Billing SaaS
 
 Read this before making changes. It captures architecture, conventions, and
-decisions from Phases 1–18 so future work stays consistent instead of
+decisions from Phases 1–19 so future work stays consistent instead of
 re-deriving (or accidentally contradicting) what's already here.
 
 ## What this is
@@ -436,6 +436,49 @@ produced a genuine 2-page PDF with every row intact.
   `me.permissions.includes('audit.view')` — invisible to staff, not
   just blocked after a failed request.
 
+## Security Audit (Phase 19)
+
+A full audit against authentication, authorization, tenant isolation,
+formula calculations, invoice snapshots, ledger balances, payment
+transactions, decimal handling, input validation, SQL injection, XSS,
+rate limiting, and error handling. Two confirmed, fixed issues; every
+other area was already sound (see the commit message for the specific
+reasoning per area — it's not repeated here). Don't re-litigate the
+areas confirmed clean without a new, concrete reason to suspect them.
+
+- **Rate limiting** (`apps/api/src/middleware/rate-limit.ts`): 10
+  requests/15min on `POST /api/auth/login`, 10/hour on `.../register`,
+  via `express-rate-limit` (in-memory — no Redis/shared store to run).
+  **Disabled only via `RATE_LIMIT_DISABLED=true`, set only in
+  `.env.test`** — the test suite legitimately registers/logs in far
+  more than a real client would in the same window (some single test
+  files alone do 10+ registrations). Never set this in a real `.env` or
+  `.env.example`'s default (`.env.example` documents it as `false`).
+  The middleware's actual 429 behavior is verified for real in
+  `test/security.test.ts`, against a throwaway Express app — not
+  against the shared `app` fixture, since that one runs with limiting
+  off.
+- **`register()`'s duplicate-email race** (`auth.service.ts`): the
+  existing SELECT-then-INSERT check has a narrow window where two
+  concurrent registrations with the same email can both pass the
+  SELECT before either INSERT commits. Fixed by catching Postgres
+  error code `23505` (unique_violation, from the existing
+  `users_email_key` index on `lower(email)`) and converting it to the
+  same `conflict()` 409 a non-concurrent duplicate already gets,
+  instead of letting a raw constraint error fall through to the
+  generic 500 handler.
+- New `test/statement-pdf-html.test.ts` mirrors the existing (Phase 11)
+  `test/invoice-pdf-html.test.ts` pattern — fast, Chromium-free HTML
+  assertions including XSS escaping — for the statement HTML renderer
+  (Phase 16), which had no equivalent direct test before.
+- If a future phase adds a new HTML-string-building renderer (not a
+  React/JSX view — those are already safe by construction), give it the
+  same `escapeHtml()`-on-every-interpolated-value treatment as
+  `render-html.ts`/`render-statement-html.ts`, and a matching
+  `-pdf-html.test.ts` escaping test — this is the one place in the app
+  where XSS is actually possible, since everything else renders through
+  React's default escaping.
+
 ## Known gotchas / things to check before starting work
 
 - **Postgres cluster is often stopped** when a session starts:
@@ -478,7 +521,7 @@ produced a genuine 2-page PDF with every row intact.
   `invoices.test.ts`, `ledger.test.ts`, `payments.test.ts`,
   `whatsapp.test.ts`, `dashboard.test.ts`, `invoice-history.test.ts`,
   `statement.test.ts`, `permissions.test.ts`, `audit.test.ts`,
-  `tenant-isolation.test.ts`,
+  `security.test.ts`, `statement-pdf-html.test.ts`, `tenant-isolation.test.ts`,
   `company-profile.test.ts`, `invoice-pdf-html.test.ts` — fast, no
   browser, tests the HTML string directly — and `invoice-pdf.test.ts` —
   full pipeline through a real headless Chromium, checks actual PDF
@@ -544,6 +587,11 @@ produced a genuine 2-page PDF with every row intact.
     invoice/payment creation, category rate/formula changes, and
     company settings changes; owner/admin-only via a new audit.view
     permission — see "Audit Log (Phase 18)" above
+19. Security Audit: full checklist review (auth, authorization, tenant
+    isolation, SQL injection, XSS, rate limiting, error handling, ...);
+    two confirmed fixes (rate limiting on login/register, a duplicate-
+    email race in register()) plus new regression tests — see
+    "Security Audit (Phase 19)" above
 
 Repo also went through a monorepo restructure (`server/` → `apps/api` +
 new `apps/web` + `packages/shared`) between Phase 1 and Phase 2.
