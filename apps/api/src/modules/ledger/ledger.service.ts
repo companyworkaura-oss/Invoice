@@ -116,32 +116,17 @@ export async function getBalanceBefore(
   return roundMoney(new Decimal(rows[0].balance));
 }
 
-async function requireCustomer(client: Queryable, companyId: string, customerId: string): Promise<void> {
+/**
+ * Confirms a customer belongs to this company, or throws 404. Exported
+ * for other modules (payments) that need the same tenant-scoped
+ * existence check before posting a ledger entry of their own.
+ */
+export async function requireCustomer(client: Queryable, companyId: string, customerId: string): Promise<void> {
   const { rows } = await client.query('SELECT 1 FROM customers WHERE id = $1 AND company_id = $2', [
     customerId,
     companyId,
   ]);
   if (!rows[0]) throw notFound('Customer not found');
-}
-
-/** Records a payment: a credit, reducing what the customer owes. */
-export async function recordPayment(
-  companyId: string,
-  customerId: string,
-  input: { amount: string; date?: string; notes?: string; referenceId?: string },
-): Promise<LedgerEntry> {
-  return withTransaction(async (client) => {
-    await requireCustomer(client, companyId, customerId);
-    return postLedgerEntry(client, {
-      companyId,
-      customerId,
-      type: 'PAYMENT',
-      credit: input.amount,
-      date: input.date,
-      notes: input.notes,
-      referenceId: input.referenceId,
-    });
-  });
 }
 
 /** Records a manual correction: exactly one of debit or credit, never both. */

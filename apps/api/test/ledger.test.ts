@@ -85,13 +85,18 @@ test('recording a payment posts a PAYMENT (credit) entry and reduces the balance
   const agent = await registeredOwner('Ledger Payment Co');
   const customer = await agent.post('/api/customers').send({ name: 'Payment Customer', openingBalance: '100.00' });
 
-  const payment = await agent.post(`/api/customers/${customer.body.id}/ledger/payments`).send({ amount: '40.00' });
+  const payment = await agent
+    .post('/api/payments')
+    .send({ customerId: customer.body.id, amount: '40.00', paymentMethod: 'cash' });
   assert.equal(payment.status, 201);
-  assert.equal(payment.body.type, 'PAYMENT');
-  assert.equal(payment.body.credit, '40.00');
-  assert.equal(payment.body.debit, '0.00');
 
   const ledger = await agent.get(`/api/customers/${customer.body.id}/ledger`);
+  assert.equal(ledger.body.entries.length, 2); // OPENING_BALANCE, PAYMENT
+  const paymentEntry = ledger.body.entries[1];
+  assert.equal(paymentEntry.type, 'PAYMENT');
+  assert.equal(paymentEntry.credit, '40.00');
+  assert.equal(paymentEntry.debit, '0.00');
+  assert.equal(paymentEntry.referenceId, payment.body.id);
   assert.equal(ledger.body.balance, '60.00'); // 100 - 40
 });
 
@@ -136,7 +141,7 @@ test('a full customer statement: opening balance, invoice, and a partial payment
   assert.equal(invoice.body.currentBalance, '680.00'); // nothing paid yet
   assert.equal(invoice.body.amountPaid, '0.00');
 
-  await agent.post(`/api/customers/${customer.body.id}/ledger/payments`).send({ amount: '200.00' });
+  await agent.post('/api/payments').send({ customerId: customer.body.id, amount: '200.00', paymentMethod: 'bank' });
 
   const reread = await agent.get(`/api/invoices/${invoice.body.id}`);
   assert.equal(reread.status, 200);
@@ -183,8 +188,8 @@ test('ledger operations are tenant isolated', async () => {
   assert.equal(bobViewAttempt.status, 404);
 
   const bobPaymentAttempt = await bob
-    .post(`/api/customers/${aliceCustomer.body.id}/ledger/payments`)
-    .send({ amount: '10.00' });
+    .post('/api/payments')
+    .send({ customerId: aliceCustomer.body.id, amount: '10.00', paymentMethod: 'cash' });
   assert.equal(bobPaymentAttempt.status, 404);
 
   const stillIntact = await alice.get(`/api/customers/${aliceCustomer.body.id}/ledger`);

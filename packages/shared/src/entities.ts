@@ -173,3 +173,23 @@ export interface CustomerLedger {
   entries: LedgerEntry[];
   balance: Money;
 }
+
+export type PaymentMethod = 'cash' | 'bank' | 'cheque' | 'other';
+
+/**
+ * A customer payment (Phase 12). Creating one also posts a PAYMENT
+ * ledger credit entry (referenceId = this payment's id) in the same
+ * database transaction — see apps/api's payment.service.ts.
+ */
+export interface Payment {
+  id: string;
+  companyId: string;
+  customerId: string;
+  customerName: string;
+  amount: Money;
+  date: string;
+  paymentMethod: PaymentMethod;
+  reference: string | null;
+  notes: string | null;
+  createdAt: string;
+}

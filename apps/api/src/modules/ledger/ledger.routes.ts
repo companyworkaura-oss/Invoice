@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { asBody, optionalDate, optionalMoney, optionalString, requirePositiveDecimal, requireUuidParam } from '../../lib/validate.js';
+import { asBody, optionalDate, optionalMoney, optionalString, requireUuidParam } from '../../lib/validate.js';
 import { auth, requireAuth } from '../../middleware/auth.js';
 import * as service from './ledger.service.js';
 
@@ -17,16 +17,9 @@ ledgerRouter.get('/', async (req, res) => {
   res.json({ customerId, entries, balance });
 });
 
-ledgerRouter.post('/payments', async (req, res) => {
-  const customerId = customerIdParam(req);
-  const body = asBody(req.body);
-  const entry = await service.recordPayment(auth(req).companyId, customerId, {
-    amount: requirePositiveDecimal(body, 'amount'),
-    date: optionalDate(body, 'date'),
-    notes: optionalString(body, 'notes', { max: 2000 }),
-  });
-  res.status(201).json(entry);
-});
+// Payments are recorded through the payments module (POST /api/payments),
+// which creates the payment record and this same PAYMENT credit entry in
+// one transaction — see modules/payments/payment.service.ts.
 
 ledgerRouter.post('/adjustments', async (req, res) => {
   const customerId = customerIdParam(req);

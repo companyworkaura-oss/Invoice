@@ -8,9 +8,10 @@ import { CompanyProfilePanel } from './features/company/CompanyProfilePanel';
 import { CustomersPage } from './features/customers/CustomersPage';
 import { CategoriesPage } from './features/formulas/CategoriesPage';
 import { InvoicesPage } from './features/invoices/InvoicesPage';
+import { PaymentsPage } from './features/payments/PaymentsPage';
 
 type AuthView = 'login' | 'register';
-type DashboardTab = 'overview' | 'customers' | 'categories' | 'invoices';
+type DashboardTab = 'overview' | 'customers' | 'categories' | 'invoices' | 'payments';
 
 function App() {
   const [me, setMe] = useState<Me | null | undefined>(undefined); // undefined = still checking
@@ -76,7 +77,7 @@ function App() {
         </div>
 
         <div className="mt-4 flex gap-4 border-b border-slate-200">
-          {(['overview', 'customers', 'categories', 'invoices'] as const).map((t) => (
+          {(['overview', 'customers', 'categories', 'invoices', 'payments'] as const).map((t) => (
             <button
               key={t}
               type="button"
@@ -120,6 +121,12 @@ function App() {
         {tab === 'invoices' && (
           <div className="mt-4">
             <InvoicesPage key={me.company.id} />
+          </div>
+        )}
+
+        {tab === 'payments' && (
+          <div className="mt-4">
+            <PaymentsPage key={me.company.id} />
           </div>
         )}
       </div>

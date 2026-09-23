@@ -1,12 +1,22 @@
 import type { InvoiceWithItems } from '@invoice/shared';
+import { useState } from 'react';
+import { PaymentForm } from '../payments/PaymentForm';
+import * as invoicesApi from './api';
 
 interface Props {
   invoice: InvoiceWithItems;
   onBack: () => void;
   onViewTemplate: () => void;
+  onInvoiceUpdated: (invoice: InvoiceWithItems) => void;
 }
 
-export function InvoiceDetails({ invoice, onBack, onViewTemplate }: Props) {
+export function InvoiceDetails({ invoice, onBack, onViewTemplate, onInvoiceUpdated }: Props) {
+  const [showPaymentForm, setShowPaymentForm] = useState(false);
+
+  async function refresh() {
+    onInvoiceUpdated(await invoicesApi.getInvoice(invoice.id));
+  }
+
   return (
     <div className="rounded-md border border-slate-200 p-4">
       <div className="flex items-start justify-between">
@@ -69,6 +79,28 @@ export function InvoiceDetails({ invoice, onBack, onViewTemplate }: Props) {
         <StatRow label="Amount Paid" value={invoice.amountPaid} />
         <StatRow label="Current Balance" value={invoice.currentBalance} emphasize />
       </dl>
+
+      <div className="mt-4 border-t border-slate-200 pt-3">
+        {showPaymentForm ? (
+          <PaymentForm
+            customerId={invoice.customerId}
+            suggestedAmount={invoice.currentBalance !== '0.00' ? invoice.currentBalance : undefined}
+            onRecorded={() => {
+              setShowPaymentForm(false);
+              refresh();
+            }}
+            onCancel={() => setShowPaymentForm(false)}
+          />
+        ) : (
+          <button
+            type="button"
+            onClick={() => setShowPaymentForm(true)}
+            className="rounded-md border border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50"
+          >
+            Record a payment
+          </button>
+        )}
+      </div>
     </div>
   );
 }

@@ -56,6 +56,7 @@ export function InvoicesPage() {
               setView({ name: 'list' });
             }}
             onViewTemplate={() => setView({ name: 'template', invoice: view.invoice })}
+            onInvoiceUpdated={(invoice) => setView({ name: 'details', invoice })}
           />
         )}
 

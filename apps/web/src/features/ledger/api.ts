@@ -3,11 +3,9 @@ import { api } from '../../lib/api';
 
 export const getLedger = (customerId: string) => api<CustomerLedger>(`/customers/${customerId}/ledger`);
 
-export const recordPayment = (customerId: string, input: { amount: string; date?: string; notes?: string }) =>
-  api<LedgerEntry>(`/customers/${customerId}/ledger/payments`, {
-    method: 'POST',
-    body: JSON.stringify(input),
-  });
+// Payments are recorded through features/payments (POST /api/payments),
+// which creates the payment record and this same ledger credit in one
+// transaction — see apps/api's payment.service.ts.
 
 export const recordAdjustment = (
   customerId: string,
