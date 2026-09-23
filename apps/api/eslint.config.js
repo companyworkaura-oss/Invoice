@@ -13,7 +13,7 @@ export default tseslint.config(
   },
   {
     // Augmenting Express's Request type requires the `declare global { namespace Express {} }` form.
-    files: ['src/middleware/auth.ts'],
+    files: ['src/middleware/auth.ts', 'src/middleware/logging.ts'],
     rules: { '@typescript-eslint/no-namespace': 'off' },
   },
 );

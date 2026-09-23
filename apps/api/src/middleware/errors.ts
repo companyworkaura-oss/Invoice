@@ -1,12 +1,13 @@
 import type { NextFunction, Request, Response } from 'express';
 import { MulterError } from 'multer';
+import { getErrorReporter } from '../lib/error-reporter.js';
 import { HttpError } from '../lib/http-error.js';
 
 export function notFoundHandler(_req: Request, res: Response): void {
   res.status(404).json({ error: 'Not found' });
 }
 
-export function errorHandler(err: unknown, _req: Request, res: Response, _next: NextFunction): void {
+export function errorHandler(err: unknown, req: Request, res: Response, _next: NextFunction): void {
   if (err instanceof HttpError) {
     res.status(err.status).json({ error: err.message, details: err.details });
     return;
@@ -20,8 +21,12 @@ export function errorHandler(err: unknown, _req: Request, res: Response, _next: 
     res.status(400).json({ error: 'Invalid file upload', details: { logo: err.message } });
     return;
   }
-  console.error(err);
-  res.status(500).json({ error: 'Internal server error' });
+  // Never the raw error message/stack to the client — only ever to the
+  // error reporter (console.error today, a real monitoring service
+  // later — see lib/error-reporter.ts). requestId lets an operator
+  // correlate a client-reported problem with the corresponding log line.
+  getErrorReporter().report(err, { requestId: req.requestId, method: req.method, path: req.path });
+  res.status(500).json({ error: 'Internal server error', requestId: req.requestId });
 }
 
 /**
