@@ -1,7 +1,7 @@
 # Project memory — Embroidery Billing SaaS
 
 Read this before making changes. It captures architecture, conventions, and
-decisions from Phases 1–15 so future work stays consistent instead of
+decisions from Phases 1–16 so future work stays consistent instead of
 re-deriving (or accidentally contradicting) what's already here.
 
 ## What this is
@@ -104,7 +104,7 @@ across workspaces in dependency order (shared → api/web). `test` builds
 | customers | `/api/customers` | CRUD + search + archive (soft, never deleted) |
 | formulas (categories) | `/api/categories` | CRUD + enable/disable (soft); `formula_type` free text, `formula_config` jsonb |
 | invoices | `/api/invoices`, `.../pdf`, `.../whatsapp-share`, `.../duplicate` | create (all calc server-side)/list/view only — **no PATCH/edit**, by design; PDF and WhatsApp share are read-only derivations of a saved invoice; duplicate creates a brand-new draft via createInvoice itself, never a copy at the DB row level |
-| ledger | `/api/customers/:customerId/ledger`, `.../payments`, `.../adjustments` | view ledger+balance, record a payment (credit) or adjustment (exactly one of debit/credit) |
+| ledger | `/api/customers/:customerId/ledger`, `.../payments`, `.../adjustments`, `.../statement`, `.../statement/pdf` | view ledger+balance, record a payment (credit) or adjustment (exactly one of debit/credit), and a full printable/PDF statement |
 | dashboard | `/api/dashboard` | read-only summary (cards + recent lists) computed live from invoices/payments/ledger; no tables of its own |
 
 Frontend: `apps/web/src/features/invoices/templates/` (Phase 10) — 5
@@ -302,6 +302,42 @@ produced a genuine 2-page PDF with every row intact.
   original debt as real when computing every *other* invoice's
   paymentStatus.
 
+## Customer Statement (Phase 16)
+
+- `GET /api/customers/:customerId/ledger/statement` (+ `.../statement/pdf`)
+  in `apps/api/src/modules/ledger/statement.service.ts`. Built straight
+  from `ledger_entries`, joined to `invoices`/`payments` only to resolve
+  a human-readable `reference` per row — nothing new is stored.
+- **Ordering is deliberately different here from the rest of the app.**
+  Everywhere else (`getBalanceBefore`, the dashboard's FIFO aging,
+  invoice-history's FIFO aging), the ledger's true sequence is
+  `created_at` — that's when a write actually happened, and it's what
+  balance integrity depends on. A *statement*, though, is a document a
+  business owner reads chronologically by transaction `date`, so this
+  one query orders by `date` (created_at only as a same-day tiebreak)
+  and computes its own running balance in that order. This is a
+  statement-only display choice — it never changes how any balance is
+  computed anywhere else. Don't copy this ordering into a balance
+  calculation; don't copy `created_at` ordering into a *new* statement
+  feature either — check which one you actually need.
+- Entries dated before the `from` filter are folded into `openingBalance`
+  but not shown; entries dated after `to` are dropped entirely, from
+  both the row list and every summary number. The `type` filter (one of
+  the four `LedgerEntryType`s) only narrows which rows come back —
+  `openingBalance`/`invoiceTotal`/`payments`/`closingBalance` always
+  reflect the whole selected date range regardless of it, since those
+  answer "what happened this period", not "what's currently visible".
+- Statement PDF reuses the exact same headless-Chromium pipeline as
+  invoice PDFs (`playwright-core`, `page.pdf()` at A4) with its own
+  single plain HTML layout in `apps/api/src/modules/ledger/pdf/` — no
+  template registry, since a statement is an internal/accounting
+  document, not a customer-facing branded design like an invoice.
+- Frontend: `CustomerStatementView.tsx`, reachable via a "View Statement"
+  button on the customer details page (`CustomerDetails.tsx` →
+  `CustomersPage.tsx`'s new `'statement'` view). Print reuses the
+  existing global `@page { size: A4; margin: 0 }` rule from Phase 11 —
+  the same `print:hidden` toolbar convention as `InvoiceTemplateView`.
+
 ## Known gotchas / things to check before starting work
 
 - **Postgres cluster is often stopped** when a session starts:
@@ -343,7 +379,7 @@ produced a genuine 2-page PDF with every row intact.
   (`auth.test.ts`, `customers.test.ts`, `categories.test.ts`,
   `invoices.test.ts`, `ledger.test.ts`, `payments.test.ts`,
   `whatsapp.test.ts`, `dashboard.test.ts`, `invoice-history.test.ts`,
-  `tenant-isolation.test.ts`,
+  `statement.test.ts`, `tenant-isolation.test.ts`,
   `company-profile.test.ts`, `invoice-pdf-html.test.ts` — fast, no
   browser, tests the HTML string directly — and `invoice-pdf.test.ts` —
   full pipeline through a real headless Chromium, checks actual PDF
@@ -395,6 +431,11 @@ produced a genuine 2-page PDF with every row intact.
     and row actions (View/Print/PDF/WhatsApp/Duplicate); duplicate
     copies items into a new draft only, never payments or ledger entries
     (see "Invoice History (Phase 15)" above)
+16. Customer Statement: full ledger statement (date/reference/
+    description/debit/credit/running balance), date-range + transaction-
+    type filters, an opening/invoice-total/payments/closing summary, and
+    Print/PDF — see "Customer Statement (Phase 16)" above, especially
+    its date-vs-created_at ordering note before touching this code
 
 Repo also went through a monorepo restructure (`server/` → `apps/api` +
 new `apps/web` + `packages/shared`) between Phase 1 and Phase 2.
