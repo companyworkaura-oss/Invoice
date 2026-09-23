@@ -1,7 +1,7 @@
 # Project memory — Embroidery Billing SaaS
 
 Read this before making changes. It captures architecture, conventions, and
-decisions from Phases 1–13 so future work stays consistent instead of
+decisions from Phases 1–14 so future work stays consistent instead of
 re-deriving (or accidentally contradicting) what's already here.
 
 ## What this is
@@ -105,6 +105,7 @@ across workspaces in dependency order (shared → api/web). `test` builds
 | formulas (categories) | `/api/categories` | CRUD + enable/disable (soft); `formula_type` free text, `formula_config` jsonb |
 | invoices | `/api/invoices`, `.../pdf`, `.../whatsapp-share` | create (all calc server-side)/list/view only — **no PATCH/edit**, by design; PDF and WhatsApp share are read-only derivations of a saved invoice |
 | ledger | `/api/customers/:customerId/ledger`, `.../payments`, `.../adjustments` | view ledger+balance, record a payment (credit) or adjustment (exactly one of debit/credit) |
+| dashboard | `/api/dashboard` | read-only summary (cards + recent lists) computed live from invoices/payments/ledger; no tables of its own |
 
 Frontend: `apps/web/src/features/invoices/templates/` (Phase 10) — 5
 selectable print-friendly invoice designs (Classic Navy, Modern Curve,
@@ -211,6 +212,43 @@ produced a genuine 2-page PDF with every row intact.
   it's what "no paid API for V1" implies, and it's exactly what a Cloud
   API swap later would remove by sending the PDF as media server-side.
 
+## Dashboard (Phase 14)
+
+- `GET /api/dashboard?range=today|month|custom&from=&to=`
+  (`apps/api/src/modules/dashboard`) is read-only — no new tables, every
+  number comes from `invoices`/`invoice_items`/`payments`/`ledger_entries`
+  at request time.
+- "today"/"month" are resolved from the **database's** `CURRENT_DATE`,
+  not `new Date()` in Node — one query
+  (`SELECT CURRENT_DATE, date_trunc('month', CURRENT_DATE), ...`) so the
+  dashboard's idea of "today" always matches what `invoice_date`/`date`
+  columns default to. "custom" requires both `from` and `to` and rejects
+  `from > to`.
+- Two of the four cards (`invoiceAmount`, `paymentsReceived`) are scoped
+  to the selected period; the other two (`totalReceivable`,
+  `unpaidOrPartialInvoiceCount`) are deliberately **not** period-bound —
+  they answer "how much is owed right now", consistent with the ledger
+  being the one live source of truth for balances everywhere else in the
+  app. Same split for the sections: Recent Invoices/Recent Payments are
+  period-scoped, Customers With Outstanding Balance is current-state.
+- `unpaidOrPartialInvoiceCount` applies real AR aging (FIFO: a
+  customer's total payments/credits pay off their *oldest* debt first),
+  not a naive "does this customer owe anything" check — the latter would
+  flag every invoice for an indebted customer, even ones already paid
+  off. It's one SQL query per company: a window function computes, per
+  customer, the cumulative sum of debit ledger entries ordered
+  newest-first, then compares that running sum (as of just before each
+  entry) against the customer's current balance — entries reached before
+  the running sum hits the balance are still (at least partly) unpaid.
+  See the query and comment in `dashboard.service.ts` before changing
+  ledger semantics elsewhere, since this logic depends on `created_at`
+  ordering exactly the way `getBalanceBefore` in the ledger module does.
+- Frontend: `apps/web/src/features/dashboard/DashboardPage.tsx` is now
+  the **default landing tab** (`App.tsx`'s `DashboardTab` union gained
+  `'dashboard'`, first in the tab list). Filter is three buttons
+  (Today/This Month/Custom Range) plus From/To date inputs that only
+  render for Custom.
+
 ## Known gotchas / things to check before starting work
 
 - **Postgres cluster is often stopped** when a session starts:
@@ -251,7 +289,7 @@ produced a genuine 2-page PDF with every row intact.
 - `node:test` + `supertest`, one file per module in `apps/api/test/`
   (`auth.test.ts`, `customers.test.ts`, `categories.test.ts`,
   `invoices.test.ts`, `ledger.test.ts`, `payments.test.ts`,
-  `whatsapp.test.ts`, `tenant-isolation.test.ts`,
+  `whatsapp.test.ts`, `dashboard.test.ts`, `tenant-isolation.test.ts`,
   `company-profile.test.ts`, `invoice-pdf-html.test.ts` — fast, no
   browser, tests the HTML string directly — and `invoice-pdf.test.ts` —
   full pipeline through a real headless Chromium, checks actual PDF
@@ -294,6 +332,10 @@ produced a genuine 2-page PDF with every row intact.
     a `WhatsAppService` interface, "Share via WhatsApp" button next to
     Download PDF on the invoice view (see "WhatsApp sharing (Phase 13)"
     above)
+14. Dashboard: read-only summary (4 cards + 3 sections) with
+    Today/This Month/Custom filters, now the default landing tab; FIFO
+    aging for the unpaid/partial invoice count (see "Dashboard
+    (Phase 14)" above)
 
 Repo also went through a monorepo restructure (`server/` → `apps/api` +
 new `apps/web` + `packages/shared`) between Phase 1 and Phase 2.
