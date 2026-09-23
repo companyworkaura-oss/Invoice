@@ -5,6 +5,7 @@ import { authRouter } from './modules/auth/auth.routes.js';
 import { companiesRouter } from './modules/company/companies.routes.js';
 import { companyRouter } from './modules/company/company.routes.js';
 import { customersRouter } from './modules/customers/customer.routes.js';
+import { dashboardRouter } from './modules/dashboard/dashboard.routes.js';
 import { categoriesRouter } from './modules/formulas/category.routes.js';
 import { invoicesRouter } from './modules/invoices/invoice.routes.js';
 import { ledgerRouter } from './modules/ledger/ledger.routes.js';
@@ -27,6 +28,7 @@ export function createApp() {
   app.use('/api/companies', companiesRouter);
   app.use('/api/customers/:customerId/ledger', ledgerRouter);
   app.use('/api/customers', customersRouter);
+  app.use('/api/dashboard', dashboardRouter);
   app.use('/api/categories', categoriesRouter);
   app.use('/api/invoices', invoicesRouter);
   app.use('/api/payments', paymentsRouter);

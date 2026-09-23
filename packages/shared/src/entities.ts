@@ -193,3 +193,55 @@ export interface Payment {
   notes: string | null;
   createdAt: string;
 }
+
+/** Dashboard (Phase 14) — GET /api/dashboard?range=... */
+export type DashboardRange = 'today' | 'month' | 'custom';
+
+export interface DashboardPeriod {
+  range: DashboardRange;
+  from: string;
+  to: string;
+}
+
+/**
+ * invoiceAmount/paymentsReceived are scoped to `period`; totalReceivable
+ * and unpaidOrPartialInvoiceCount are current-state (not period-bound) —
+ * "how much is owed right now", not "how much became owed in this range".
+ */
+export interface DashboardCards {
+  invoiceAmount: Money;
+  paymentsReceived: Money;
+  totalReceivable: Money;
+  unpaidOrPartialInvoiceCount: number;
+}
+
+export interface DashboardRecentInvoice {
+  id: string;
+  invoiceNumber: string;
+  customerName: string;
+  invoiceDate: string;
+  totalAmount: Money;
+  status: InvoiceStatus;
+}
+
+export interface DashboardRecentPayment {
+  id: string;
+  customerName: string;
+  amount: Money;
+  date: string;
+  paymentMethod: PaymentMethod;
+}
+
+export interface DashboardOutstandingCustomer {
+  id: string;
+  name: string;
+  balance: Money;
+}
+
+export interface DashboardSummary {
+  period: DashboardPeriod;
+  cards: DashboardCards;
+  recentInvoices: DashboardRecentInvoice[];
+  recentPayments: DashboardRecentPayment[];
+  customersWithOutstandingBalance: DashboardOutstandingCustomer[];
+}

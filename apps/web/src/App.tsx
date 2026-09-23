@@ -6,18 +6,19 @@ import { RegisterForm } from './features/auth/RegisterForm';
 import { CompanySwitcher } from './features/companies/CompanySwitcher';
 import { CompanyProfilePanel } from './features/company/CompanyProfilePanel';
 import { CustomersPage } from './features/customers/CustomersPage';
+import { DashboardPage } from './features/dashboard/DashboardPage';
 import { CategoriesPage } from './features/formulas/CategoriesPage';
 import { InvoicesPage } from './features/invoices/InvoicesPage';
 import { PaymentsPage } from './features/payments/PaymentsPage';
 
 type AuthView = 'login' | 'register';
-type DashboardTab = 'overview' | 'customers' | 'categories' | 'invoices' | 'payments';
+type DashboardTab = 'dashboard' | 'overview' | 'customers' | 'categories' | 'invoices' | 'payments';
 
 function App() {
   const [me, setMe] = useState<Me | null | undefined>(undefined); // undefined = still checking
   const [authView, setAuthView] = useState<AuthView>('login');
   const [showProfile, setShowProfile] = useState(false);
-  const [tab, setTab] = useState<DashboardTab>('overview');
+  const [tab, setTab] = useState<DashboardTab>('dashboard');
 
   function refreshMe() {
     authApi
@@ -77,7 +78,7 @@ function App() {
         </div>
 
         <div className="mt-4 flex gap-4 border-b border-slate-200">
-          {(['overview', 'customers', 'categories', 'invoices', 'payments'] as const).map((t) => (
+          {(['dashboard', 'overview', 'customers', 'categories', 'invoices', 'payments'] as const).map((t) => (
             <button
               key={t}
               type="button"
@@ -90,6 +91,12 @@ function App() {
             </button>
           ))}
         </div>
+
+        {tab === 'dashboard' && (
+          <div className="mt-4">
+            <DashboardPage key={me.company.id} />
+          </div>
+        )}
 
         {tab === 'overview' && (
           <div className="mt-4">
