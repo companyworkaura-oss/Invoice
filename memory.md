@@ -1,7 +1,7 @@
 # Project memory — Embroidery Billing SaaS
 
 Read this before making changes. It captures architecture, conventions, and
-decisions from Phases 1–11 so future work stays consistent instead of
+decisions from Phases 1–13 so future work stays consistent instead of
 re-deriving (or accidentally contradicting) what's already here.
 
 ## What this is
@@ -103,7 +103,7 @@ across workspaces in dependency order (shared → api/web). `test` builds
 | company | `/api/company`, `/api/company/logo` | full profile (Phase 3): factory name, logo, contact, invoice prefix/currency/**defaultInvoiceTemplate**/terms. Logo storage behind `LogoStorage` interface (`apps/api/src/lib/storage/`) — local disk today, swappable later |
 | customers | `/api/customers` | CRUD + search + archive (soft, never deleted) |
 | formulas (categories) | `/api/categories` | CRUD + enable/disable (soft); `formula_type` free text, `formula_config` jsonb |
-| invoices | `/api/invoices` | create (all calc server-side)/list/view only — **no PATCH/edit**, by design |
+| invoices | `/api/invoices`, `.../pdf`, `.../whatsapp-share` | create (all calc server-side)/list/view only — **no PATCH/edit**, by design; PDF and WhatsApp share are read-only derivations of a saved invoice |
 | ledger | `/api/customers/:customerId/ledger`, `.../payments`, `.../adjustments` | view ledger+balance, record a payment (credit) or adjustment (exactly one of debit/credit) |
 
 Frontend: `apps/web/src/features/invoices/templates/` (Phase 10) — 5
@@ -176,6 +176,41 @@ produced a genuine 2-page PDF with every row intact.
   always `SUM(debit) - SUM(credit)` over the ledger and payments only
   ever add one credit row at a time.
 
+## WhatsApp sharing (Phase 13)
+
+- `packages/shared/src/whatsapp.ts` is pure, framework-free logic shared
+  by both API and web: `buildInvoiceWhatsAppMessage` (assembles the
+  fixed-field message text), `normalizeWhatsAppPhone` (strips everything
+  but digits — wa.me links take a bare international number, no `+`,
+  spaces, or dashes), and `buildWhatsAppClickToChatUrl` (the actual
+  `https://wa.me/<digits>?text=<encoded>` link).
+- `apps/api/src/lib/whatsapp` mirrors the `lib/storage` (logo) pattern:
+  a `WhatsAppService` interface with one method (`buildShare`), a
+  `getWhatsAppService()` factory/singleton, and exactly one
+  implementation for V1 — `ClickToChatWhatsAppService`, which just wraps
+  the shared link builder. No WhatsApp Business account, API key, or
+  paid tier is needed for V1. Swapping in WhatsApp Business Cloud API
+  later (server-side send, PDF as a real media attachment, delivery
+  receipts) means adding one more class + changing the factory — nothing
+  above this layer (the route, the invoice module) changes, since it
+  only ever calls the interface.
+- `apps/api/src/modules/invoices/whatsapp-share.service.ts` is the only
+  place that assembles the message: it loads the invoice (ledger-derived
+  amounts), the customer (for `customer.whatsapp` — already a field from
+  Phase 4), and the company (for the message's byline), and 400s with
+  `{ whatsapp: 'Customer has no WhatsApp number saved' }` if the
+  customer has none. `GET /api/invoices/:invoiceId/whatsapp-share` is
+  tenant-scoped the same as every other invoice route (cross-company →
+  404).
+- Frontend: `InvoiceTemplateView`'s toolbar has both "Download PDF" and
+  a new "Share via WhatsApp" button. Share calls the endpoint above and
+  `window.open()`s the returned wa.me url in a new tab — no attachment
+  is sent automatically, since click-to-chat has no attachment support;
+  the merchant downloads the PDF (already possible) and attaches it
+  manually inside the opened chat. This split is deliberate, not a gap —
+  it's what "no paid API for V1" implies, and it's exactly what a Cloud
+  API swap later would remove by sending the PDF as media server-side.
+
 ## Known gotchas / things to check before starting work
 
 - **Postgres cluster is often stopped** when a session starts:
@@ -216,7 +251,7 @@ produced a genuine 2-page PDF with every row intact.
 - `node:test` + `supertest`, one file per module in `apps/api/test/`
   (`auth.test.ts`, `customers.test.ts`, `categories.test.ts`,
   `invoices.test.ts`, `ledger.test.ts`, `payments.test.ts`,
-  `tenant-isolation.test.ts`,
+  `whatsapp.test.ts`, `tenant-isolation.test.ts`,
   `company-profile.test.ts`, `invoice-pdf-html.test.ts` — fast, no
   browser, tests the HTML string directly — and `invoice-pdf.test.ts` —
   full pipeline through a real headless Chromium, checks actual PDF
@@ -255,6 +290,10 @@ produced a genuine 2-page PDF with every row intact.
     customer page / invoice page / new Payments page, partial payments
     supported by construction (see "Payments (Phase 12)" above); removed
     the old ledger-embedded payment endpoint
+13. WhatsApp sharing: free click-to-chat wa.me link (no paid API) behind
+    a `WhatsAppService` interface, "Share via WhatsApp" button next to
+    Download PDF on the invoice view (see "WhatsApp sharing (Phase 13)"
+    above)
 
 Repo also went through a monorepo restructure (`server/` → `apps/api` +
 new `apps/web` + `packages/shared`) between Phase 1 and Phase 2.
@@ -263,6 +302,9 @@ new `apps/web` + `packages/shared`) between Phase 1 and Phase 2.
 
 - Expenses/outgoing payments (Phase 12 only covers customer payments
   received)
+- WhatsApp Business Cloud API (paid, server-side send with the PDF as a
+  real attachment) — V1 (Phase 13) is free click-to-chat only, behind
+  `WhatsAppService` specifically so this is a provider swap later
 - Invoice editing/cancellation (only create/view/list exist, by design —
   revisit only if explicitly requested)
 - Reporting/dashboards, machines/production tracking (mentioned in the
