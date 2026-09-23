@@ -20,6 +20,7 @@ export const PERMISSIONS = [
   'formula.manage',
   'company.manage',
   'users.manage',
+  'audit.view',
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];
@@ -38,7 +39,9 @@ export type Permission = (typeof PERMISSIONS)[number];
  *
  * ADMIN has every permission except users.manage — reserved for owner,
  * the one role a company can't lose (every company always has exactly
- * one owner; see membership.service.ts).
+ * one owner; see membership.service.ts). This is also how ADMIN gets
+ * audit.view (Phase 18: "Owner/Admin can view logs") without a separate
+ * rule — it's just one more entry in PERMISSIONS that ADMIN inherits.
  *
  * STAFF keeps the operational access this app already granted any
  * member before this phase (see the "any member can manage

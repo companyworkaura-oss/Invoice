@@ -1,5 +1,6 @@
 import type { Me } from '@invoice/shared';
 import { useEffect, useState } from 'react';
+import { AuditLogPage } from './features/audit/AuditLogPage';
 import * as authApi from './features/auth/api';
 import { LoginForm } from './features/auth/LoginForm';
 import { RegisterForm } from './features/auth/RegisterForm';
@@ -12,7 +13,7 @@ import { InvoicesPage } from './features/invoices/InvoicesPage';
 import { PaymentsPage } from './features/payments/PaymentsPage';
 
 type AuthView = 'login' | 'register';
-type DashboardTab = 'dashboard' | 'overview' | 'customers' | 'categories' | 'invoices' | 'payments';
+type DashboardTab = 'dashboard' | 'overview' | 'customers' | 'categories' | 'invoices' | 'payments' | 'audit';
 
 function App() {
   const [me, setMe] = useState<Me | null | undefined>(undefined); // undefined = still checking
@@ -78,7 +79,17 @@ function App() {
         </div>
 
         <div className="mt-4 flex gap-4 border-b border-slate-200">
-          {(['dashboard', 'overview', 'customers', 'categories', 'invoices', 'payments'] as const).map((t) => (
+          {(
+            [
+              'dashboard',
+              'overview',
+              'customers',
+              'categories',
+              'invoices',
+              'payments',
+              ...(me.permissions.includes('audit.view') ? (['audit'] as const) : []),
+            ] as const
+          ).map((t) => (
             <button
               key={t}
               type="button"
@@ -134,6 +145,12 @@ function App() {
         {tab === 'payments' && (
           <div className="mt-4">
             <PaymentsPage key={me.company.id} />
+          </div>
+        )}
+
+        {tab === 'audit' && me.permissions.includes('audit.view') && (
+          <div className="mt-4">
+            <AuditLogPage key={me.company.id} />
           </div>
         )}
       </div>

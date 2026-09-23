@@ -16,9 +16,10 @@ const EXPECTED_PERMISSIONS = [
   'formula.manage',
   'company.manage',
   'users.manage',
+  'audit.view',
 ];
 
-test('PERMISSIONS contains exactly the Phase 17 initial permission list', () => {
+test("PERMISSIONS contains exactly the Phase 17 initial permission list plus Phase 18's audit.view", () => {
   assert.deepEqual([...PERMISSIONS].sort(), [...EXPECTED_PERMISSIONS].sort());
 });
 
@@ -55,6 +56,7 @@ test('staff has operational permissions only — no company.manage, users.manage
   assert.equal(staffPermissions.has('invoice.cancel'), false);
   assert.equal(staffPermissions.has('company.manage'), false);
   assert.equal(staffPermissions.has('users.manage'), false);
+  assert.equal(staffPermissions.has('audit.view'), false);
 });
 
 test('roleHasPermission is a plain lookup against ROLE_PERMISSIONS', () => {

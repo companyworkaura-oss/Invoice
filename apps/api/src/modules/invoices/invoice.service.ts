@@ -8,6 +8,7 @@ import {
   evaluateFormula,
   roundMoney,
 } from '@invoice/shared';
+import { postAuditLog } from '../audit/audit.service.js';
 import { getBalanceBefore, getCustomerBalance, postLedgerEntry } from '../ledger/ledger.service.js';
 
 export type InvoiceStatus = 'draft' | 'issued' | 'cancelled';
@@ -255,7 +256,12 @@ async function createInvoiceItem(
  * calculated_unit_amount or calculated_total is ever accepted from the
  * request.
  */
-export async function createInvoice(companyId: string, input: InvoiceInput): Promise<InvoiceWithItems> {
+export async function createInvoice(
+  companyId: string,
+  userId: string,
+  input: InvoiceInput,
+  auditMetadataExtra: Record<string, unknown> = {},
+): Promise<InvoiceWithItems> {
   if (input.items.length === 0) {
     throw badRequest('Validation failed', { items: 'At least one item is required' });
   }
@@ -298,6 +304,15 @@ export async function createInvoice(companyId: string, input: InvoiceInput): Pro
       notes: `Invoice ${invoiceNumber}`,
     });
     const summary = await buildLedgerSummary(client, companyId, input.customerId, totalAmount, ledgerEntry.createdAt);
+
+    await postAuditLog(client, {
+      companyId,
+      userId,
+      action: 'INVOICE_CREATED',
+      entityType: 'invoice',
+      entityId: invoiceId,
+      metadata: { invoiceNumber, customerId: input.customerId, totalAmount, ...auditMetadataExtra },
+    });
 
     return {
       id: invoiceId,
@@ -457,7 +472,7 @@ export async function getInvoice(companyId: string, invoiceId: string): Promise<
  * can't be re-validated by createInvoice, so that's rejected up front
  * with a clear reason instead of silently dropping the item.
  */
-export async function duplicateInvoice(companyId: string, invoiceId: string): Promise<InvoiceWithItems> {
+export async function duplicateInvoice(companyId: string, userId: string, invoiceId: string): Promise<InvoiceWithItems> {
   const original = await getInvoice(companyId, invoiceId);
 
   if (original.items.some((item) => !item.categoryId)) {
@@ -466,16 +481,21 @@ export async function duplicateInvoice(companyId: string, invoiceId: string): Pr
     });
   }
 
-  return createInvoice(companyId, {
-    customerId: original.customerId,
-    quantity: original.quantity,
-    notes: original.notes ?? undefined,
-    status: 'draft',
-    items: original.items.map((item) => ({
-      categoryId: item.categoryId as string,
-      description: item.description ?? undefined,
-      stitches: item.stitches,
-      rate: item.rate,
-    })),
-  });
+  return createInvoice(
+    companyId,
+    userId,
+    {
+      customerId: original.customerId,
+      quantity: original.quantity,
+      notes: original.notes ?? undefined,
+      status: 'draft',
+      items: original.items.map((item) => ({
+        categoryId: item.categoryId as string,
+        description: item.description ?? undefined,
+        stitches: item.stitches,
+        rate: item.rate,
+      })),
+    },
+    { duplicatedFromInvoiceId: original.id, duplicatedFromInvoiceNumber: original.invoiceNumber },
+  );
 }

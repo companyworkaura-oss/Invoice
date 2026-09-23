@@ -43,7 +43,7 @@ categoriesRouter.get('/:categoryId', requirePermission('formula.view'), async (r
 categoriesRouter.patch('/:categoryId', requirePermission('formula.manage'), async (req, res) => {
   const categoryId = requireUuidParam(req.params.categoryId, 'categoryId');
   const body = asBody(req.body);
-  const category = await service.updateCategory(auth(req).companyId, categoryId, {
+  const category = await service.updateCategory(auth(req).companyId, categoryId, auth(req).userId, {
     name: optionalString(body, 'name', { max: 200 }),
     description: optionalString(body, 'description', { max: 2000 }),
     defaultRate: optionalMoney(body, 'defaultRate'),

@@ -1,5 +1,6 @@
 import { pool, withTransaction } from '../../db/pool.js';
 import { notFound } from '../../lib/http-error.js';
+import { postAuditLog } from '../audit/audit.service.js';
 import { postLedgerEntry, requireCustomer } from '../ledger/ledger.service.js';
 
 export type PaymentMethod = 'cash' | 'bank' | 'cheque' | 'other';
@@ -47,7 +48,7 @@ function ledgerNote(paymentMethod: PaymentMethod, reference: string | undefined 
  * credit" path that could leave a ledger entry with no payment record
  * behind it, or vice versa.
  */
-export async function createPayment(companyId: string, input: PaymentInput): Promise<Payment> {
+export async function createPayment(companyId: string, userId: string, input: PaymentInput): Promise<Payment> {
   return withTransaction(async (client) => {
     await requireCustomer(client, companyId, input.customerId);
 
@@ -70,6 +71,15 @@ export async function createPayment(companyId: string, input: PaymentInput): Pro
       credit: payment.amount,
       date: payment.date,
       notes: ledgerNote(payment.paymentMethod, payment.reference),
+    });
+
+    await postAuditLog(client, {
+      companyId,
+      userId,
+      action: 'PAYMENT_CREATED',
+      entityType: 'payment',
+      entityId: payment.id,
+      metadata: { customerId: input.customerId, amount: payment.amount, paymentMethod: payment.paymentMethod },
     });
 
     const customerRes = await client.query<{ name: string }>('SELECT name FROM customers WHERE id = $1', [

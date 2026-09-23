@@ -29,7 +29,7 @@ paymentsRouter.post('/', requirePermission('payment.create'), async (req, res) =
     throw badRequest('Validation failed', { paymentMethod: `Must be one of: ${PAYMENT_METHODS.join(', ')}` });
   }
 
-  const payment = await service.createPayment(auth(req).companyId, {
+  const payment = await service.createPayment(auth(req).companyId, auth(req).userId, {
     customerId: requireUuid(body, 'customerId'),
     amount: requirePositiveDecimal(body, 'amount'),
     date: optionalDate(body, 'date'),

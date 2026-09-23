@@ -52,7 +52,7 @@ companyRouter.patch('/', requirePermission('company.manage'), async (req, res) =
     defaultInvoiceTemplate: optionalString(body, 'defaultInvoiceTemplate', { max: 100 }),
     invoiceTerms: optionalString(body, 'invoiceTerms', { max: 5000 }),
   };
-  res.json(await service.updateCompany(auth(req).companyId, patch));
+  res.json(await service.updateCompany(auth(req).companyId, auth(req).userId, patch));
 });
 
 companyRouter.post('/logo', requirePermission('company.manage'), upload.single('logo'), async (req, res) => {

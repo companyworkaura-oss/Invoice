@@ -49,7 +49,7 @@ invoicesRouter.post('/', requirePermission('invoice.create'), async (req, res) =
     throw badRequest('Validation failed', { status: `Must be one of: ${STATUSES.join(', ')}` });
   }
 
-  const invoice = await service.createInvoice(auth(req).companyId, {
+  const invoice = await service.createInvoice(auth(req).companyId, auth(req).userId, {
     customerId: requireUuid(body, 'customerId'),
     invoiceDate: optionalDate(body, 'invoiceDate'),
     quantity: requirePositiveDecimal(body, 'quantity'),
@@ -89,7 +89,7 @@ invoicesRouter.get('/:invoiceId', requirePermission('invoice.view'), async (req,
 // payments or ledger entries — see duplicateInvoice in invoice.service.ts.
 invoicesRouter.post('/:invoiceId/duplicate', requirePermission('invoice.create'), async (req, res) => {
   const invoiceId = requireUuidParam(req.params.invoiceId, 'invoiceId');
-  const invoice = await service.duplicateInvoice(auth(req).companyId, invoiceId);
+  const invoice = await service.duplicateInvoice(auth(req).companyId, auth(req).userId, invoiceId);
   res.status(201).json(invoice);
 });
 

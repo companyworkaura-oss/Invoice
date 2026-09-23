@@ -1,5 +1,6 @@
-import { pool } from '../../db/pool.js';
+import { pool, withTransaction } from '../../db/pool.js';
 import { notFound } from '../../lib/http-error.js';
+import { postAuditLog } from '../audit/audit.service.js';
 
 export interface EmbroideryCategory {
   id: string;
@@ -89,33 +90,86 @@ export async function getCategory(companyId: string, categoryId: string): Promis
   return rows[0];
 }
 
+/**
+ * Updates a category, auditing RATE_CHANGED and/or FORMULA_CHANGED when
+ * those specific fields actually change (not on every patch — e.g. a
+ * name-only edit logs neither). The pre-update values come from one
+ * cheap indexed SELECT by primary key inside the same transaction as
+ * the UPDATE and the audit insert, so all of it commits or rolls back
+ * together — negligible overhead next to the write it's already doing.
+ */
 export async function updateCategory(
   companyId: string,
   categoryId: string,
+  userId: string,
   patch: CategoryPatch,
 ): Promise<EmbroideryCategory> {
-  const { rows } = await pool.query<EmbroideryCategory>(
-    `UPDATE embroidery_categories
-        SET name = COALESCE($3, name),
-            description = COALESCE($4, description),
-            default_rate = COALESCE($5::numeric, default_rate),
-            formula_type = COALESCE($6, formula_type),
-            formula_config = COALESCE($7::jsonb, formula_config),
-            updated_at = now()
-      WHERE id = $1 AND company_id = $2
-      RETURNING ${COLUMNS}`,
-    [
-      categoryId,
-      companyId,
-      patch.name ?? null,
-      patch.description ?? null,
-      patch.defaultRate ?? null,
-      patch.formulaType ?? null,
-      patch.formulaConfig ? JSON.stringify(patch.formulaConfig) : null,
-    ],
-  );
-  if (!rows[0]) throw notFound('Category not found');
-  return rows[0];
+  return withTransaction(async (client) => {
+    const beforeRes = await client.query<{
+      defaultRate: string;
+      formulaType: string;
+      formulaConfig: Record<string, unknown>;
+    }>(
+      `SELECT default_rate AS "defaultRate", formula_type AS "formulaType", formula_config AS "formulaConfig"
+         FROM embroidery_categories WHERE id = $1 AND company_id = $2`,
+      [categoryId, companyId],
+    );
+    const before = beforeRes.rows[0];
+    if (!before) throw notFound('Category not found');
+
+    const { rows } = await client.query<EmbroideryCategory>(
+      `UPDATE embroidery_categories
+          SET name = COALESCE($3, name),
+              description = COALESCE($4, description),
+              default_rate = COALESCE($5::numeric, default_rate),
+              formula_type = COALESCE($6, formula_type),
+              formula_config = COALESCE($7::jsonb, formula_config),
+              updated_at = now()
+        WHERE id = $1 AND company_id = $2
+        RETURNING ${COLUMNS}`,
+      [
+        categoryId,
+        companyId,
+        patch.name ?? null,
+        patch.description ?? null,
+        patch.defaultRate ?? null,
+        patch.formulaType ?? null,
+        patch.formulaConfig ? JSON.stringify(patch.formulaConfig) : null,
+      ],
+    );
+    const category = rows[0];
+
+    if (patch.defaultRate !== undefined && patch.defaultRate !== before.defaultRate) {
+      await postAuditLog(client, {
+        companyId,
+        userId,
+        action: 'RATE_CHANGED',
+        entityType: 'formula',
+        entityId: categoryId,
+        metadata: { categoryName: category.name, oldRate: before.defaultRate, newRate: category.defaultRate },
+      });
+    }
+
+    const formulaChanged =
+      (patch.formulaType !== undefined && patch.formulaType !== before.formulaType) ||
+      (patch.formulaConfig !== undefined && JSON.stringify(patch.formulaConfig) !== JSON.stringify(before.formulaConfig));
+    if (formulaChanged) {
+      await postAuditLog(client, {
+        companyId,
+        userId,
+        action: 'FORMULA_CHANGED',
+        entityType: 'formula',
+        entityId: categoryId,
+        metadata: {
+          categoryName: category.name,
+          oldFormulaType: before.formulaType,
+          newFormulaType: category.formulaType,
+        },
+      });
+    }
+
+    return category;
+  });
 }
 
 export async function setActive(companyId: string, categoryId: string, active: boolean): Promise<EmbroideryCategory> {
