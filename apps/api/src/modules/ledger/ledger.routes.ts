@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { badRequest } from '../../lib/http-error.js';
 import { asBody, optionalDate, optionalMoney, optionalString, requireUuidParam } from '../../lib/validate.js';
 import { auth, requireAuth } from '../../middleware/auth.js';
+import { requirePermission } from '../../middleware/permissions.js';
 import * as service from './ledger.service.js';
 import { generateStatementPdf } from './pdf/statement-pdf.service.js';
 import * as statementService from './statement.service.js';
@@ -10,11 +11,11 @@ import * as statementService from './statement.service.js';
 export const ledgerRouter = Router({ mergeParams: true });
 ledgerRouter.use(requireAuth);
 
-function customerIdParam(req: { params: Record<string, string> }): string {
+function customerIdParam(req: { params: Record<string, unknown> }): string {
   return requireUuidParam(req.params.customerId, 'customerId');
 }
 
-ledgerRouter.get('/', async (req, res) => {
+ledgerRouter.get('/', requirePermission('customer.view'), async (req, res) => {
   const customerId = customerIdParam(req);
   const { entries, balance } = await service.getCustomerLedger(auth(req).companyId, customerId);
   res.json({ customerId, entries, balance });
@@ -36,12 +37,12 @@ function statementFilter(req: { query: Record<string, unknown> }): statementServ
   return { from, to, type: typeRaw as service.LedgerEntryType | undefined };
 }
 
-ledgerRouter.get('/statement', async (req, res) => {
+ledgerRouter.get('/statement', requirePermission('customer.view'), async (req, res) => {
   const customerId = customerIdParam(req);
   res.json(await statementService.getCustomerStatement(auth(req).companyId, customerId, statementFilter(req)));
 });
 
-ledgerRouter.get('/statement/pdf', async (req, res) => {
+ledgerRouter.get('/statement/pdf', requirePermission('customer.view'), async (req, res) => {
   const customerId = customerIdParam(req);
   const { buffer, filename } = await generateStatementPdf(auth(req).companyId, customerId, statementFilter(req));
   res.setHeader('Content-Type', 'application/pdf');
@@ -49,7 +50,10 @@ ledgerRouter.get('/statement/pdf', async (req, res) => {
   res.send(buffer);
 });
 
-ledgerRouter.post('/adjustments', async (req, res) => {
+// Recording a manual correction is gated the same as recording a
+// payment (payment.create) — both are money movements against a
+// customer's ledger, just from different entry points.
+ledgerRouter.post('/adjustments', requirePermission('payment.create'), async (req, res) => {
   const customerId = customerIdParam(req);
   const body = asBody(req.body);
   const entry = await service.recordAdjustment(auth(req).companyId, customerId, {

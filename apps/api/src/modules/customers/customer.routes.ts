@@ -2,15 +2,17 @@ import { Router } from 'express';
 import { badRequest } from '../../lib/http-error.js';
 import { asBody, optionalMoney, optionalString, requireString, requireUuidParam } from '../../lib/validate.js';
 import { auth, requireAuth } from '../../middleware/auth.js';
+import { requirePermission } from '../../middleware/permissions.js';
 import * as service from './customer.service.js';
 
 export const customersRouter = Router();
 customersRouter.use(requireAuth);
 
-// Any member of the company (owner, admin, or staff) can manage customers —
-// this is day-to-day operational data, not a company-level setting.
+// Staff has customer.view/create/edit by default (see @invoice/shared's
+// ROLE_PERMISSIONS) — day-to-day operational data, not a company-level
+// setting, same as it's always been for this module.
 
-customersRouter.post('/', async (req, res) => {
+customersRouter.post('/', requirePermission('customer.create'), async (req, res) => {
   const body = asBody(req.body);
   const customer = await service.createCustomer(auth(req).companyId, {
     name: requireString(body, 'name', { max: 200 }),
@@ -24,7 +26,7 @@ customersRouter.post('/', async (req, res) => {
   res.status(201).json(customer);
 });
 
-customersRouter.get('/', async (req, res) => {
+customersRouter.get('/', requirePermission('customer.view'), async (req, res) => {
   const statusParam = typeof req.query.status === 'string' ? req.query.status : 'active';
   if (!['active', 'archived', 'all'].includes(statusParam)) {
     throw badRequest('Validation failed', { status: 'Must be active, archived, or all' });
@@ -38,12 +40,12 @@ customersRouter.get('/', async (req, res) => {
   res.json(customers);
 });
 
-customersRouter.get('/:customerId', async (req, res) => {
+customersRouter.get('/:customerId', requirePermission('customer.view'), async (req, res) => {
   const customerId = requireUuidParam(req.params.customerId, 'customerId');
   res.json(await service.getCustomer(auth(req).companyId, customerId));
 });
 
-customersRouter.patch('/:customerId', async (req, res) => {
+customersRouter.patch('/:customerId', requirePermission('customer.edit'), async (req, res) => {
   const customerId = requireUuidParam(req.params.customerId, 'customerId');
   const body = asBody(req.body);
   const customer = await service.updateCustomer(auth(req).companyId, customerId, {
@@ -57,7 +59,7 @@ customersRouter.patch('/:customerId', async (req, res) => {
   res.json(customer);
 });
 
-customersRouter.post('/:customerId/archive', async (req, res) => {
+customersRouter.post('/:customerId/archive', requirePermission('customer.edit'), async (req, res) => {
   const customerId = requireUuidParam(req.params.customerId, 'customerId');
   res.json(await service.archiveCustomer(auth(req).companyId, customerId));
 });

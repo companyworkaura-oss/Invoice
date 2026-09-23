@@ -10,6 +10,7 @@ import {
   requireUuidParam,
 } from '../../lib/validate.js';
 import { auth, requireAuth } from '../../middleware/auth.js';
+import { requirePermission } from '../../middleware/permissions.js';
 import * as service from './payment.service.js';
 
 export const paymentsRouter = Router();
@@ -17,10 +18,11 @@ paymentsRouter.use(requireAuth);
 
 const PAYMENT_METHODS = ['cash', 'bank', 'cheque', 'other'] as const;
 
-// Any authenticated company member can record a payment — same as
-// customers/categories/invoices, this is day-to-day operational data.
+// Staff has payment.view/create by default (see @invoice/shared's
+// ROLE_PERMISSIONS) — same as customers/categories, this is day-to-day
+// operational data.
 
-paymentsRouter.post('/', async (req, res) => {
+paymentsRouter.post('/', requirePermission('payment.create'), async (req, res) => {
   const body = asBody(req.body);
   const paymentMethod = requireString(body, 'paymentMethod', { max: 20 });
   if (!(PAYMENT_METHODS as readonly string[]).includes(paymentMethod)) {
@@ -38,12 +40,12 @@ paymentsRouter.post('/', async (req, res) => {
   res.status(201).json(payment);
 });
 
-paymentsRouter.get('/', async (req, res) => {
+paymentsRouter.get('/', requirePermission('payment.view'), async (req, res) => {
   const customerId = typeof req.query.customerId === 'string' ? req.query.customerId : undefined;
   res.json(await service.listPayments(auth(req).companyId, { customerId }));
 });
 
-paymentsRouter.get('/:paymentId', async (req, res) => {
+paymentsRouter.get('/:paymentId', requirePermission('payment.view'), async (req, res) => {
   const paymentId = requireUuidParam(req.params.paymentId, 'paymentId');
   res.json(await service.getPayment(auth(req).companyId, paymentId));
 });

@@ -1,3 +1,5 @@
+import type { Role } from '@invoice/shared';
+import { ROLE_PERMISSIONS } from '@invoice/shared';
 import { config } from '../../config.js';
 import { pool, withTransaction } from '../../db/pool.js';
 import { conflict, unauthorized } from '../../lib/http-error.js';
@@ -79,7 +81,7 @@ export async function logout(sessionId: string): Promise<void> {
 }
 
 export async function getMe(userId: string, companyId: string) {
-  const { rows } = await pool.query(
+  const { rows } = await pool.query<{ role: Role } & Record<string, unknown>>(
     `SELECT u.id, u.email, u.full_name AS "fullName", m.role,
             json_build_object('id', c.id, 'name', c.name, 'defaultCurrency', c.default_currency) AS company
        FROM users u
@@ -89,5 +91,8 @@ export async function getMe(userId: string, companyId: string) {
     [userId, companyId],
   );
   if (!rows[0]) throw unauthorized();
-  return rows[0];
+  // Computed here, server-side, from the one ROLE_PERMISSIONS map in
+  // @invoice/shared — the frontend never derives permissions from role
+  // itself, so a role's capabilities are only ever defined in one place.
+  return { ...rows[0], permissions: ROLE_PERMISSIONS[rows[0].role] };
 }

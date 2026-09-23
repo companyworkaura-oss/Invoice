@@ -4,7 +4,8 @@ import { config } from '../../config.js';
 import { badRequest } from '../../lib/http-error.js';
 import { getLogoStorage } from '../../lib/storage/index.js';
 import { asBody, optionalEmail, optionalString } from '../../lib/validate.js';
-import { auth, requireAuth, requireRole } from '../../middleware/auth.js';
+import { auth, requireAuth } from '../../middleware/auth.js';
+import { requirePermission } from '../../middleware/permissions.js';
 import * as service from './company.service.js';
 
 export const companyRouter = Router();
@@ -30,7 +31,7 @@ companyRouter.get('/', async (req, res) => {
   res.json(await service.getCompany(auth(req).companyId));
 });
 
-companyRouter.patch('/', requireRole('owner', 'admin'), async (req, res) => {
+companyRouter.patch('/', requirePermission('company.manage'), async (req, res) => {
   const body = asBody(req.body);
   const defaultCurrency = optionalString(body, 'defaultCurrency', { min: 3, max: 3 })?.toUpperCase();
   if (defaultCurrency && !/^[A-Z]{3}$/.test(defaultCurrency)) {
@@ -54,7 +55,7 @@ companyRouter.patch('/', requireRole('owner', 'admin'), async (req, res) => {
   res.json(await service.updateCompany(auth(req).companyId, patch));
 });
 
-companyRouter.post('/logo', requireRole('owner', 'admin'), upload.single('logo'), async (req, res) => {
+companyRouter.post('/logo', requirePermission('company.manage'), upload.single('logo'), async (req, res) => {
   if (!req.file) {
     throw badRequest('Validation failed', { logo: 'Attach an image (png, jpg, webp, or svg) under 2MB' });
   }

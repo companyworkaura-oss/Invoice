@@ -107,7 +107,7 @@ function App() {
             >
               {showProfile ? 'Hide company profile' : 'Company profile'}
             </button>
-            {showProfile && <CompanyProfilePanel key={me.company.id} role={me.role} />}
+            {showProfile && <CompanyProfilePanel key={me.company.id} permissions={me.permissions} />}
 
             <CompanySwitcher activeCompanyId={me.company.id} onSwitched={refreshMe} />
           </div>

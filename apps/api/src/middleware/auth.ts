@@ -1,6 +1,6 @@
 import type { NextFunction, Request, Response } from 'express';
 import { pool } from '../db/pool.js';
-import { forbidden, unauthorized } from '../lib/http-error.js';
+import { unauthorized } from '../lib/http-error.js';
 import { readCookie, SESSION_COOKIE } from '../lib/cookies.js';
 import { hashToken } from '../lib/token.js';
 
@@ -45,9 +45,5 @@ export function auth(req: Request): AuthContext {
   return req.auth;
 }
 
-export function requireRole(...roles: Role[]) {
-  return (req: Request, _res: Response, next: NextFunction) => {
-    if (!roles.includes(auth(req).role)) throw forbidden();
-    next();
-  };
-}
+// Role-gated routes use requirePermission (middleware/permissions.ts),
+// never a role-name check of their own — see that file for why.

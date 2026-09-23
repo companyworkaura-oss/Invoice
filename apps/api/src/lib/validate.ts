@@ -34,8 +34,14 @@ export function optionalEmail(body: Body, key: string): string | undefined {
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-export function requireUuidParam(value: string, name = 'id'): string {
-  if (!UUID_RE.test(value)) throw badRequest('Validation failed', { [name]: 'Must be a UUID' });
+// `unknown`, not `string`: Express types req.params values as `string | string[]`
+// (to allow wildcard routes elsewhere in the app), and a route with two or more
+// handlers loses the path-literal narrowing to plain `string` that a single
+// handler gets — so this validates defensively rather than assuming the shape.
+export function requireUuidParam(value: unknown, name = 'id'): string {
+  if (typeof value !== 'string' || !UUID_RE.test(value)) {
+    throw badRequest('Validation failed', { [name]: 'Must be a UUID' });
+  }
   return value;
 }
 

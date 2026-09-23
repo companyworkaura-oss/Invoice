@@ -1,11 +1,11 @@
-import type { CompanyProfile, Role } from '@invoice/shared';
+import type { CompanyProfile, Permission } from '@invoice/shared';
 import { useEffect, useState } from 'react';
 import * as companyApi from './api';
 import { CompanyProfileForm } from './CompanyProfileForm';
 import { LogoUploader } from './LogoUploader';
 
 interface Props {
-  role: Role;
+  permissions: Permission[];
 }
 
 /**
@@ -13,9 +13,9 @@ interface Props {
  * company remounts it — state starts fresh at `null` instead of us having
  * to reset it imperatively inside an effect.
  */
-export function CompanyProfilePanel({ role }: Props) {
+export function CompanyProfilePanel({ permissions }: Props) {
   const [profile, setProfile] = useState<CompanyProfile | null>(null);
-  const canEdit = role === 'owner' || role === 'admin';
+  const canEdit = permissions.includes('company.manage');
 
   useEffect(() => {
     companyApi.fetchProfile().then(setProfile).catch(() => setProfile(null));

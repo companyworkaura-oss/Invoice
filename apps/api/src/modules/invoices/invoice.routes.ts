@@ -11,6 +11,7 @@ import {
   requireUuidParam,
 } from '../../lib/validate.js';
 import { auth, requireAuth } from '../../middleware/auth.js';
+import { requirePermission } from '../../middleware/permissions.js';
 import * as service from './invoice.service.js';
 import { generateInvoicePdf } from './pdf/pdf.service.js';
 import { buildInvoiceWhatsAppShare } from './whatsapp-share.service.js';
@@ -40,7 +41,7 @@ function parseItems(body: Record<string, unknown>): service.InvoiceItemInput[] {
   });
 }
 
-invoicesRouter.post('/', async (req, res) => {
+invoicesRouter.post('/', requirePermission('invoice.create'), async (req, res) => {
   const body = asBody(req.body);
 
   const status = optionalString(body, 'status', { max: 20 });
@@ -63,7 +64,7 @@ function queryString(req: Request, key: string): string | undefined {
   return typeof req.query[key] === 'string' ? (req.query[key] as string) : undefined;
 }
 
-invoicesRouter.get('/', async (req, res) => {
+invoicesRouter.get('/', requirePermission('invoice.view'), async (req, res) => {
   const status = queryString(req, 'status');
   const customerId = queryString(req, 'customerId');
   const search = queryString(req, 'search');
@@ -79,14 +80,14 @@ invoicesRouter.get('/', async (req, res) => {
   res.json(await service.listInvoices(auth(req).companyId, { status, customerId, from, to, paymentStatus, search }));
 });
 
-invoicesRouter.get('/:invoiceId', async (req, res) => {
+invoicesRouter.get('/:invoiceId', requirePermission('invoice.view'), async (req, res) => {
   const invoiceId = requireUuidParam(req.params.invoiceId, 'invoiceId');
   res.json(await service.getInvoice(auth(req).companyId, invoiceId));
 });
 
 // Copies this invoice's items into a brand-new draft; never copies
 // payments or ledger entries — see duplicateInvoice in invoice.service.ts.
-invoicesRouter.post('/:invoiceId/duplicate', async (req, res) => {
+invoicesRouter.post('/:invoiceId/duplicate', requirePermission('invoice.create'), async (req, res) => {
   const invoiceId = requireUuidParam(req.params.invoiceId, 'invoiceId');
   const invoice = await service.duplicateInvoice(auth(req).companyId, invoiceId);
   res.status(201).json(invoice);
@@ -95,7 +96,7 @@ invoicesRouter.post('/:invoiceId/duplicate', async (req, res) => {
 // A4 PDF, rendered server-side from this invoice's saved snapshots — see
 // pdf/pdf.service.ts. ?template= previews a different template for this
 // one download without changing the company's default.
-invoicesRouter.get('/:invoiceId/pdf', async (req, res) => {
+invoicesRouter.get('/:invoiceId/pdf', requirePermission('invoice.view'), async (req, res) => {
   const invoiceId = requireUuidParam(req.params.invoiceId, 'invoiceId');
   const templateId = typeof req.query.template === 'string' ? req.query.template : undefined;
   const { buffer, filename } = await generateInvoicePdf(auth(req).companyId, invoiceId, templateId);
@@ -109,7 +110,7 @@ invoicesRouter.get('/:invoiceId/pdf', async (req, res) => {
 // WhatsAppService interface (see lib/whatsapp) so a future paid
 // WhatsApp Business Cloud API integration is a provider swap, not a
 // change to invoice logic.
-invoicesRouter.get('/:invoiceId/whatsapp-share', async (req, res) => {
+invoicesRouter.get('/:invoiceId/whatsapp-share', requirePermission('invoice.view'), async (req, res) => {
   const invoiceId = requireUuidParam(req.params.invoiceId, 'invoiceId');
   res.json(await buildInvoiceWhatsAppShare(auth(req).companyId, invoiceId));
 });

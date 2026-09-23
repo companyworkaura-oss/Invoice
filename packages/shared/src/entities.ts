@@ -3,6 +3,7 @@
  * Business modules (customers, formulas, invoices, ...) add their own
  * types here as those phases are implemented.
  */
+import type { Permission } from './permissions.js';
 
 /** Money is always a decimal string (e.g. "1234.50"), never a float. */
 export type Money = string;
@@ -39,6 +40,8 @@ export interface Me {
   email: string;
   fullName: string;
   role: Role;
+  /** This role's permission set (Phase 17) — see @invoice/shared's permissions.ts. Server-computed; the frontend never derives this from `role` itself. */
+  permissions: Permission[];
   company: Company;
 }
 
