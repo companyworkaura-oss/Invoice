@@ -1,10 +1,15 @@
 import type { Customer } from '@invoice/shared';
 import { useState } from 'react';
+import { CustomerStatementView } from '../ledger/CustomerStatementView';
 import { CustomerDetails } from './CustomerDetails';
 import { CustomerForm } from './CustomerForm';
 import { CustomerList } from './CustomerList';
 
-type View = { name: 'list' } | { name: 'details'; customer: Customer } | { name: 'form'; customer?: Customer };
+type View =
+  | { name: 'list' }
+  | { name: 'details'; customer: Customer }
+  | { name: 'form'; customer?: Customer }
+  | { name: 'statement'; customer: Customer };
 
 export function CustomersPage() {
   const [view, setView] = useState<View>({ name: 'list' });
@@ -16,7 +21,7 @@ export function CustomersPage() {
 
   return (
     <div>
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between print:hidden">
         <h2 className="text-sm font-semibold text-slate-900">Customers</h2>
         {view.name === 'list' && (
           <button
@@ -43,6 +48,7 @@ export function CustomersPage() {
             }}
             onEdit={() => setView({ name: 'form', customer: view.customer })}
             onArchived={(customer) => setView({ name: 'details', customer })}
+            onViewStatement={() => setView({ name: 'statement', customer: view.customer })}
           />
         )}
 
@@ -55,6 +61,10 @@ export function CustomersPage() {
             }}
             onCancel={() => setView(view.customer ? { name: 'details', customer: view.customer } : { name: 'list' })}
           />
+        )}
+
+        {view.name === 'statement' && (
+          <CustomerStatementView customer={view.customer} onBack={() => setView({ name: 'details', customer: view.customer })} />
         )}
       </div>
     </div>

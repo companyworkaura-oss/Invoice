@@ -187,6 +187,43 @@ export interface CustomerLedger {
   balance: Money;
 }
 
+/**
+ * One row of a customer statement (Phase 16). Unlike a raw LedgerEntry,
+ * this carries a human-readable `reference` (invoice number / payment
+ * reference / "Opening Balance" / "Adjustment") and its running balance
+ * as of this transaction — both derived on read from the ledger, never
+ * stored. See apps/api's statement.service.ts for exactly how
+ * `runningBalance` is ordered and computed.
+ */
+export interface StatementEntry {
+  id: string;
+  date: string;
+  type: LedgerEntryType;
+  reference: string | null;
+  description: string | null;
+  debit: Money;
+  credit: Money;
+  runningBalance: Money;
+}
+
+/**
+ * Returned by GET /api/customers/:customerId/ledger/statement. Summary
+ * figures (openingBalance/invoiceTotal/payments/closingBalance) reflect
+ * the selected date range only — never narrowed by the `type` filter,
+ * which only changes which rows appear in `entries`.
+ */
+export interface CustomerStatement {
+  customerId: string;
+  customerName: string;
+  from: string | null;
+  to: string | null;
+  openingBalance: Money;
+  invoiceTotal: Money;
+  payments: Money;
+  closingBalance: Money;
+  entries: StatementEntry[];
+}
+
 export type PaymentMethod = 'cash' | 'bank' | 'cheque' | 'other';
 
 /**

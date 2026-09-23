@@ -9,6 +9,7 @@ interface Props {
   onBack: () => void;
   onEdit: () => void;
   onArchived: (customer: Customer) => void;
+  onViewStatement: () => void;
 }
 
 const ROW: [string, keyof Customer][] = [
@@ -20,7 +21,7 @@ const ROW: [string, keyof Customer][] = [
   ['Notes', 'notes'],
 ];
 
-export function CustomerDetails({ customer, onBack, onEdit, onArchived }: Props) {
+export function CustomerDetails({ customer, onBack, onEdit, onArchived, onViewStatement }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [archiving, setArchiving] = useState(false);
 
@@ -66,6 +67,13 @@ export function CustomerDetails({ customer, onBack, onEdit, onArchived }: Props)
           className="rounded-md border border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50"
         >
           Edit
+        </button>
+        <button
+          type="button"
+          onClick={onViewStatement}
+          className="rounded-md border border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50"
+        >
+          View Statement
         </button>
         {customer.status === 'active' && (
           <button
