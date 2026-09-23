@@ -1,7 +1,7 @@
 # Project memory — Embroidery Billing SaaS
 
 Read this before making changes. It captures architecture, conventions, and
-decisions from Phases 1–16 so future work stays consistent instead of
+decisions from Phases 1–17 so future work stays consistent instead of
 re-deriving (or accidentally contradicting) what's already here.
 
 ## What this is
@@ -77,10 +77,9 @@ across workspaces in dependency order (shared → api/web). `test` builds
 6. **Auth/session**: httpOnly, `SameSite=Lax` cookie holding a session
    token (only its SHA-256 hash is stored). `requireAuth` joins
    `sessions` → `company_members` so a revoked membership invalidates the
-   session immediately. `requireRole('owner','admin')` gates
-   company-settings endpoints; customers/categories/invoices are editable
-   by any authenticated member (owner/admin/staff) since they're
-   operational data entry.
+   session immediately. Route access is gated by permission, not role
+   name — see "Role Permissions (Phase 17)" below; there is no
+   `requireRole` anymore.
 7. **Formula engine, no eval()**: `packages/shared/src/formula-engine/` is
    a hand-written recursive-descent parser (tokenizer → parser → AST →
    evaluator) over a fixed variable allow-list (`stitches`, `rate`,
@@ -338,6 +337,57 @@ produced a genuine 2-page PDF with every row intact.
   existing global `@page { size: A4; margin: 0 }` rule from Phase 11 —
   the same `print:hidden` toolbar convention as `InvoiceTemplateView`.
 
+## Role Permissions (Phase 17)
+
+- `packages/shared/src/permissions.ts` is the **one** place a role's
+  capabilities are defined: `PERMISSIONS` (the fixed list — 13 strings
+  as of this phase, e.g. `'invoice.view'`, `'customer.edit'`,
+  `'company.manage'`) and `ROLE_PERMISSIONS: Record<Role, readonly
+  Permission[]>`. `owner: PERMISSIONS` (the whole array itself, not a
+  hand-copied subset) — a new permission added to the list is
+  automatically granted to owner. `admin` is every permission except
+  `users.manage`. `staff` is the operational set this app already
+  granted any member before this phase (view/create/edit on customers,
+  view/manage on formulas, view/create on invoices and payments) — no
+  `company.manage`, no `users.manage`, and neither `invoice.edit` nor
+  `invoice.cancel` (no route exposes either yet, since invoices still
+  have no PATCH/edit or cancel endpoint — those two permissions exist
+  ready for whichever future phase adds one).
+- **This is plain RBAC, not a per-user ACL.** No permissions column
+  exists on `company_members`; a permission is derived purely from
+  `role` via `ROLE_PERMISSIONS`, every time, never stored per-user. If a
+  future phase needs per-user overrides, that's a real schema/design
+  change, not an extension of this map.
+- `apps/api/src/middleware/permissions.ts`'s `requirePermission(...perms)`
+  is the **only** place any route checks access — no route file ever
+  inlines a role-name check (`role === 'owner'` etc.) itself.
+  `requireRole` is gone entirely; its one former use
+  (`company.routes.ts`) now calls `requirePermission('company.manage')`.
+  Every route that touches a listed permission is gated: customers,
+  categories/formulas, invoices (create/view/list/pdf/whatsapp-share/
+  duplicate), payments, ledger (`customer.view` for reads,
+  `payment.create` for `/adjustments` — the closest fit, since a manual
+  ledger correction is a money movement like a payment, just from a
+  different entry point), and the dashboard (`invoice.view`, since
+  that's most of what it summarizes).
+- `GET /api/auth/me` returns `permissions: Permission[]` alongside
+  `role` (computed server-side from `ROLE_PERMISSIONS`, added to `Me` in
+  `packages/shared/src/entities.ts`). The frontend must always read
+  `me.permissions`, never re-derive access from `me.role` — see
+  `CompanyProfilePanel.tsx`, which used to hardcode
+  `role === 'owner' || role === 'admin'` and now checks
+  `permissions.includes('company.manage')`.
+- **Gotcha found and fixed in this phase**: adding a *second* Express
+  handler to a route that used to have only one (`router.get(path,
+  requirePermission(...), handler)`) breaks TypeScript's usual
+  literal-path narrowing of `req.params` down to plain `string` values —
+  it falls back to `ParamsDictionary`'s real index signature, `string |
+  string[]` (there to support wildcard routes elsewhere in Express).
+  `requireUuidParam` in `apps/api/src/lib/validate.ts` now takes
+  `unknown` and checks `typeof value === 'string'` itself rather than
+  assuming the shape — do the same in any new validator that reads
+  `req.params` on a route with more than one handler.
+
 ## Known gotchas / things to check before starting work
 
 - **Postgres cluster is often stopped** when a session starts:
@@ -379,7 +429,7 @@ produced a genuine 2-page PDF with every row intact.
   (`auth.test.ts`, `customers.test.ts`, `categories.test.ts`,
   `invoices.test.ts`, `ledger.test.ts`, `payments.test.ts`,
   `whatsapp.test.ts`, `dashboard.test.ts`, `invoice-history.test.ts`,
-  `statement.test.ts`, `tenant-isolation.test.ts`,
+  `statement.test.ts`, `permissions.test.ts`, `tenant-isolation.test.ts`,
   `company-profile.test.ts`, `invoice-pdf-html.test.ts` — fast, no
   browser, tests the HTML string directly — and `invoice-pdf.test.ts` —
   full pipeline through a real headless Chromium, checks actual PDF
@@ -436,6 +486,10 @@ produced a genuine 2-page PDF with every row intact.
     type filters, an opening/invoice-total/payments/closing summary, and
     Print/PDF — see "Customer Statement (Phase 16)" above, especially
     its date-vs-created_at ordering note before touching this code
+17. Role Permissions: owner/admin/staff extended into a fixed granular
+    permission list via one ROLE_PERMISSIONS map (shared by both apps),
+    enforced everywhere by a single requirePermission middleware — see
+    "Role Permissions (Phase 17)" above
 
 Repo also went through a monorepo restructure (`server/` → `apps/api` +
 new `apps/web` + `packages/shared`) between Phase 1 and Phase 2.
