@@ -1,7 +1,7 @@
 # Project memory — Embroidery Billing SaaS
 
 Read this before making changes. It captures architecture, conventions, and
-decisions from Phases 1–14 so future work stays consistent instead of
+decisions from Phases 1–15 so future work stays consistent instead of
 re-deriving (or accidentally contradicting) what's already here.
 
 ## What this is
@@ -103,7 +103,7 @@ across workspaces in dependency order (shared → api/web). `test` builds
 | company | `/api/company`, `/api/company/logo` | full profile (Phase 3): factory name, logo, contact, invoice prefix/currency/**defaultInvoiceTemplate**/terms. Logo storage behind `LogoStorage` interface (`apps/api/src/lib/storage/`) — local disk today, swappable later |
 | customers | `/api/customers` | CRUD + search + archive (soft, never deleted) |
 | formulas (categories) | `/api/categories` | CRUD + enable/disable (soft); `formula_type` free text, `formula_config` jsonb |
-| invoices | `/api/invoices`, `.../pdf`, `.../whatsapp-share` | create (all calc server-side)/list/view only — **no PATCH/edit**, by design; PDF and WhatsApp share are read-only derivations of a saved invoice |
+| invoices | `/api/invoices`, `.../pdf`, `.../whatsapp-share`, `.../duplicate` | create (all calc server-side)/list/view only — **no PATCH/edit**, by design; PDF and WhatsApp share are read-only derivations of a saved invoice; duplicate creates a brand-new draft via createInvoice itself, never a copy at the DB row level |
 | ledger | `/api/customers/:customerId/ledger`, `.../payments`, `.../adjustments` | view ledger+balance, record a payment (credit) or adjustment (exactly one of debit/credit) |
 | dashboard | `/api/dashboard` | read-only summary (cards + recent lists) computed live from invoices/payments/ledger; no tables of its own |
 
@@ -249,6 +249,59 @@ produced a genuine 2-page PDF with every row intact.
   (Today/This Month/Custom Range) plus From/To date inputs that only
   render for Custom.
 
+## Invoice History (Phase 15)
+
+- `GET /api/invoices` (the same endpoint since Phase 7) now returns
+  `paid`, `balance`, and `paymentStatus` (`'PAID' | 'PARTIAL' | 'UNPAID'
+  | 'CANCELLED'`) on every row, alongside the existing `totalAmount`
+  ("Current Bill"). This is a **different status** from the invoice's
+  own workflow `status` (draft/issued/cancelled) — `paymentStatus` is
+  about money owed, `status` is about the invoice's lifecycle stage.
+  Both are returned; don't confuse them when adding new UI.
+- The FIFO/AR-aging math that produces `paid`/`balance`/`paymentStatus`
+  per row lives in `invoice.service.ts`'s `listInvoices` — it's the same
+  "pay off the oldest debt first" rule as the dashboard's
+  `unpaidOrPartialInvoiceCount` (Phase 14), just computed per-row via a
+  window function instead of aggregated into one count. **Watch the
+  `COALESCE(o.cumulative_before, 0)` on a customer's very first debit
+  row** — forgetting it once already produced silently-wrong `paid`
+  amounts (Postgres's `GREATEST`/`LEAST` ignore `NULL` operands instead
+  of propagating them, so a missing COALESCE there doesn't error, it
+  just quietly returns the wrong number — caught only because the tests
+  asserted exact FIFO values, not just "some value").
+- New filters on the same endpoint: `from`/`to` (invoiceDate range),
+  `paymentStatus`, `search` (invoice number or customer name, ILIKE).
+  The FIFO CTEs are scoped only by `company_id` — every filter is
+  applied in the outer `WHERE`, never by trimming which ledger rows feed
+  the FIFO math, since a customer's paymentStatus needs their *entire*
+  ledger to compute correctly.
+- `POST /api/invoices/:invoiceId/duplicate` copies an invoice's items
+  (category, description, stitches, and the item's own original `rate`
+  — not the category's current default) into a brand-new draft by
+  calling `createInvoice` itself, so it's impossible for a duplicate to
+  accidentally carry over a payment or ledger entry: `createInvoice`
+  only ever creates its own new ledger row. An item whose `categoryId`
+  is null (the category was hard-deleted — `ON DELETE SET NULL`) is
+  rejected up front with a clear reason, since there's nothing left to
+  re-validate against.
+- Frontend: `InvoiceTemplateView` gained an `initialAction?: 'print' |
+  'download' | 'whatsapp'` prop so Invoice History's row buttons can
+  reuse it wholesale (fetch the full invoice, open the template, let it
+  auto-fire the action) instead of duplicating Print/PDF/WhatsApp logic.
+  That prop's effect deliberately omits `handlePrint`/`handleDownload`/
+  `handleShare` from its dependency array (they're plain function
+  declarations redefined every render, not `useCallback`-memoized) and
+  guards with a `useRef` flag so it fires exactly once; the actual call
+  is deferred with `queueMicrotask` so the handler's own `setState`
+  calls don't run synchronously inside the effect.
+- No route can currently set `status = 'cancelled'` on an invoice — the
+  CHECK constraint allows it (schema future-proofing from Phase 7) but
+  nothing in this app exposes cancellation yet. If that's ever added, an
+  invoice's own debit should be reversed in the ledger at cancellation
+  time, or the FIFO math above will keep treating a cancelled invoice's
+  original debt as real when computing every *other* invoice's
+  paymentStatus.
+
 ## Known gotchas / things to check before starting work
 
 - **Postgres cluster is often stopped** when a session starts:
@@ -289,7 +342,8 @@ produced a genuine 2-page PDF with every row intact.
 - `node:test` + `supertest`, one file per module in `apps/api/test/`
   (`auth.test.ts`, `customers.test.ts`, `categories.test.ts`,
   `invoices.test.ts`, `ledger.test.ts`, `payments.test.ts`,
-  `whatsapp.test.ts`, `dashboard.test.ts`, `tenant-isolation.test.ts`,
+  `whatsapp.test.ts`, `dashboard.test.ts`, `invoice-history.test.ts`,
+  `tenant-isolation.test.ts`,
   `company-profile.test.ts`, `invoice-pdf-html.test.ts` — fast, no
   browser, tests the HTML string directly — and `invoice-pdf.test.ts` —
   full pipeline through a real headless Chromium, checks actual PDF
@@ -336,6 +390,11 @@ produced a genuine 2-page PDF with every row intact.
     Today/This Month/Custom filters, now the default landing tab; FIFO
     aging for the unpaid/partial invoice count (see "Dashboard
     (Phase 14)" above)
+15. Invoice History: the invoice list gained per-row paid/balance/
+    paymentStatus (FIFO-aged), search + customer/date/status filters,
+    and row actions (View/Print/PDF/WhatsApp/Duplicate); duplicate
+    copies items into a new draft only, never payments or ledger entries
+    (see "Invoice History (Phase 15)" above)
 
 Repo also went through a monorepo restructure (`server/` → `apps/api` +
 new `apps/web` + `packages/shared`) between Phase 1 and Phase 2.
