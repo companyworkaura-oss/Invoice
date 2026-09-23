@@ -13,6 +13,7 @@ import {
 import { auth, requireAuth } from '../../middleware/auth.js';
 import * as service from './invoice.service.js';
 import { generateInvoicePdf } from './pdf/pdf.service.js';
+import { buildInvoiceWhatsAppShare } from './whatsapp-share.service.js';
 
 export const invoicesRouter = Router();
 invoicesRouter.use(requireAuth);
@@ -78,4 +79,14 @@ invoicesRouter.get('/:invoiceId/pdf', async (req, res) => {
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
   res.send(buffer);
+});
+
+// Builds a WhatsApp share payload (message text + wa.me link) for this
+// invoice, using the customer's saved WhatsApp number. Behind the
+// WhatsAppService interface (see lib/whatsapp) so a future paid
+// WhatsApp Business Cloud API integration is a provider swap, not a
+// change to invoice logic.
+invoicesRouter.get('/:invoiceId/whatsapp-share', async (req, res) => {
+  const invoiceId = requireUuidParam(req.params.invoiceId, 'invoiceId');
+  res.json(await buildInvoiceWhatsAppShare(auth(req).companyId, invoiceId));
 });

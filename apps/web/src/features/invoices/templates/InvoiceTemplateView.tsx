@@ -26,6 +26,8 @@ export function InvoiceTemplateView({ invoice, onBack }: Props) {
   const [templateId, setTemplateId] = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState<string | null>(null);
+  const [sharing, setSharing] = useState(false);
+  const [shareError, setShareError] = useState<string | null>(null);
 
   useEffect(() => {
     companyApi.fetchProfile().then((c) => {
@@ -76,6 +78,24 @@ export function InvoiceTemplateView({ invoice, onBack }: Props) {
     }
   }
 
+  async function handleShare() {
+    setShareError(null);
+    setSharing(true);
+    try {
+      // Server builds the message from the invoice's own ledger-derived
+      // stats and the customer's saved WhatsApp number, then hands back
+      // a wa.me link — see apps/api's whatsapp-share.service.ts.
+      const share = await invoicesApi.getWhatsAppShare(invoice.id);
+      window.open(share.url, '_blank', 'noopener,noreferrer');
+    } catch (err) {
+      setShareError(
+        err instanceof ApiError ? (err.body.details?.whatsapp ?? err.body.error) : 'Could not build the WhatsApp share link',
+      );
+    } finally {
+      setSharing(false);
+    }
+  }
+
   return (
     <div>
       <div className="flex flex-wrap items-center justify-between gap-2 print:hidden">
@@ -105,13 +125,22 @@ export function InvoiceTemplateView({ invoice, onBack }: Props) {
             type="button"
             onClick={handleDownload}
             disabled={downloading}
-            className="rounded-md bg-slate-900 px-3 py-1 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50"
+            className="rounded-md border border-slate-300 px-3 py-1 text-sm text-slate-600 hover:bg-slate-50 disabled:opacity-50"
           >
             {downloading ? 'Preparing…' : 'Download PDF'}
+          </button>
+          <button
+            type="button"
+            onClick={handleShare}
+            disabled={sharing}
+            className="rounded-md bg-green-600 px-3 py-1 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50"
+          >
+            {sharing ? 'Preparing…' : 'Share via WhatsApp'}
           </button>
         </div>
       </div>
       {downloadError && <p className="mt-1 text-sm text-red-600 print:hidden">{downloadError}</p>}
+      {shareError && <p className="mt-1 text-sm text-red-600 print:hidden">{shareError}</p>}
 
       {/*
         The gray surround is the on-screen "print preview" frame; the

@@ -1,4 +1,4 @@
-import type { InvoiceListEntry, InvoiceStatus, InvoiceWithItems } from '@invoice/shared';
+import type { InvoiceListEntry, InvoiceStatus, InvoiceWithItems, WhatsAppSharePayload } from '@invoice/shared';
 import { ApiError, api } from '../../lib/api';
 
 export interface InvoiceItemInput {
@@ -55,3 +55,12 @@ export async function fetchInvoicePdf(invoiceId: string, templateId?: string): P
   }
   return res.blob();
 }
+
+/**
+ * Builds a WhatsApp share payload (message text + wa.me link) server-side
+ * from the customer's saved WhatsApp number. Behind the same interface on
+ * the API side that a future paid WhatsApp Business Cloud API would slot
+ * into — this call never changes shape.
+ */
+export const getWhatsAppShare = (invoiceId: string) =>
+  api<WhatsAppSharePayload>(`/invoices/${invoiceId}/whatsapp-share`);
