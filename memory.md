@@ -142,6 +142,40 @@ HTML) on every item row and the summary box is what keeps them from being
 sliced across a page boundary — verified with a real 30-item invoice that
 produced a genuine 2-page PDF with every row intact.
 
+## Payments (Phase 12)
+
+- `payments` table (migration `007_payments.sql`): customer, amount
+  (checked > 0), date, payment_method (`cash`/`bank`/`cheque`/`other`),
+  reference, notes. No stored balance column — same rule as everywhere
+  else: the ledger is the only source of truth for balance.
+- `apps/api/src/modules/payments` (service + routes) is the *only* way to
+  record a payment now. `createPayment` runs the insert and the matching
+  `postLedgerEntry(..., type: 'PAYMENT', credit: amount)` inside one
+  `withTransaction` call, using the same `client` for both writes — the
+  pattern to copy any time a write needs a side-effect ledger entry.
+  `requireCustomer` was promoted from private to exported in
+  `ledger.service.ts` specifically so this module could reuse the same
+  tenant-scoped existence check instead of duplicating it.
+- The old `POST /api/customers/:id/ledger/payments` route is gone;
+  `ledger.routes.ts` now only exposes `GET /` (read) and
+  `POST /adjustments` (manual ledger adjustments). Payments always go
+  through `POST /api/payments`.
+- Frontend: one reusable `PaymentForm` component
+  (`apps/web/src/features/payments/PaymentForm.tsx`) used from three
+  entry points — it takes an optional `customerId` prop (hides the
+  customer selector and fixes the target when supplied) and an optional
+  `suggestedAmount` prop (pre-fills the amount field, used on the invoice
+  page to default to the invoice's current balance). Entry points:
+  customer page (`CustomerLedgerPanel`, fixed customer), invoice page
+  (`InvoiceDetails`, fixed customer + suggested amount, refreshes the
+  invoice in place after payment via a new `onInvoiceUpdated` prop
+  threaded up through `InvoicesPage`), and a standalone Payments page/tab
+  (open customer selector, plus a table of all company payments).
+- Partial payments are just payments smaller than the outstanding
+  balance — no special-casing needed anywhere, since the balance is
+  always `SUM(debit) - SUM(credit)` over the ledger and payments only
+  ever add one credit row at a time.
+
 ## Known gotchas / things to check before starting work
 
 - **Postgres cluster is often stopped** when a session starts:
@@ -181,7 +215,8 @@ produced a genuine 2-page PDF with every row intact.
 
 - `node:test` + `supertest`, one file per module in `apps/api/test/`
   (`auth.test.ts`, `customers.test.ts`, `categories.test.ts`,
-  `invoices.test.ts`, `ledger.test.ts`, `tenant-isolation.test.ts`,
+  `invoices.test.ts`, `ledger.test.ts`, `payments.test.ts`,
+  `tenant-isolation.test.ts`,
   `company-profile.test.ts`, `invoice-pdf-html.test.ts` — fast, no
   browser, tests the HTML string directly — and `invoice-pdf.test.ts` —
   full pipeline through a real headless Chromium, checks actual PDF
@@ -215,14 +250,19 @@ produced a genuine 2-page PDF with every row intact.
 11. Print & PDF: A4 print preview + browser print with correct margins
     and no split rows, plus a real downloadable PDF (headless Chromium,
     server-side, from saved snapshots) preserving the selected template
+12. Payments: dedicated `payments` table + module, payment + ledger
+    credit written in one transaction, reusable `PaymentForm` wired into
+    customer page / invoice page / new Payments page, partial payments
+    supported by construction (see "Payments (Phase 12)" above); removed
+    the old ledger-embedded payment endpoint
 
 Repo also went through a monorepo restructure (`server/` → `apps/api` +
 new `apps/web` + `packages/shared`) between Phase 1 and Phase 2.
 
 ## Not yet built (candidates for future phases)
 
-- Payments/expenses as their own module (currently only ledger PAYMENT
-  entries exist, recorded from the customer ledger panel)
+- Expenses/outgoing payments (Phase 12 only covers customer payments
+  received)
 - Invoice editing/cancellation (only create/view/list exist, by design —
   revisit only if explicitly requested)
 - Reporting/dashboards, machines/production tracking (mentioned in the
