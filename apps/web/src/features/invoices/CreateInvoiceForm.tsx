@@ -233,11 +233,16 @@ export function CreateInvoiceForm({ onCreated, onCancel }: Props) {
                       value={row.categoryId}
                       onChange={(e) => {
                         const cat = categoryById.get(e.target.value);
-                        // Pre-fill the rate from the category's default,
-                        // but only if the field is still untouched.
+                        // A category change always replaces the rate with
+                        // the newly selected category's default (or clears
+                        // it if the selection was cleared) — never keep a
+                        // rate left over from the previous category, even
+                        // if it was manually edited. Manual edits are only
+                        // preserved between category changes, not across
+                        // them (see updateItem's Rate <input> onChange).
                         updateItem(index, {
                           categoryId: e.target.value,
-                          rate: row.rate || cat?.defaultRate || '',
+                          rate: cat?.defaultRate ?? '',
                         });
                       }}
                       className={inputClass(Boolean(rowErrors?.categoryId))}
