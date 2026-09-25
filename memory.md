@@ -111,7 +111,13 @@ Frontend: `apps/web/src/features/invoices/templates/` (Phase 10) — 5
 selectable print-friendly invoice designs (Classic Navy, Modern Curve,
 Minimal Clean, Industrial Blue, Premium Modern), all rendering the same
 `InvoiceViewModel` (deliberately excludes formula/factor/multiplier/divisor
-— enforced by the type shape, not just by convention). Registry-based:
+**and the per-item `rate`** — enforced by the type shape, not just by
+convention; the internal embroidery rate is a business-internal value,
+never customer-facing — see change request "hide internal rate", it's
+still on the operational `InvoiceWithItems`/DB snapshot and used
+server-side to calculate `amount`, just not carried into this view).
+Customer-facing item columns are Description / Stitches / Amount.
+Registry-based:
 add a template = one new component + one registry line, no backend
 changes. Default template is chosen per-company via the Company Profile
 form's select (`CompanyProfile.defaultInvoiceTemplate`, stored as a plain
