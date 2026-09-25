@@ -30,7 +30,6 @@ export function IndustrialBlueTemplate({ invoice }: { invoice: InvoiceViewModel 
           <tr className="border-b-2 border-blue-800 bg-blue-50 text-left text-xs font-bold uppercase tracking-wide text-blue-800">
             <th className="px-6 py-2">Description</th>
             <th className="px-3 py-2 text-right">Stitches</th>
-            <th className="px-3 py-2 text-right">Rate</th>
             <th className="px-6 py-2 text-right">Amount</th>
           </tr>
         </thead>
@@ -39,7 +38,6 @@ export function IndustrialBlueTemplate({ invoice }: { invoice: InvoiceViewModel 
             <tr key={item.id} className="break-inside-avoid border-b border-blue-100">
               <td className="px-6 py-2">{item.description}</td>
               <td className="px-3 py-2 text-right">{item.stitches}</td>
-              <td className="px-3 py-2 text-right">{item.rate}</td>
               <td className="px-6 py-2 text-right font-semibold">{item.amount}</td>
             </tr>
           ))}

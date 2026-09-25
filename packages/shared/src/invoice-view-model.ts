@@ -3,11 +3,13 @@ import type { Customer, CompanyProfile, InvoiceWithItems } from './entities.js';
 /**
  * Exactly what a printable invoice is allowed to show — deliberately a
  * narrower shape than InvoiceWithItems. There is no formula, factor,
- * formulaType, formulaConfig, or calculationInputs field here: a
- * template component physically cannot render what this object doesn't
- * carry, so "don't show calculation internals on the customer invoice"
- * is enforced by the data shape, not just by convention in each
- * template's JSX.
+ * formulaType, formulaConfig, calculationInputs, or per-item rate field
+ * here: a template component physically cannot render what this object
+ * doesn't carry, so "don't show calculation internals (including the
+ * internal embroidery rate) on the customer invoice" is enforced by the
+ * data shape, not just by convention in each template's JSX. The rate
+ * is still saved on the invoice item snapshot and used server-side to
+ * calculate `amount` — it's simply not carried into this view.
  */
 export interface InvoiceViewModel {
   company: {
@@ -33,7 +35,6 @@ export interface InvoiceViewModel {
     id: string;
     description: string;
     stitches: number;
-    rate: string;
     amount: string;
   }[];
   currentBill: string;
@@ -77,7 +78,6 @@ export function buildInvoiceViewModel(
       id: item.id,
       description: itemDescription(item),
       stitches: item.stitches,
-      rate: item.rate,
       amount: item.calculatedTotal,
     })),
     currentBill: invoice.totalAmount,

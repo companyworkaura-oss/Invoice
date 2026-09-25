@@ -41,7 +41,6 @@ export function PremiumModernTemplate({ invoice }: { invoice: InvoiceViewModel }
             <tr className="border-b border-amber-400 text-left text-xs uppercase tracking-widest text-slate-500">
               <th className="pb-2 font-medium">Description</th>
               <th className="pb-2 text-right font-medium">Stitches</th>
-              <th className="pb-2 text-right font-medium">Rate</th>
               <th className="pb-2 text-right font-medium">Amount</th>
             </tr>
           </thead>
@@ -50,7 +49,6 @@ export function PremiumModernTemplate({ invoice }: { invoice: InvoiceViewModel }
               <tr key={item.id} className="break-inside-avoid border-b border-slate-100">
                 <td className="py-2.5">{item.description}</td>
                 <td className="py-2.5 text-right">{item.stitches}</td>
-                <td className="py-2.5 text-right">{item.rate}</td>
                 <td className="py-2.5 text-right">{item.amount}</td>
               </tr>
             ))}

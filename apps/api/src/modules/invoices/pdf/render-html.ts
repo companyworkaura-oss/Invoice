@@ -18,8 +18,10 @@ function line(...parts: (string | null | undefined)[]): string {
  * selected template. Rendered server-side, from the invoice's own saved
  * snapshots (InvoiceViewModel never carries formula/factor/multiplier/
  * divisor — see @invoice/shared's invoice-view-model.ts), then handed to
- * a headless Chromium to print to PDF (see pdf.service.ts). break-inside
- * avoid on every row/box is what keeps a line item or the summary box
+ * a headless Chromium to print to PDF (see pdf.service.ts). The per-item
+ * rate is deliberately not in InvoiceViewModel either — internal only,
+ * never shown to the customer. break-inside avoid on every row/box is
+ * what keeps a line item or the summary box
  * from being sliced across a page boundary.
  */
 export function renderInvoiceHtml(theme: PdfTheme, invoice: InvoiceViewModel, logoDataUri: string | null): string {
@@ -31,7 +33,6 @@ export function renderInvoiceHtml(theme: PdfTheme, invoice: InvoiceViewModel, lo
       <tr>
         <td>${escapeHtml(item.description)}</td>
         <td class="num">${item.stitches}</td>
-        <td class="num">${escapeHtml(item.rate)}</td>
         <td class="num">${escapeHtml(item.amount)}</td>
       </tr>`,
     )
@@ -123,7 +124,6 @@ export function renderInvoiceHtml(theme: PdfTheme, invoice: InvoiceViewModel, lo
           <tr>
             <th>Description</th>
             <th class="num">Stitches</th>
-            <th class="num">Rate</th>
             <th class="num">Amount</th>
           </tr>
         </thead>

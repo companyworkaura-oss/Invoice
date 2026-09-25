@@ -30,7 +30,7 @@ const viewModel: InvoiceViewModel = {
   invoiceDate: '2026-01-15',
   quantity: '10.00',
   items: [
-    { id: 'item-1', description: 'HS/HP embroidery', stitches: 12000, rate: '1.20', amount: '144.00' },
+    { id: 'item-1', description: 'HS/HP embroidery', stitches: 12000, amount: '144.00' },
   ],
   currentBill: '144.00',
   previousBalance: '50.00',
@@ -70,6 +70,16 @@ test('never renders formula/factor/multiplier/divisor or calculation internals',
       const re = new RegExp(`\\b${forbidden}\\b`, 'i');
       assert.ok(!re.test(html), `${id} theme must not mention "${forbidden}"`);
     }
+  }
+});
+
+test('never renders the internal embroidery rate, even though it drove the amount', () => {
+  for (const id of Object.keys(PDF_THEMES)) {
+    const html = renderInvoiceHtml(getPdfTheme(id), viewModel, null);
+    assert.ok(!/\bRate\b/.test(html), `${id} theme must not have a Rate column/label`);
+    // The rate value itself ('1.20') must not leak in either, distinct
+    // from the amount ('144.00') which legitimately does appear.
+    assert.ok(!html.includes('>1.20<'), `${id} theme must not render the rate value`);
   }
 });
 

@@ -36,7 +36,6 @@ export function MinimalCleanTemplate({ invoice }: { invoice: InvoiceViewModel })
           <tr className="border-b border-slate-900 text-left text-xs uppercase tracking-widest text-slate-400">
             <th className="pb-2 font-normal">Description</th>
             <th className="pb-2 text-right font-normal">Stitches</th>
-            <th className="pb-2 text-right font-normal">Rate</th>
             <th className="pb-2 text-right font-normal">Amount</th>
           </tr>
         </thead>
@@ -45,7 +44,6 @@ export function MinimalCleanTemplate({ invoice }: { invoice: InvoiceViewModel })
             <tr key={item.id} className="break-inside-avoid border-b border-slate-100">
               <td className="py-2">{item.description}</td>
               <td className="py-2 text-right font-mono">{item.stitches}</td>
-              <td className="py-2 text-right font-mono">{item.rate}</td>
               <td className="py-2 text-right font-mono">{item.amount}</td>
             </tr>
           ))}
