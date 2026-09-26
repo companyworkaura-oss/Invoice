@@ -45,9 +45,13 @@ ledgerRouter.get('/statement', requirePermission('customer.view'), async (req, r
 ledgerRouter.get('/statement/pdf', requirePermission('customer.view'), async (req, res) => {
   const customerId = customerIdParam(req);
   const { buffer, filename } = await generateStatementPdf(auth(req).companyId, customerId, statementFilter(req));
+  // res.end(buffer) rather than res.send(buffer) — see the matching
+  // comment on invoice.routes.ts's PDF route for why.
+  res.status(200);
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-  res.send(buffer);
+  res.setHeader('Content-Length', buffer.length.toString());
+  res.end(buffer);
 });
 
 // Recording a manual correction is gated the same as recording a

@@ -57,7 +57,11 @@ test('downloads a real A4 PDF with the correct filename convention', async () =>
   const buffer = res.body as Buffer;
   assert.ok(Buffer.isBuffer(buffer));
   assert.equal(buffer.subarray(0, 5).toString('ascii'), '%PDF-'); // real PDF magic bytes
+  assert.ok(buffer.length > 0, 'the response body must not be empty');
   assert.ok(buffer.length > 1000, 'a rendered A4 invoice should be more than a trivial handful of bytes');
+  // Content-Length must match the actual bytes sent — a mismatch here is
+  // exactly the kind of thing that produces a truncated, unopenable PDF.
+  assert.equal(Number(res.headers['content-length']), buffer.length);
 });
 
 test('accepts a template override via query param without changing the company default', async () => {

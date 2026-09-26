@@ -50,11 +50,14 @@ export async function generateInvoicePdf(
     // whose A4-sized page is also just internal padding, no page-engine
     // margin. format: 'A4' still gives exact 210mm x 297mm pages,
     // spilling onto additional A4 pages as needed for a long invoice.
-    const buffer = await page.pdf({
+    const pdfBytes = await page.pdf({
       format: 'A4',
       margin: { top: '0', bottom: '0', left: '0', right: '0' },
       printBackground: true,
     });
+    // Explicit conversion, not a no-op — see statement-pdf.service.ts's
+    // matching comment for why this guards against a corrupt download.
+    const buffer = Buffer.from(pdfBytes);
     return { buffer, filename: invoicePdfFilename(invoice.invoiceNumber, customer.name) };
   } finally {
     await browser.close();

@@ -100,9 +100,15 @@ invoicesRouter.get('/:invoiceId/pdf', requirePermission('invoice.view'), async (
   const invoiceId = requireUuidParam(req.params.invoiceId, 'invoiceId');
   const templateId = typeof req.query.template === 'string' ? req.query.template : undefined;
   const { buffer, filename } = await generateInvoicePdf(auth(req).companyId, invoiceId, templateId);
+  // res.end(buffer) rather than res.send(buffer): send() runs the body
+  // through Express's content negotiation/ETag machinery, which is built
+  // for strings and JSON, not binary payloads — end() writes the exact
+  // bytes with no chance of that pipeline touching or re-encoding them.
+  res.status(200);
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-  res.send(buffer);
+  res.setHeader('Content-Length', buffer.length.toString());
+  res.end(buffer);
 });
 
 // Builds a WhatsApp share payload (message text + wa.me link) for this

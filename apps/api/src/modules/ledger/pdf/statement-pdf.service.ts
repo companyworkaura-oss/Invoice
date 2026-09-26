@@ -40,11 +40,18 @@ export async function generateStatementPdf(
   try {
     const page = await browser.newPage();
     await page.setContent(html, { waitUntil: 'load' });
-    const buffer = await page.pdf({
+    const pdfBytes = await page.pdf({
       format: 'A4',
       margin: { top: '0', bottom: '0', left: '0', right: '0' },
       printBackground: true,
     });
+    // Explicit conversion, not a no-op: page.pdf() is typed as
+    // Promise<Buffer> but that's not guaranteed across every Playwright
+    // build/transport — wrapping in Buffer.from() guarantees a real Node
+    // Buffer reaches the route, since sending anything else (a plain
+    // Uint8Array view, for instance) as the HTTP body is what produces a
+    // byte-for-byte-wrong, unopenable "PDF".
+    const buffer = Buffer.from(pdfBytes);
     return { buffer, filename: statementFilename(statement.customerName) };
   } finally {
     await browser.close();
