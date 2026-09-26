@@ -60,7 +60,9 @@ test('owner sees every defined permission on GET /api/auth/me', async () => {
   assert.ok(me.body.permissions.includes('company.manage'));
   assert.ok(me.body.permissions.includes('users.manage'));
   assert.ok(me.body.permissions.includes('audit.view'));
-  assert.equal(me.body.permissions.length, 14);
+  assert.ok(me.body.permissions.includes('invoice.archive'));
+  assert.ok(me.body.permissions.includes('invoice.delete'));
+  assert.equal(me.body.permissions.length, 16);
 });
 
 test('admin sees every permission except users.manage', async () => {
@@ -76,7 +78,9 @@ test('admin sees every permission except users.manage', async () => {
   assert.ok(me.body.permissions.includes('invoice.edit'));
   assert.ok(me.body.permissions.includes('audit.view'));
   assert.equal(me.body.permissions.includes('users.manage'), false);
-  assert.equal(me.body.permissions.length, 13);
+  assert.ok(me.body.permissions.includes('invoice.archive'));
+  assert.ok(me.body.permissions.includes('invoice.delete'));
+  assert.equal(me.body.permissions.length, 15);
 });
 
 test('staff sees the operational permission set — no company.manage, users.manage, invoice.edit, or invoice.cancel', async () => {
@@ -95,6 +99,8 @@ test('staff sees the operational permission set — no company.manage, users.man
   assert.ok(permissions.includes('formula.manage'));
   assert.equal(permissions.includes('invoice.edit'), false);
   assert.equal(permissions.includes('invoice.cancel'), false);
+  assert.equal(permissions.includes('invoice.archive'), false);
+  assert.equal(permissions.includes('invoice.delete'), false);
   assert.equal(permissions.includes('company.manage'), false);
   assert.equal(permissions.includes('users.manage'), false);
 });

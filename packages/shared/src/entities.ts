@@ -120,7 +120,19 @@ export interface Invoice {
   notes: string | null;
   status: InvoiceStatus;
   createdAt: string;
+  /**
+   * Visibility only, not an accounting reversal (Phase 21): archiving an
+   * invoice hides it from the default list but never touches its ledger
+   * entries, items, or payments — archived_at is a plain nullable
+   * timestamp on `invoices`, deliberately not folded into `status`, so
+   * "is this invoice archived" never has to be reverse-engineered from
+   * the workflow status enum.
+   */
+  archivedAt: string | null;
 }
+
+/** The GET /api/invoices `?archived=` filter — defaults to 'active' when omitted. */
+export type InvoiceArchivedFilter = 'active' | 'archived' | 'all';
 
 /**
  * A per-invoice payment status (Phase 15), distinct from the invoice's

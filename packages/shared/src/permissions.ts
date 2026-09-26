@@ -11,6 +11,8 @@ export const PERMISSIONS = [
   'invoice.create',
   'invoice.edit',
   'invoice.cancel',
+  'invoice.archive',
+  'invoice.delete',
   'customer.view',
   'customer.create',
   'customer.edit',
@@ -52,7 +54,10 @@ export type Permission = (typeof PERMISSIONS)[number];
  * invoice.edit/invoice.cancel (which, as of Phase 17, no route exposes
  * to any role yet — invoices still have no PATCH/edit or cancel
  * endpoint, by design; these two permissions are defined ready for
- * whichever future phase adds one).
+ * whichever future phase adds one) — invoice.archive/invoice.delete
+ * (Phase 21) join that same owner/admin-only tier for the same reason:
+ * hiding or permanently removing an invoice is a bigger call than
+ * creating one.
  */
 export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
   owner: PERMISSIONS,

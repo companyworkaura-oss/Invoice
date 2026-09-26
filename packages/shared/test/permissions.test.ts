@@ -7,6 +7,8 @@ const EXPECTED_PERMISSIONS = [
   'invoice.create',
   'invoice.edit',
   'invoice.cancel',
+  'invoice.archive',
+  'invoice.delete',
   'customer.view',
   'customer.create',
   'customer.edit',
@@ -19,7 +21,7 @@ const EXPECTED_PERMISSIONS = [
   'audit.view',
 ];
 
-test("PERMISSIONS contains exactly the Phase 17 initial permission list plus Phase 18's audit.view", () => {
+test("PERMISSIONS contains exactly the Phase 17/18/21 permission list", () => {
   assert.deepEqual([...PERMISSIONS].sort(), [...EXPECTED_PERMISSIONS].sort());
 });
 
@@ -40,7 +42,7 @@ test('admin has every permission except users.manage', () => {
   }
 });
 
-test('staff has operational permissions only — no company.manage, users.manage, invoice.edit, or invoice.cancel', () => {
+test('staff has operational permissions only — no company.manage, users.manage, invoice.edit/cancel/archive/delete', () => {
   const staffPermissions = new Set(ROLE_PERMISSIONS.staff);
   assert.ok(staffPermissions.has('invoice.view'));
   assert.ok(staffPermissions.has('invoice.create'));
@@ -54,6 +56,8 @@ test('staff has operational permissions only — no company.manage, users.manage
 
   assert.equal(staffPermissions.has('invoice.edit'), false);
   assert.equal(staffPermissions.has('invoice.cancel'), false);
+  assert.equal(staffPermissions.has('invoice.archive'), false);
+  assert.equal(staffPermissions.has('invoice.delete'), false);
   assert.equal(staffPermissions.has('company.manage'), false);
   assert.equal(staffPermissions.has('users.manage'), false);
   assert.equal(staffPermissions.has('audit.view'), false);

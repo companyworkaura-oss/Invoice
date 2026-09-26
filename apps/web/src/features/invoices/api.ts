@@ -1,4 +1,5 @@
 import type {
+  InvoiceArchivedFilter,
   InvoiceListEntry,
   InvoicePaymentStatus,
   InvoiceStatus,
@@ -31,6 +32,8 @@ export interface ListParams {
   to?: string;
   paymentStatus?: InvoicePaymentStatus;
   search?: string;
+  /** Omitted = 'active' (archived invoices hidden), matching the backend's default. */
+  archived?: InvoiceArchivedFilter;
 }
 
 export function listInvoices(params: ListParams = {}) {
@@ -41,6 +44,7 @@ export function listInvoices(params: ListParams = {}) {
   if (params.to) query.set('to', params.to);
   if (params.paymentStatus) query.set('paymentStatus', params.paymentStatus);
   if (params.search) query.set('search', params.search);
+  if (params.archived) query.set('archived', params.archived);
   const qs = query.toString();
   return api<InvoiceListEntry[]>(`/invoices${qs ? `?${qs}` : ''}`);
 }
@@ -93,3 +97,23 @@ export const getWhatsAppShare = (invoiceId: string) =>
  */
 export const duplicateInvoice = (invoiceId: string) =>
   api<InvoiceWithItems>(`/invoices/${invoiceId}/duplicate`, { method: 'POST' });
+
+/**
+ * Hides the invoice from the default list. Never touches ledger entries,
+ * items, or payments — see apps/api's archiveInvoice.
+ */
+export const archiveInvoice = (invoiceId: string) =>
+  api<InvoiceWithItems>(`/invoices/${invoiceId}/archive`, { method: 'PATCH' });
+
+/** Restores an archived invoice to the default list. */
+export const unarchiveInvoice = (invoiceId: string) =>
+  api<InvoiceWithItems>(`/invoices/${invoiceId}/unarchive`, { method: 'PATCH' });
+
+/**
+ * Permanently deletes an invoice. The backend only allows this for a
+ * draft invoice with no payment applied to it — see apps/api's
+ * deleteInvoice for the exact rule; any other invoice throws a 400 with
+ * a clear reason instead.
+ */
+export const deleteInvoice = (invoiceId: string) =>
+  api<{ deleted: true; id: string }>(`/invoices/${invoiceId}`, { method: 'DELETE' });

@@ -138,7 +138,7 @@ function App() {
 
         {tab === 'invoices' && (
           <div className="mt-4">
-            <InvoicesPage key={me.company.id} />
+            <InvoicesPage key={me.company.id} permissions={me.permissions} />
           </div>
         )}
 
