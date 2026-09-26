@@ -67,7 +67,14 @@ export async function fetchInvoicePdf(invoiceId: string, templateId?: string): P
     const body = await res.json().catch(() => ({ error: 'Could not generate the PDF' }));
     throw new ApiError(res.status, body);
   }
-  return res.blob();
+  const blob = await res.blob();
+  // A 200 with a 0-byte body is exactly the shape of the "downloads but
+  // won't open" bug this guards against — treat it as a failure instead
+  // of handing the caller an empty file to save.
+  if (blob.size === 0) {
+    throw new ApiError(res.status, { error: 'The generated PDF was empty — please try again.' });
+  }
+  return blob;
 }
 
 /**

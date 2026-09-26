@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { config } from '../../config.js';
 import { badRequest } from '../../lib/http-error.js';
 import { asBody, optionalDate, optionalMoney, optionalString, requireUuidParam } from '../../lib/validate.js';
 import { auth, requireAuth } from '../../middleware/auth.js';
@@ -45,6 +46,9 @@ ledgerRouter.get('/statement', requirePermission('customer.view'), async (req, r
 ledgerRouter.get('/statement/pdf', requirePermission('customer.view'), async (req, res) => {
   const customerId = customerIdParam(req);
   const { buffer, filename } = await generateStatementPdf(auth(req).companyId, customerId, statementFilter(req));
+  if (config.nodeEnv === 'development') {
+    console.log(`[statement pdf] ${filename}: ${buffer.length} bytes`);
+  }
   // res.end(buffer) rather than res.send(buffer) — see the matching
   // comment on invoice.routes.ts's PDF route for why.
   res.status(200);
