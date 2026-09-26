@@ -6,7 +6,7 @@ import type {
   InvoiceWithItems,
   WhatsAppSharePayload,
 } from '@invoice/shared';
-import { ApiError, api } from '../../lib/api';
+import { api } from '../../lib/api';
 
 export interface InvoiceItemInput {
   categoryId: string;
@@ -59,27 +59,14 @@ export const createInvoice = (input: InvoiceInput) => api<InvoiceWithItems>('/in
 });
 
 /**
- * The PDF endpoint returns a binary body, not JSON, so this bypasses the
- * api() wrapper and talks to fetch directly. The PDF itself is rendered
- * server-side from the invoice's saved snapshots (see apps/api's
- * pdf.service.ts) — this call has no input beyond which template to use.
+ * A same-origin URL, not a fetch call — actually downloading it goes
+ * through the shared downloadPdf() helper (see lib/downloadPdf.ts),
+ * the same one the customer statement download uses. The PDF itself is
+ * rendered server-side from the invoice's saved snapshots (see apps/api's
+ * pdf.service.ts) — this has no input beyond which template to use.
  */
-export async function fetchInvoicePdf(invoiceId: string, templateId?: string): Promise<Blob> {
-  const qs = templateId ? `?template=${encodeURIComponent(templateId)}` : '';
-  const res = await fetch(`/api/invoices/${invoiceId}/pdf${qs}`, { credentials: 'include' });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({ error: 'Could not generate the PDF' }));
-    throw new ApiError(res.status, body);
-  }
-  const blob = await res.blob();
-  // A 200 with a 0-byte body is exactly the shape of the "downloads but
-  // won't open" bug this guards against — treat it as a failure instead
-  // of handing the caller an empty file to save.
-  if (blob.size === 0) {
-    throw new ApiError(res.status, { error: 'The generated PDF was empty — please try again.' });
-  }
-  return blob;
-}
+export const invoicePdfUrl = (invoiceId: string, templateId?: string) =>
+  `/api/invoices/${invoiceId}/pdf${templateId ? `?template=${encodeURIComponent(templateId)}` : ''}`;
 
 /**
  * Builds a WhatsApp share payload (message text + wa.me link) server-side

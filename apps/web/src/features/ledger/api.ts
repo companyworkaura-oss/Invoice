@@ -22,16 +22,11 @@ export const getStatement = (customerId: string, params: StatementParams = {}) =
   api<CustomerStatement>(`/customers/${customerId}/ledger/statement${statementQuery(params)}`);
 
 /**
- * A plain URL, not a fetch() call: driving this download through
- * fetch()+blob()+createObjectURL was hitting the browser with a
- * confirmed-valid PDF response (right Content-Type/Content-Length,
- * correct byte count in server logs) yet ending up with an empty blob
- * client-side. A direct browser download — an <a href> pointed straight
- * at this same-origin URL — sidesteps fetch/Blob entirely and lets the
- * browser handle the binary response itself. Cookies go along
- * automatically since it's a normal same-origin navigation, no
- * credentials option needed. See CustomerStatementView.tsx's
- * handleDownload.
+ * A same-origin URL, not a fetch call — actually downloading it goes
+ * through the shared downloadPdf() helper (see lib/downloadPdf.ts), the
+ * same one the invoice PDF download uses. Same-origin (proxied by Vite
+ * in dev, same process when SERVE_FRONTEND=true) so the session cookie
+ * rides along with fetch's default same-origin credentials.
  */
 export const statementPdfUrl = (customerId: string, params: StatementParams = {}) =>
   `/api/customers/${customerId}/ledger/statement/pdf${statementQuery(params)}`;

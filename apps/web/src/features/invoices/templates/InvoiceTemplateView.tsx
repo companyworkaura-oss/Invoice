@@ -2,6 +2,7 @@ import type { Customer, CompanyProfile, InvoiceWithItems } from '@invoice/shared
 import { buildInvoiceViewModel, invoicePdfFilename } from '@invoice/shared';
 import { useEffect, useRef, useState } from 'react';
 import { ApiError } from '../../../lib/api';
+import { downloadPdf } from '../../../lib/downloadPdf';
 import * as companyApi from '../../company/api';
 import * as customersApi from '../../customers/api';
 import * as invoicesApi from '../api';
@@ -63,15 +64,7 @@ export function InvoiceTemplateView({ invoice, onBack, initialAction }: Props) {
     try {
       // Rendered server-side from this invoice's own saved snapshots —
       // see apps/api's pdf.service.ts — never from live category data.
-      const blob = await invoicesApi.fetchInvoicePdf(invoice.id, template.id);
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = filename;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      URL.revokeObjectURL(url);
+      await downloadPdf(invoicesApi.invoicePdfUrl(invoice.id, template.id), filename);
     } catch (err) {
       setDownloadError(err instanceof ApiError ? err.body.error : 'Could not generate the PDF');
     } finally {
