@@ -1,5 +1,5 @@
 import type { CustomerLedger, CustomerStatement, LedgerEntry, LedgerEntryType } from '@invoice/shared';
-import { ApiError, api } from '../../lib/api';
+import { api } from '../../lib/api';
 
 export const getLedger = (customerId: string) => api<CustomerLedger>(`/customers/${customerId}/ledger`);
 
@@ -22,26 +22,19 @@ export const getStatement = (customerId: string, params: StatementParams = {}) =
   api<CustomerStatement>(`/customers/${customerId}/ledger/statement${statementQuery(params)}`);
 
 /**
- * The PDF endpoint returns a binary body, not JSON — same pattern as
- * the invoice PDF download (see features/invoices/api.ts).
+ * A plain URL, not a fetch() call: driving this download through
+ * fetch()+blob()+createObjectURL was hitting the browser with a
+ * confirmed-valid PDF response (right Content-Type/Content-Length,
+ * correct byte count in server logs) yet ending up with an empty blob
+ * client-side. A direct browser download — an <a href> pointed straight
+ * at this same-origin URL — sidesteps fetch/Blob entirely and lets the
+ * browser handle the binary response itself. Cookies go along
+ * automatically since it's a normal same-origin navigation, no
+ * credentials option needed. See CustomerStatementView.tsx's
+ * handleDownload.
  */
-export async function fetchStatementPdf(customerId: string, params: StatementParams = {}): Promise<Blob> {
-  const res = await fetch(`/api/customers/${customerId}/ledger/statement/pdf${statementQuery(params)}`, {
-    credentials: 'include',
-  });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({ error: 'Could not generate the PDF' }));
-    throw new ApiError(res.status, body);
-  }
-  const blob = await res.blob();
-  // A 200 with a 0-byte body is exactly the shape of the "downloads but
-  // won't open" bug this guards against — treat it as a failure instead
-  // of handing the caller an empty file to save.
-  if (blob.size === 0) {
-    throw new ApiError(res.status, { error: 'The generated PDF was empty — please try again.' });
-  }
-  return blob;
-}
+export const statementPdfUrl = (customerId: string, params: StatementParams = {}) =>
+  `/api/customers/${customerId}/ledger/statement/pdf${statementQuery(params)}`;
 
 // Payments are recorded through features/payments (POST /api/payments),
 // which creates the payment record and this same ledger credit in one

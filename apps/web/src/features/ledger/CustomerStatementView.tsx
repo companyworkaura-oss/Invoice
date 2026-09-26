@@ -1,6 +1,5 @@
 import type { Customer, CustomerStatement, LedgerEntryType } from '@invoice/shared';
 import { useEffect, useState } from 'react';
-import { ApiError } from '../../lib/api';
 import * as ledgerApi from './api';
 
 interface Props {
@@ -27,8 +26,6 @@ export function CustomerStatementView({ customer, onBack }: Props) {
   const [type, setType] = useState<LedgerEntryType | ''>('');
   const [statement, setStatement] = useState<CustomerStatement | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [downloading, setDownloading] = useState(false);
-  const [downloadError, setDownloadError] = useState<string | null>(null);
 
   useEffect(() => {
     if (from && to && from > to) return; // wait for a valid range before fetching
@@ -49,28 +46,25 @@ export function CustomerStatementView({ customer, onBack }: Props) {
     };
   }, [customer.id, from, to, type]);
 
-  async function handleDownload() {
-    setDownloadError(null);
-    setDownloading(true);
-    try {
-      const blob = await ledgerApi.fetchStatementPdf(customer.id, {
-        from: from || undefined,
-        to: to || undefined,
-        type: type || undefined,
-      });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = statementFilename(customer.name);
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      URL.revokeObjectURL(url);
-    } catch (err) {
-      setDownloadError(err instanceof ApiError ? err.body.error : 'Could not generate the PDF');
-    } finally {
-      setDownloading(false);
-    }
+  function handleDownload() {
+    // A direct browser download — not fetch()+blob()+createObjectURL,
+    // which was producing an empty blob client-side even against a
+    // confirmed-valid PDF response — see ledger/api.ts's
+    // statementPdfUrl() for why. The browser fetches and saves the file
+    // itself; the session cookie rides along automatically since this
+    // is a same-origin navigation, same as the Vite dev proxy handles
+    // every other /api request.
+    const pdfUrl = ledgerApi.statementPdfUrl(customer.id, {
+      from: from || undefined,
+      to: to || undefined,
+      type: type || undefined,
+    });
+    const link = document.createElement('a');
+    link.href = pdfUrl;
+    link.download = statementFilename(customer.name);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
   }
 
   return (
@@ -125,10 +119,9 @@ export function CustomerStatementView({ customer, onBack }: Props) {
           <button
             type="button"
             onClick={handleDownload}
-            disabled={downloading}
-            className="rounded-md bg-slate-900 px-3 py-1 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50"
+            className="rounded-md bg-slate-900 px-3 py-1 text-sm font-medium text-white hover:bg-slate-700"
           >
-            {downloading ? 'Preparing…' : 'Download PDF'}
+            Download PDF
           </button>
         </div>
       </div>
@@ -137,7 +130,6 @@ export function CustomerStatementView({ customer, onBack }: Props) {
         <p className="mt-2 text-sm text-red-600 print:hidden">"From" must be on or before "To".</p>
       )}
       {loadError && <p className="mt-2 text-sm text-red-600 print:hidden">{loadError}</p>}
-      {downloadError && <p className="mt-1 text-sm text-red-600 print:hidden">{downloadError}</p>}
 
       {!statement ? (
         <p className="mt-4 text-sm text-slate-400 print:hidden">Loading…</p>
