@@ -548,6 +548,61 @@ guide (env vars, backups, health checks, startup) — not repeated here.
   mid-test-run isn't practical; it's covered by the live Playwright
   smoke test instead, same as every other phase's browser-only checks.
 
+## Invoice Archive / Delete (Phase 21)
+
+Invoice lifecycle actions: archive/unarchive (visibility only) and a
+hard delete that's only ever allowed when it can't corrupt accounting
+history.
+
+- **`archived_at timestamptz NULL`** (+ `archived_by uuid`) on
+  `invoices` — deliberately a separate nullable column, not folded into
+  the existing `status` enum (draft/issued/cancelled). Archiving never
+  touches `ledger_entries`, `invoice_items`, or `payments`, so every
+  balance/statement/dashboard figure (all derived from those tables
+  directly, never from `status` or `archived_at`) is identical before
+  and after archiving an invoice — archiving is visibility only, never
+  an accounting reversal.
+- **`GET /api/invoices?archived=active|archived|all`** — defaults to
+  `active` (archived hidden) when the param is omitted. Implemented as
+  one extra WHERE clause in `listInvoices`'s existing CTE query, not a
+  separate code path.
+- **Hard delete rule** (`deleteInvoice`): allowed only when
+  `status === 'draft'` AND this invoice's own FIFO-allocated `paid`
+  amount is exactly `'0.00'` — the same per-invoice paid computation
+  `listInvoices`/Invoice History already use (factored out as
+  `getInvoicePaidAmount`), not a new concept. **Every invoice, including
+  drafts, posts its own `INVOICE` ledger debit at creation** (see
+  Phase 6/7 — there's no separate "post to ledger on issue" step in
+  this app), so "has ledger impact" can't be the delete gate the way a
+  naive reading might suggest; the FIFO-paid-amount check is what
+  actually protects payment history, since it's zero exactly when no
+  payment has been allocated to this invoice yet. When allowed, the
+  invoice's own `INVOICE` ledger entry (and only that one row — scoped
+  by `type = 'INVOICE' AND reference_id`) is deleted in the same
+  transaction as the invoice row; `invoice_items` cascades via its
+  existing FK. A `PAYMENT`/`ADJUSTMENT` ledger row is never touched by
+  a delete, by construction — those entries never reference an invoice.
+- **New permissions**: `invoice.archive`, `invoice.delete` — owner/admin
+  only, same tier as the pre-existing (still-unused) `invoice.edit`/
+  `invoice.cancel`. Both archive and unarchive are gated by the one
+  `invoice.archive` permission (unarchive is just archive's reverse).
+- **New audit actions**: `INVOICE_ARCHIVED`, `INVOICE_UNARCHIVED`,
+  `INVOICE_DELETED` — each posted in the same transaction as its
+  mutation, with `invoiceNumber` (and `totalAmount` for delete) in
+  metadata, same convention as every other audit entry.
+- **Frontend**: `InvoiceList.tsx` gained an Active/Archived/All tab row
+  and Archive/Restore/Delete row actions, each behind a
+  `window.confirm(...)` with the exact wording the phase spec gave.
+  Delete-button visibility is computed client-side from
+  `InvoiceListEntry.status === 'draft' && paid === '0.00'` — the exact
+  same rule the backend enforces, using data the list already returns,
+  so a visible Delete button is never one the server would reject.
+  `me.permissions` (already returned by `/api/auth/me`, previously only
+  consumed by `CompanyProfilePanel`/the audit tab) is now also threaded
+  into `InvoicesPage`/`InvoiceList` to gate Archive/Delete — this app
+  still has no frontend RBAC framework beyond "show a button only if
+  the permission is present, let the backend be the real enforcer."
+
 ## Known gotchas / things to check before starting work
 
 - **Postgres cluster is often stopped** when a session starts:
@@ -666,6 +721,11 @@ guide (env vars, backups, health checks, startup) — not repeated here.
     error-reporter, graceful shutdown, optional single-process frontend
     serving, backup/restore scripts, `DEPLOYMENT.md` — see "Production
     Deployment (Phase 20)" above
+21. Invoice Archive / Delete: `archived_at` visibility flag (never an
+    accounting reversal), a hard delete allowed only for a draft with
+    zero FIFO-allocated paid amount, new invoice.archive/invoice.delete
+    permissions, three new audit actions, Active/Archived/All list tabs
+    — see "Invoice Archive / Delete (Phase 21)" above
 
 Repo also went through a monorepo restructure (`server/` → `apps/api` +
 new `apps/web` + `packages/shared`) between Phase 1 and Phase 2.
