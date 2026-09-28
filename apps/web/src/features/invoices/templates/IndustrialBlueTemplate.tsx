@@ -2,7 +2,7 @@ import type { InvoiceViewModel } from '@invoice/shared';
 
 export function IndustrialBlueTemplate({ invoice }: { invoice: InvoiceViewModel }) {
   return (
-    <div className="mx-auto w-[210mm] min-h-[297mm] border-4 border-blue-800 bg-white text-slate-900 shadow print:shadow-none">
+    <div className="print-page mx-auto w-[210mm] min-h-[297mm] border-4 border-blue-800 bg-white text-slate-900 shadow print:shadow-none">
       <div className="flex items-center justify-between bg-blue-800 px-6 py-4 text-white">
         <div className="flex items-center gap-3">
           {invoice.company.logoUrl && (

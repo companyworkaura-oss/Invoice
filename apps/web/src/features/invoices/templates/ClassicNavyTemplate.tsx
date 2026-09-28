@@ -2,7 +2,7 @@ import type { InvoiceViewModel } from '@invoice/shared';
 
 export function ClassicNavyTemplate({ invoice }: { invoice: InvoiceViewModel }) {
   return (
-    <div className="mx-auto w-[210mm] min-h-[297mm] bg-white p-8 font-serif text-slate-800 shadow print:shadow-none">
+    <div className="print-page mx-auto w-[210mm] min-h-[297mm] bg-white p-8 font-serif text-slate-800 shadow print:shadow-none">
       <div className="flex items-start justify-between border-b-4 border-blue-950 pb-4">
         <div className="flex items-center gap-3">
           {invoice.company.logoUrl && (

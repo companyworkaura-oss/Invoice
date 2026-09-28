@@ -1,8 +1,10 @@
-import type { Customer, CustomerStatement, LedgerEntryType } from '@invoice/shared';
+import type { CompanyProfile, Customer, CustomerStatement, LedgerEntryType } from '@invoice/shared';
 import { useEffect, useState } from 'react';
 import { ApiError } from '../../lib/api';
 import { downloadPdf } from '../../lib/downloadPdf';
+import * as companyApi from '../company/api';
 import * as ledgerApi from './api';
+import { StatementPrintDocument } from './StatementPrintDocument';
 
 interface Props {
   customer: Customer;
@@ -27,9 +29,14 @@ export function CustomerStatementView({ customer, onBack }: Props) {
   const [to, setTo] = useState('');
   const [type, setType] = useState<LedgerEntryType | ''>('');
   const [statement, setStatement] = useState<CustomerStatement | null>(null);
+  const [company, setCompany] = useState<CompanyProfile | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState<string | null>(null);
+
+  useEffect(() => {
+    companyApi.fetchProfile().then(setCompany).catch(() => setCompany(null));
+  }, []);
 
   useEffect(() => {
     if (from && to && from > to) return; // wait for a valid range before fetching
@@ -49,6 +56,17 @@ export function CustomerStatementView({ customer, onBack }: Props) {
       cancelled = true;
     };
   }, [customer.id, from, to, type]);
+
+  function handlePrint() {
+    // Same document.title convention InvoiceTemplateView uses — Chrome/Edge
+    // suggest it as the default filename for "Save as PDF" from the print
+    // dialog. The actual printed page is StatementPrintDocument below,
+    // never this on-screen view — see its own comment for why.
+    const previousTitle = document.title;
+    document.title = statementFilename(customer.name).replace(/\.pdf$/, '');
+    window.print();
+    document.title = previousTitle;
+  }
 
   async function handleDownload() {
     setDownloadError(null);
@@ -111,7 +129,7 @@ export function CustomerStatementView({ customer, onBack }: Props) {
           </select>
           <button
             type="button"
-            onClick={() => window.print()}
+            onClick={handlePrint}
             className="rounded-md border border-slate-300 px-3 py-1 text-sm text-slate-600 hover:bg-slate-50"
           >
             Print
@@ -136,13 +154,8 @@ export function CustomerStatementView({ customer, onBack }: Props) {
       {!statement ? (
         <p className="mt-4 text-sm text-slate-400 print:hidden">Loading…</p>
       ) : (
-        <div className="mt-4">
-          <p className="hidden text-lg font-semibold text-slate-900 print:block">{customer.name}</p>
-          <p className="hidden text-xs text-slate-500 print:block">
-            {statement.from ?? 'Beginning'} &ndash; {statement.to ?? 'Now'}
-          </p>
-
-          <div className="mt-2 grid grid-cols-2 gap-3 sm:grid-cols-4 print:mt-4">
+        <div className="mt-4 print:hidden">
+          <div className="mt-2 grid grid-cols-2 gap-3 sm:grid-cols-4">
             <SummaryCard label="Opening Balance" value={statement.openingBalance} />
             <SummaryCard label="Invoice Total" value={statement.invoiceTotal} />
             <SummaryCard label="Payments" value={statement.payments} />
@@ -179,6 +192,9 @@ export function CustomerStatementView({ customer, onBack }: Props) {
           )}
         </div>
       )}
+
+      {/* Invisible on screen, the only thing visible on paper — see StatementPrintDocument's own comment. */}
+      {statement && company && <StatementPrintDocument company={company} customer={customer} statement={statement} />}
     </div>
   );
 }

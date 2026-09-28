@@ -34,7 +34,7 @@ export function CustomersPage() {
         )}
       </div>
 
-      <div className="mt-3">
+      <div className="mt-3 print:mt-0">
         {view.name === 'list' && (
           <CustomerList refreshToken={refreshToken} onSelect={(customer) => setView({ name: 'details', customer })} />
         )}

@@ -58,7 +58,7 @@ export function InvoicesPage({ permissions }: Props) {
 
   return (
     <div>
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between print:hidden">
         <h2 className="text-sm font-semibold text-slate-900">Invoices</h2>
         {view.name === 'list' && (
           <button
@@ -73,7 +73,7 @@ export function InvoicesPage({ permissions }: Props) {
 
       {loadError && <p className="mt-2 text-sm text-red-600">{loadError}</p>}
 
-      <div className="mt-3">
+      <div className="mt-3 print:mt-0">
         {view.name === 'list' && (
           <InvoiceList
             refreshToken={refreshToken}
