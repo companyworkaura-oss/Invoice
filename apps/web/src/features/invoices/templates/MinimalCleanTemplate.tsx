@@ -30,7 +30,6 @@ export function MinimalCleanTemplate({ invoice }: { invoice: InvoiceViewModel })
           <p className="text-xs uppercase tracking-widest text-slate-400">To</p>
           <p className="mt-1">{invoice.customer.businessName || invoice.customer.name}</p>
           {invoice.customer.address && <p className="text-slate-500">{invoice.customer.address}</p>}
-          <p className="text-slate-500">Quantity: {invoice.quantity}</p>
         </div>
       </div>
 
@@ -38,6 +37,7 @@ export function MinimalCleanTemplate({ invoice }: { invoice: InvoiceViewModel })
         <thead>
           <tr className="border-b border-slate-900 text-left text-xs uppercase tracking-widest text-slate-400">
             <th className="pb-2 font-normal">Description</th>
+            <th className="pb-2 text-right font-normal">Quantity</th>
             <th className="pb-2 text-right font-normal">Stitches</th>
             <th className="pb-2 text-right font-normal">Amount</th>
           </tr>
@@ -46,6 +46,7 @@ export function MinimalCleanTemplate({ invoice }: { invoice: InvoiceViewModel })
           {invoice.items.map((item) => (
             <tr key={item.id} className="break-inside-avoid border-b border-slate-100">
               <td className="py-2">{item.description}</td>
+              <td className="py-2 text-right font-mono">{item.quantity}</td>
               <td className="py-2 text-right font-mono">{item.stitches}</td>
               <td className="py-2 text-right font-mono">{item.amount}</td>
             </tr>

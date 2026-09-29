@@ -67,8 +67,7 @@ test('creating an invoice posts an INVOICE (debit) ledger entry and updates the 
 
   const invoice = await agent.post('/api/invoices').send({
     customerId: customer.body.id,
-    quantity: '10',
-    items: [{ categoryId, stitches: 12000 }],
+    items: [{ categoryId, stitches: 12000, quantity: '10' }],
   });
   assert.equal(invoice.status, 201);
   assert.equal(invoice.body.totalAmount, '144.00');
@@ -130,8 +129,7 @@ test('a full customer statement: opening balance, invoice, and a partial payment
 
   const invoice = await agent.post('/api/invoices').send({
     customerId: customer.body.id,
-    quantity: '2',
-    items: [{ categoryId, stitches: 5000 }],
+    items: [{ categoryId, stitches: 5000, quantity: '2' }],
   });
   assert.equal(invoice.status, 201);
   // unit = 5*3*21 = 315 ; total = 315*2 = 630

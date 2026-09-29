@@ -58,18 +58,17 @@ test('creates an invoice, computes amounts server-side, and lists/views it', asy
 
   const created = await agent.post('/api/invoices').send({
     customerId,
-    quantity: '10',
     notes: 'First order',
-    items: [{ categoryId, stitches: 12000 }],
+    items: [{ categoryId, stitches: 12000, quantity: '10' }],
   });
   assert.equal(created.status, 201);
   assert.equal(created.body.status, 'draft');
-  assert.equal(created.body.quantity, '10.00');
   assert.match(created.body.invoiceNumber, /^INV-\d{6}$/);
   assert.equal(created.body.items.length, 1);
 
   const item = created.body.items[0];
   // unit = 12000/1000 * 1.20 = 14.40 ; total = unit * quantity(10) = 144.00
+  assert.equal(item.quantity, '10.00');
   assert.equal(item.calculatedUnitAmount, '14.40');
   assert.equal(item.calculatedTotal, '144.00');
   assert.equal(item.categoryName, 'HS/HP');
@@ -99,10 +98,9 @@ test('multiple items sum correctly, and a per-item rate override is honored', as
 
   const created = await agent.post('/api/invoices').send({
     customerId,
-    quantity: '5',
     items: [
-      { categoryId: hsHp, stitches: 10000, rate: '1.50' }, // override default 1.00
-      { categoryId: daman, stitches: 10000 }, // uses category default 2.00
+      { categoryId: hsHp, stitches: 10000, rate: '1.50', quantity: '5' }, // override default 1.00
+      { categoryId: daman, stitches: 10000, quantity: '5' }, // uses category default 2.00
     ],
   });
   assert.equal(created.status, 201);
@@ -247,8 +245,7 @@ test('snapshots survive later changes to the category rate and formula', async (
 
   const created = await agent.post('/api/invoices').send({
     customerId,
-    quantity: '2',
-    items: [{ categoryId, stitches: 5000 }],
+    items: [{ categoryId, stitches: 5000, quantity: '2' }],
   });
   assert.equal(created.status, 201);
   // 5 * 3 * 21 = 315 ; total = 315 * 2 = 630

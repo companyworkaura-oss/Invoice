@@ -28,13 +28,13 @@ export function ClassicNavyTemplate({ invoice }: { invoice: InvoiceViewModel }) 
         <p className="font-semibold text-slate-900">{invoice.customer.businessName || invoice.customer.name}</p>
         {invoice.customer.businessName && <p className="text-sm text-slate-600">{invoice.customer.name}</p>}
         {invoice.customer.address && <p className="text-sm text-slate-600">{invoice.customer.address}</p>}
-        <p className="mt-1 text-sm text-slate-600">Quantity: {invoice.quantity}</p>
       </div>
 
       <table className="mt-6 w-full text-sm">
         <thead>
           <tr className="border-b-2 border-blue-950 text-left text-xs uppercase tracking-wide text-blue-950">
             <th className="py-2">Description</th>
+            <th className="py-2 text-right">Quantity</th>
             <th className="py-2 text-right">Stitches</th>
             <th className="py-2 text-right">Amount</th>
           </tr>
@@ -43,6 +43,7 @@ export function ClassicNavyTemplate({ invoice }: { invoice: InvoiceViewModel }) 
           {invoice.items.map((item) => (
             <tr key={item.id} className="break-inside-avoid border-b border-slate-200">
               <td className="py-2">{item.description}</td>
+              <td className="py-2 text-right">{item.quantity}</td>
               <td className="py-2 text-right">{item.stitches}</td>
               <td className="py-2 text-right">{item.amount}</td>
             </tr>

@@ -35,8 +35,7 @@ async function createInvoice(agent: ReturnType<typeof request.agent>, customerNa
     .send({ name: 'HS/HP', defaultRate: '1.20', formulaConfig: { expression: 'stitches / 1000 * rate' } });
   const invoice = await agent.post('/api/invoices').send({
     customerId: customer.body.id,
-    quantity: '10',
-    items: [{ categoryId: category.body.id, stitches: 12000 }],
+    items: [{ categoryId: category.body.id, stitches: 12000, quantity: '10' }],
   });
   assert.equal(invoice.status, 201);
   return invoice.body as { id: string; invoiceNumber: string };

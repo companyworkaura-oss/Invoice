@@ -13,11 +13,10 @@ export function IndustrialBlueTemplate({ invoice }: { invoice: InvoiceViewModel 
         <p className="text-xl font-black uppercase tracking-widest">Invoice</p>
       </div>
 
-      <div className={`grid divide-x-2 divide-blue-800 border-b-2 border-blue-800 text-sm ${invoice.lotNumber ? 'grid-cols-4' : 'grid-cols-3'}`}>
+      <div className={`grid divide-x-2 divide-blue-800 border-b-2 border-blue-800 text-sm ${invoice.lotNumber ? 'grid-cols-3' : 'grid-cols-2'}`}>
         <InfoCell label="Invoice No." value={invoice.invoiceNumber} />
         <InfoCell label="Date" value={invoice.invoiceDate} />
         {invoice.lotNumber && <InfoCell label="Lot #" value={invoice.lotNumber} />}
-        <InfoCell label="Quantity" value={invoice.quantity} />
       </div>
 
       <div className="border-b-2 border-blue-800 px-6 py-3 text-sm">
@@ -30,6 +29,7 @@ export function IndustrialBlueTemplate({ invoice }: { invoice: InvoiceViewModel 
         <thead>
           <tr className="border-b-2 border-blue-800 bg-blue-50 text-left text-xs font-bold uppercase tracking-wide text-blue-800">
             <th className="px-6 py-2">Description</th>
+            <th className="px-3 py-2 text-right">Quantity</th>
             <th className="px-3 py-2 text-right">Stitches</th>
             <th className="px-6 py-2 text-right">Amount</th>
           </tr>
@@ -38,6 +38,7 @@ export function IndustrialBlueTemplate({ invoice }: { invoice: InvoiceViewModel 
           {invoice.items.map((item) => (
             <tr key={item.id} className="break-inside-avoid border-b border-blue-100">
               <td className="px-6 py-2">{item.description}</td>
+              <td className="px-3 py-2 text-right">{item.quantity}</td>
               <td className="px-3 py-2 text-right">{item.stitches}</td>
               <td className="px-6 py-2 text-right font-semibold">{item.amount}</td>
             </tr>

@@ -31,7 +31,6 @@ export function PremiumModernTemplate({ invoice }: { invoice: InvoiceViewModel }
           <div className="text-right text-slate-500">
             <p>{invoice.invoiceDate}</p>
             {invoice.lotNumber && <p>Lot #: {invoice.lotNumber}</p>}
-            <p>Quantity: {invoice.quantity}</p>
           </div>
         </div>
       </div>
@@ -41,6 +40,7 @@ export function PremiumModernTemplate({ invoice }: { invoice: InvoiceViewModel }
           <thead>
             <tr className="border-b border-amber-400 text-left text-xs uppercase tracking-widest text-slate-500">
               <th className="pb-2 font-medium">Description</th>
+              <th className="pb-2 text-right font-medium">Quantity</th>
               <th className="pb-2 text-right font-medium">Stitches</th>
               <th className="pb-2 text-right font-medium">Amount</th>
             </tr>
@@ -49,6 +49,7 @@ export function PremiumModernTemplate({ invoice }: { invoice: InvoiceViewModel }
             {invoice.items.map((item) => (
               <tr key={item.id} className="break-inside-avoid border-b border-slate-100">
                 <td className="py-2.5">{item.description}</td>
+                <td className="py-2.5 text-right">{item.quantity}</td>
                 <td className="py-2.5 text-right">{item.stitches}</td>
                 <td className="py-2.5 text-right">{item.amount}</td>
               </tr>

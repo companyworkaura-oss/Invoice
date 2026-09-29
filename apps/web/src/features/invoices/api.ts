@@ -15,12 +15,13 @@ export interface InvoiceItemInput {
   stitches: number;
   /** Overrides the category's default rate for this item, if given. */
   rate?: string;
+  /** This item's own quantity — each category/line has its own, e.g. BAZU=12, FRONT=8. Defaults to "1" when omitted. */
+  quantity?: string;
 }
 
 export interface InvoiceInput {
   customerId: string;
   invoiceDate?: string;
-  quantity: string;
   notes?: string;
   status?: InvoiceStatus;
   /** Batch/material/job identifier, e.g. "LOT-001" — optional, not required to be unique. */

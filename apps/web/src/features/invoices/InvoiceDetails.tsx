@@ -45,7 +45,6 @@ export function InvoiceDetails({ invoice, permissions, onBack, onViewTemplate, o
         </div>
       </div>
 
-      <p className="mt-2 text-sm text-slate-600">Quantity: {invoice.quantity}</p>
       {invoice.notes && <p className="mt-1 text-sm text-slate-600">Notes: {invoice.notes}</p>}
 
       <table className="mt-4 w-full text-sm">
@@ -53,6 +52,7 @@ export function InvoiceDetails({ invoice, permissions, onBack, onViewTemplate, o
           <tr className="border-b border-slate-200 text-left text-xs text-slate-500">
             <th className="py-1 pr-2 font-medium">Category</th>
             <th className="py-1 pr-2 font-medium">Description</th>
+            <th className="py-1 pr-2 text-right font-medium">Quantity</th>
             <th className="py-1 pr-2 text-right font-medium">Stitches</th>
             <th className="py-1 pr-2 text-right font-medium">Rate</th>
             <th className="py-1 pr-2 text-right font-medium">Unit amount</th>
@@ -64,6 +64,7 @@ export function InvoiceDetails({ invoice, permissions, onBack, onViewTemplate, o
             <tr key={item.id} className="border-b border-slate-100">
               <td className="py-1 pr-2">{item.categoryName}</td>
               <td className="py-1 pr-2 text-slate-500">{item.description ?? '—'}</td>
+              <td className="py-1 pr-2 text-right">{item.quantity}</td>
               <td className="py-1 pr-2 text-right">{item.stitches}</td>
               <td className="py-1 pr-2 text-right">{item.rate}</td>
               <td className="py-1 pr-2 text-right">{item.calculatedUnitAmount}</td>
@@ -73,21 +74,21 @@ export function InvoiceDetails({ invoice, permissions, onBack, onViewTemplate, o
         </tbody>
         <tfoot>
           <tr>
-            <td colSpan={5} className="pt-2 text-right text-sm text-slate-500">
+            <td colSpan={6} className="pt-2 text-right text-sm text-slate-500">
               Subtotal
             </td>
             <td className="pt-2 text-right text-sm text-slate-700">{invoice.totalAmount}</td>
           </tr>
           {invoice.discountType && (
             <tr>
-              <td colSpan={5} className="pt-1 text-right text-sm text-slate-500">
+              <td colSpan={6} className="pt-1 text-right text-sm text-slate-500">
                 {invoice.discountType === 'percentage' ? `Discount (${invoice.discountValue}%)` : 'Discount'}
               </td>
               <td className="pt-1 text-right text-sm text-slate-700">-{invoice.discountAmount}</td>
             </tr>
           )}
           <tr>
-            <td colSpan={5} className="pt-1 text-right text-sm font-medium text-slate-900">
+            <td colSpan={6} className="pt-1 text-right text-sm font-medium text-slate-900">
               Grand Total
             </td>
             <td className="pt-1 text-right text-sm font-semibold text-slate-900">{invoice.grandTotal}</td>

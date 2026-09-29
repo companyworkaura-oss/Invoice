@@ -21,12 +21,13 @@ export interface InvoiceItemInput {
   stitches: number;
   /** Overrides the category's default_rate for this item, if given. */
   rate?: string;
+  /** This item's own quantity — each category/line has its own, e.g. BAZU=12, FRONT=8. Defaults to "1" when omitted. */
+  quantity?: string;
 }
 
 export interface InvoiceInput {
   customerId: string;
   invoiceDate?: string;
-  quantity: string;
   notes?: string;
   status?: InvoiceStatus;
   /** Batch/material/job identifier, e.g. "LOT-001" — free text, optional, never required to be unique. */
@@ -113,6 +114,8 @@ export interface InvoiceItem {
   categoryName: string;
   description: string | null;
   stitches: number;
+  /** This item's own quantity — see InvoiceItemInput.quantity. */
+  quantity: string;
   rate: string;
   formulaType: string;
   formulaConfig: Record<string, unknown>;
@@ -129,7 +132,6 @@ export interface Invoice {
   customerName: string;
   invoiceNumber: string;
   invoiceDate: string;
-  quantity: string;
   notes: string | null;
   status: InvoiceStatus;
   createdAt: string;
@@ -192,7 +194,7 @@ type Queryable = Pick<typeof pool, 'query'>;
 
 const INVOICE_HEADER_COLUMNS = `
   i.id, i.company_id AS "companyId", i.customer_id AS "customerId", c.name AS "customerName",
-  i.invoice_number AS "invoiceNumber", i.invoice_date AS "invoiceDate", i.quantity, i.notes, i.status,
+  i.invoice_number AS "invoiceNumber", i.invoice_date AS "invoiceDate", i.notes, i.status,
   i.created_at AS "createdAt", i.archived_at AS "archivedAt",
   i.lot_number AS "lotNumber", i.discount_type AS "discountType",
   i.discount_value AS "discountValue", i.discount_amount AS "discountAmount"
@@ -200,7 +202,7 @@ const INVOICE_HEADER_COLUMNS = `
 
 const ITEM_COLUMNS = `
   id, invoice_id AS "invoiceId", category_id AS "categoryId", category_name AS "categoryName",
-  description, stitches, rate,
+  description, stitches, quantity, rate,
   formula_type AS "formulaType", formula_config AS "formulaConfig",
   calculation_inputs AS "calculationInputs",
   calculated_unit_amount AS "calculatedUnitAmount", calculated_total AS "calculatedTotal",
@@ -253,14 +255,21 @@ async function nextInvoiceNumber(client: Queryable, companyId: string): Promise<
  * default_rate, formula_type, and formula_config are read once, right
  * now, and copied onto the row — nothing about this item ever changes
  * again just because the category later does.
+ *
+ * Quantity is this item's own (e.g. BAZU=12, FRONT=8) — each category/
+ * line on the invoice carries its own multiplier into the formula engine,
+ * never one invoice-wide value shared across every item.
  */
 async function createInvoiceItem(
   client: Queryable,
   companyId: string,
   invoiceId: string,
-  invoiceQuantity: string,
   input: InvoiceItemInput,
 ): Promise<InvoiceItem> {
+  const quantity = input.quantity ?? '1';
+  if (new Decimal(quantity).lessThanOrEqualTo(0)) {
+    throw badRequest('Validation failed', { quantity: 'Must be a decimal greater than zero' });
+  }
   const categoryRes = await client.query<{
     id: string;
     name: string;
@@ -300,7 +309,7 @@ async function createInvoiceItem(
     ...baseInputs,
     stitches: input.stitches,
     rate,
-    quantity: invoiceQuantity,
+    quantity,
   };
 
   let unitAmount: string;
@@ -312,13 +321,13 @@ async function createInvoiceItem(
     }
     throw err;
   }
-  const total = roundMoney(new Decimal(unitAmount).times(invoiceQuantity));
+  const total = roundMoney(new Decimal(unitAmount).times(quantity));
 
   const { rows } = await client.query<InvoiceItem>(
     `INSERT INTO invoice_items
-       (invoice_id, category_id, category_name, description, stitches, rate,
+       (invoice_id, category_id, category_name, description, stitches, quantity, rate,
         formula_type, formula_config, calculation_inputs, calculated_unit_amount, calculated_total)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
      RETURNING ${ITEM_COLUMNS}`,
     [
       invoiceId,
@@ -326,6 +335,7 @@ async function createInvoiceItem(
       category.name,
       input.description ?? null,
       input.stitches,
+      quantity,
       rate,
       category.formulaType,
       JSON.stringify(category.formulaConfig),
@@ -365,28 +375,29 @@ export async function createInvoice(
 
     const invoiceNumber = await nextInvoiceNumber(client, companyId);
 
-    const invoiceRes = await client.query<{ id: string; invoiceDate: string; quantity: string; createdAt: string }>(
-      `INSERT INTO invoices (company_id, customer_id, invoice_number, invoice_date, quantity, notes, status, lot_number)
-       VALUES ($1, $2, $3, COALESCE($4::date, CURRENT_DATE), $5, $6, COALESCE($7, 'draft'), $8)
-       RETURNING id, invoice_date AS "invoiceDate", quantity, created_at AS "createdAt"`,
+    // invoices.quantity is obsolete (see the "invoice-level quantity"
+    // note on the Invoice type above) — the column still exists and is
+    // NOT NULL, but the app never reads, writes, or displays it anymore;
+    // its DEFAULT 1 (migration 011) is all that satisfies the column now.
+    const invoiceRes = await client.query<{ id: string; invoiceDate: string; createdAt: string }>(
+      `INSERT INTO invoices (company_id, customer_id, invoice_number, invoice_date, notes, status, lot_number)
+       VALUES ($1, $2, $3, COALESCE($4::date, CURRENT_DATE), $5, COALESCE($6, 'draft'), $7)
+       RETURNING id, invoice_date AS "invoiceDate", created_at AS "createdAt"`,
       [
         companyId,
         input.customerId,
         invoiceNumber,
         input.invoiceDate ?? null,
-        input.quantity,
         input.notes ?? null,
         input.status ?? null,
         input.lotNumber ?? null,
       ],
     );
-    // Use the DB-normalized quantity (e.g. "10.00") everywhere below, so a
-    // freshly created invoice's response matches what a later GET returns.
-    const { id: invoiceId, invoiceDate, quantity, createdAt } = invoiceRes.rows[0];
+    const { id: invoiceId, invoiceDate, createdAt } = invoiceRes.rows[0];
 
     const items: InvoiceItem[] = [];
     for (const itemInput of input.items) {
-      items.push(await createInvoiceItem(client, companyId, invoiceId, quantity, itemInput));
+      items.push(await createInvoiceItem(client, companyId, invoiceId, itemInput));
     }
     const totalAmount = sumDecimalStrings(items.map((item) => item.calculatedTotal));
     const discount = calculateDiscount(totalAmount, input.discountType, input.discountValue);
@@ -436,7 +447,6 @@ export async function createInvoice(
       customerName: customer.name,
       invoiceNumber,
       invoiceDate,
-      quantity,
       notes: input.notes ?? null,
       status: input.status ?? 'draft',
       createdAt,
@@ -537,7 +547,7 @@ export async function listInvoices(companyId: string, filter: InvoiceListFilter)
      invoice_rows AS (
        SELECT
          i.id, i.company_id AS "companyId", i.customer_id AS "customerId", c.name AS "customerName",
-         i.invoice_number AS "invoiceNumber", i.invoice_date AS "invoiceDate", i.quantity, i.notes,
+         i.invoice_number AS "invoiceNumber", i.invoice_date AS "invoiceDate", i.notes,
          i.status, i.created_at AS "createdAt", i.archived_at AS "archivedAt",
          i.lot_number AS "lotNumber", i.discount_type AS "discountType",
          i.discount_value AS "discountValue", i.discount_amount AS "discountAmount",
@@ -626,7 +636,6 @@ export async function duplicateInvoice(companyId: string, userId: string, invoic
     userId,
     {
       customerId: original.customerId,
-      quantity: original.quantity,
       notes: original.notes ?? undefined,
       status: 'draft',
       discountType: original.discountType ?? undefined,
@@ -635,6 +644,9 @@ export async function duplicateInvoice(companyId: string, userId: string, invoic
         categoryId: item.categoryId as string,
         description: item.description ?? undefined,
         stitches: item.stitches,
+        // Each line's own quantity is copied — a duplicate is "the same
+        // order again", so BAZU=12/FRONT=8 stays BAZU=12/FRONT=8.
+        quantity: item.quantity,
         rate: item.rate,
       })),
     },
@@ -643,10 +655,11 @@ export async function duplicateInvoice(companyId: string, userId: string, invoic
 }
 
 /**
- * Edits a draft invoice in place: quantity, date, notes, lot number,
- * discount, and the full item list are all replaceable — but only while
- * `status === 'draft'`. Once issued, an invoice is immutable (archive or
- * duplicate instead), same boundary deleteInvoice already draws. The
+ * Edits a draft invoice in place: date, notes, lot number, discount, and
+ * the full item list (each with its own quantity) are all replaceable —
+ * but only while `status === 'draft'`. Once issued, an invoice is
+ * immutable (archive or duplicate instead), same boundary deleteInvoice
+ * already draws. The
  * customer can't be reassigned here (that would mean moving the ledger
  * debit to a different customer's history, a bigger operation this app
  * doesn't support yet) — to bill a different customer, duplicate the
@@ -676,23 +689,22 @@ export async function updateInvoice(
       throw badRequest('Validation failed', { status: 'Only draft invoices can be edited.' });
     }
 
-    const invoiceRes = await client.query<{ invoiceDate: string; quantity: string }>(
+    const invoiceRes = await client.query<{ invoiceDate: string }>(
       `UPDATE invoices
           SET invoice_date = COALESCE($3::date, invoice_date),
-              quantity = $4,
-              notes = $5,
-              lot_number = $6,
+              notes = $4,
+              lot_number = $5,
               updated_at = now()
         WHERE id = $1 AND company_id = $2
-        RETURNING invoice_date AS "invoiceDate", quantity`,
-      [invoiceId, companyId, input.invoiceDate ?? null, input.quantity, input.notes ?? null, input.lotNumber ?? null],
+        RETURNING invoice_date AS "invoiceDate"`,
+      [invoiceId, companyId, input.invoiceDate ?? null, input.notes ?? null, input.lotNumber ?? null],
     );
-    const { invoiceDate, quantity } = invoiceRes.rows[0];
+    const { invoiceDate } = invoiceRes.rows[0];
 
     await client.query('DELETE FROM invoice_items WHERE invoice_id = $1', [invoiceId]);
     const items: InvoiceItem[] = [];
     for (const itemInput of input.items) {
-      items.push(await createInvoiceItem(client, companyId, invoiceId, quantity, itemInput));
+      items.push(await createInvoiceItem(client, companyId, invoiceId, itemInput));
     }
     const totalAmount = sumDecimalStrings(items.map((item) => item.calculatedTotal));
     const discount = calculateDiscount(totalAmount, input.discountType, input.discountValue);

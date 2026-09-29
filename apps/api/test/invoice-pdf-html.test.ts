@@ -29,9 +29,8 @@ const viewModel: InvoiceViewModel = {
   invoiceNumber: 'INV-000042',
   invoiceDate: '2026-01-15',
   lotNumber: 'LOT-001',
-  quantity: '10.00',
   items: [
-    { id: 'item-1', description: 'HS/HP embroidery', stitches: 12000, amount: '144.00' },
+    { id: 'item-1', description: 'HS/HP embroidery', quantity: '10.00', stitches: 12000, amount: '144.00' },
   ],
   subtotal: '144.00',
   discountType: null,
@@ -67,6 +66,16 @@ test('renders the invoice data the customer should see', () => {
   assert.match(html, /Previous Balance/);
   assert.match(html, /Amount Paid/);
   assert.match(html, /Current Balance/);
+});
+
+test('renders each item row with its own quantity, next to Description', () => {
+  const html = renderInvoiceHtml(getPdfTheme('classic-navy'), viewModel, null);
+  assert.match(html, /<th class="num">Quantity<\/th>/);
+  // Quantity column comes before Stitches in the header row.
+  const quantityIdx = html.indexOf('<th class="num">Quantity</th>');
+  const stitchesIdx = html.indexOf('<th class="num">Stitches</th>');
+  assert.ok(quantityIdx > 0 && quantityIdx < stitchesIdx, 'Quantity column must precede Stitches');
+  assert.match(html, /<td class="num">10\.00<\/td>/); // this item's own quantity
 });
 
 test('shows a discount row only when a discount applies, and hides it entirely when zero', () => {

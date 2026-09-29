@@ -61,8 +61,7 @@ interface InvoiceBody {
 async function createInvoice(agent: ReturnType<typeof request.agent>, customerId: string, categoryId: string, extra: Partial<InvoiceBody> = {}) {
   const res = await agent.post('/api/invoices').send({
     customerId,
-    quantity: '10',
-    items: [{ categoryId, stitches: 12000 }],
+    items: [{ categoryId, stitches: 12000, quantity: '10' }],
     ...extra,
   });
   return res;
@@ -132,10 +131,9 @@ test('editing a fully-discounted (zero grand total) draft back up to a positive 
   assert.equal(zeroLedger.body.balance, '0.00');
 
   const edited = await agent.patch(`/api/invoices/${created.body.id}`).send({
-    quantity: '10',
     discountType: 'percentage',
     discountValue: '0',
-    items: [{ categoryId, stitches: 12000 }],
+    items: [{ categoryId, stitches: 12000, quantity: '10' }],
   });
   assert.equal(edited.status, 200);
   assert.equal(edited.body.grandTotal, '144.00');
@@ -262,11 +260,10 @@ test('editing a draft invoice recalculates the discount and grand total', async 
   assert.equal(created.body.grandTotal, '129.60');
 
   const edited = await agent.patch(`/api/invoices/${created.body.id}`).send({
-    quantity: '10',
     lotNumber: 'LOT-EDITED',
     discountType: 'fixed',
     discountValue: '30.00',
-    items: [{ categoryId, stitches: 12000 }],
+    items: [{ categoryId, stitches: 12000, quantity: '10' }],
   });
   assert.equal(edited.status, 200);
   assert.equal(edited.body.lotNumber, 'LOT-EDITED');
@@ -287,8 +284,7 @@ test('editing an issued invoice is rejected', async () => {
   assert.equal(created.status, 201);
 
   const edited = await agent.patch(`/api/invoices/${created.body.id}`).send({
-    quantity: '10',
-    items: [{ categoryId, stitches: 12000 }],
+    items: [{ categoryId, stitches: 12000, quantity: '10' }],
   });
   assert.equal(edited.status, 400);
 });
@@ -352,15 +348,13 @@ test('permissions: staff cannot edit a draft invoice, owner can', async () => {
   await staff.post(`/api/companies/${companyId}/switch`);
 
   const staffAttempt = await staff.patch(`/api/invoices/${invoice.body.id}`).send({
-    quantity: '10',
-    items: [{ categoryId, stitches: 12000 }],
+    items: [{ categoryId, stitches: 12000, quantity: '10' }],
   });
   assert.equal(staffAttempt.status, 403);
 
   const ownerEdit = await owner.patch(`/api/invoices/${invoice.body.id}`).send({
-    quantity: '10',
     lotNumber: 'LOT-BY-OWNER',
-    items: [{ categoryId, stitches: 12000 }],
+    items: [{ categoryId, stitches: 12000, quantity: '10' }],
   });
   assert.equal(ownerEdit.status, 200);
   assert.equal(ownerEdit.body.lotNumber, 'LOT-BY-OWNER');

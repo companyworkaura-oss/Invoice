@@ -18,22 +18,29 @@ interface ItemRow {
   key: number; // stable React key, independent of array position
   categoryId: string;
   description: string;
+  quantity: string; // this row's own quantity, e.g. BAZU=12, FRONT=8 — independent of every other row
   stitches: string;
   rate: string; // blank = use the category's default rate
 }
 
 interface FieldErrors {
   customerId?: string;
-  quantity?: string;
   discountValue?: string;
-  items?: Record<number, { categoryId?: string; stitches?: string }>;
+  items?: Record<number, { categoryId?: string; quantity?: string; stitches?: string }>;
 }
 
 let nextRowKey = 0;
-const newRow = (): ItemRow => ({ key: nextRowKey++, categoryId: '', description: '', stitches: '', rate: '' });
+const newRow = (): ItemRow => ({ key: nextRowKey++, categoryId: '', description: '', quantity: '1', stitches: '', rate: '' });
 
 function itemRowFromInvoice(item: InvoiceWithItems['items'][number]): ItemRow {
-  return { key: nextRowKey++, categoryId: item.categoryId ?? '', description: item.description ?? '', stitches: String(item.stitches), rate: item.rate };
+  return {
+    key: nextRowKey++,
+    categoryId: item.categoryId ?? '',
+    description: item.description ?? '',
+    quantity: item.quantity,
+    stitches: String(item.stitches),
+    rate: item.rate,
+  };
 }
 
 function todayLocal(): string {
@@ -47,7 +54,6 @@ export function CreateInvoiceForm({ invoice, onSaved, onCancel }: Props) {
   const [categories, setCategories] = useState<EmbroideryCategory[]>([]);
   const [customerId, setCustomerId] = useState(invoice?.customerId ?? '');
   const [invoiceDate, setInvoiceDate] = useState(invoice?.invoiceDate ?? todayLocal());
-  const [quantity, setQuantity] = useState(invoice?.quantity ?? '1');
   const [lotNumber, setLotNumber] = useState(invoice?.lotNumber ?? '');
   const [discountType, setDiscountType] = useState<DiscountType | ''>(invoice?.discountType ?? '');
   const [discountValue, setDiscountValue] = useState(invoice?.discountType ? invoice.discountValue : '');
@@ -91,8 +97,8 @@ export function CreateInvoiceForm({ invoice, onSaved, onCancel }: Props) {
   // client-side purely for feedback. The server recalculates everything
   // from scratch when the invoice is actually saved.
   const previews = useMemo(
-    () => items.map((row) => previewItemAmount(categoryById.get(row.categoryId), row.stitches, row.rate, quantity)),
-    [items, categoryById, quantity],
+    () => items.map((row) => previewItemAmount(categoryById.get(row.categoryId), row.stitches, row.rate, row.quantity)),
+    [items, categoryById],
   );
   const subtotal = useMemo(() => sumAmounts(previews.map((p) => p.amount)), [previews]);
   const discountPreview = useMemo(
@@ -140,13 +146,13 @@ export function CreateInvoiceForm({ invoice, onSaved, onCancel }: Props) {
   function validate(): FieldErrors {
     const next: FieldErrors = {};
     if (!customerId) next.customerId = 'Choose a customer';
-    if (!quantity || Number(quantity) <= 0) next.quantity = 'Enter a quantity greater than zero';
     if (discountPreview.error) next.discountValue = discountPreview.error;
 
-    const itemErrors: Record<number, { categoryId?: string; stitches?: string }> = {};
+    const itemErrors: Record<number, { categoryId?: string; quantity?: string; stitches?: string }> = {};
     items.forEach((row, index) => {
-      const rowErrors: { categoryId?: string; stitches?: string } = {};
+      const rowErrors: { categoryId?: string; quantity?: string; stitches?: string } = {};
       if (!row.categoryId) rowErrors.categoryId = 'Pick a category';
+      if (!row.quantity || Number(row.quantity) <= 0) rowErrors.quantity = 'Enter a quantity greater than zero';
       const stitches = Number(row.stitches);
       if (!row.stitches || !Number.isInteger(stitches) || stitches <= 0) {
         rowErrors.stitches = 'Whole number greater than zero';
@@ -169,13 +175,13 @@ export function CreateInvoiceForm({ invoice, onSaved, onCancel }: Props) {
     try {
       const payload = {
         invoiceDate,
-        quantity,
         lotNumber: lotNumber || undefined,
         discountType: discountType || undefined,
         discountValue: discountType ? discountValue || '0' : undefined,
         items: items.map((row) => ({
           categoryId: row.categoryId,
           description: row.description || undefined,
+          quantity: row.quantity || undefined,
           stitches: Number(row.stitches),
           rate: row.rate || undefined,
         })),
@@ -193,8 +199,8 @@ export function CreateInvoiceForm({ invoice, onSaved, onCancel }: Props) {
 
   return (
     <form onSubmit={handleSubmit} className="rounded-md border border-slate-200 p-4 md:p-6">
-      {/* Header: customer / date / number / lot / quantity */}
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-5">
+      {/* Header: customer / date / number / lot */}
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
         <Field label="Customer" error={errors.customerId}>
           {editing ? (
             <input
@@ -245,15 +251,6 @@ export function CreateInvoiceForm({ invoice, onSaved, onCancel }: Props) {
             className={inputClass(false)}
           />
         </Field>
-
-        <Field label="Quantity" error={errors.quantity}>
-          <input
-            inputMode="decimal"
-            value={quantity}
-            onChange={(e) => setQuantity(e.target.value)}
-            className={inputClass(Boolean(errors.quantity))}
-          />
-        </Field>
       </div>
 
       {/* Items */}
@@ -263,6 +260,7 @@ export function CreateInvoiceForm({ invoice, onSaved, onCancel }: Props) {
             <tr className="border-b border-slate-200 text-left text-xs text-slate-500">
               <th className="w-1/4 py-1.5 pr-2 font-medium">Category</th>
               <th className="w-1/4 py-1.5 pr-2 font-medium">Description</th>
+              <th className="py-1.5 pr-2 text-right font-medium">Quantity</th>
               <th className="py-1.5 pr-2 text-right font-medium">Stitches</th>
               <th className="py-1.5 pr-2 text-right font-medium">Rate</th>
               <th className="py-1.5 pr-2 text-right font-medium">Amount</th>
@@ -312,6 +310,15 @@ export function CreateInvoiceForm({ invoice, onSaved, onCancel }: Props) {
                       onChange={(e) => updateItem(index, { description: e.target.value })}
                       className={inputClass(false)}
                     />
+                  </td>
+                  <td className="py-1.5 pr-2">
+                    <input
+                      inputMode="decimal"
+                      value={row.quantity}
+                      onChange={(e) => updateItem(index, { quantity: e.target.value })}
+                      className={`${inputClass(Boolean(rowErrors?.quantity))} text-right`}
+                    />
+                    {rowErrors?.quantity && <p className="mt-0.5 text-xs text-red-600">{rowErrors.quantity}</p>}
                   </td>
                   <td className="py-1.5 pr-2">
                     <input

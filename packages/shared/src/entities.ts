@@ -103,6 +103,8 @@ export interface InvoiceItem {
   categoryName: string;
   description: string | null;
   stitches: number;
+  /** This item's own quantity — each category/line has its own (e.g. BAZU=12, FRONT=8), never one invoice-wide value. */
+  quantity: string;
   rate: Money;
   formulaType: string;
   formulaConfig: Record<string, unknown>;
@@ -119,7 +121,6 @@ export interface Invoice {
   customerName: string;
   invoiceNumber: string;
   invoiceDate: string;
-  quantity: string;
   notes: string | null;
   status: InvoiceStatus;
   createdAt: string;

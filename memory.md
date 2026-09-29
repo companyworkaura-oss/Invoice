@@ -732,6 +732,57 @@ snapshot — `discount_type text NULL CHECK (IN ('percentage','fixed'))`,
   discount row is omitted entirely (not shown as "Rs 0.00") when
   `discountType` is null.
 
+## Per-Item Quantity
+
+Every category/line on an invoice now has its own quantity (e.g.
+BAZU=12, FRONT=8, DUPATTA=15) — the original design had exactly one
+`invoices.quantity` shared by every item, which was wrong for this
+business (different embroidery jobs on the same invoice are genuinely
+different batch sizes).
+
+- **`invoice_items.quantity numeric(12,2) NOT NULL DEFAULT 1 CHECK
+  (quantity > 0)`** (migration `011_invoice_item_quantity.sql`).
+  Backfilled from each item's *parent invoice's* old quantity, not a
+  blanket "1" — that's the value each existing item's `calculated_total`
+  was actually computed with, so the backfill keeps historical totals
+  internally consistent with the now-visible per-item quantity.
+- **`invoices.quantity` is obsolete** — the column stays (still `NOT
+  NULL`, now `DEFAULT 1`) so nothing breaks, but the app never reads,
+  writes, or displays it anymore: dropped from `INVOICE_HEADER_COLUMNS`,
+  the `Invoice`/`InvoiceListEntry`/`InvoiceWithItems` types, every
+  INSERT/UPDATE, `InvoiceViewModel`, all 5 print templates, and the PDF
+  renderer. If a future phase decides the column can be dropped
+  entirely, check nothing external reads it first (this app's own code
+  no longer does).
+- **`InvoiceItemInput.quantity` is optional, defaulting to `"1"`** when
+  omitted (`createInvoiceItem` in `invoice.service.ts`) — this is why
+  the huge existing test suite (every other test file's invoices, all
+  written pre-Phase-24 with an invoice-level `quantity: '1'`) kept
+  passing unchanged: an omitted/absent item quantity behaves exactly
+  like the old default. Only tests that used a *non-1* invoice-level
+  quantity needed updating, by moving that value onto the item(s).
+- **Formula engine**: `calculationInputs.quantity` is now each item's
+  own quantity, computed and validated independently per item in
+  `createInvoiceItem`'s loop — there is no shared "invoice quantity"
+  anywhere in the calculation path anymore. Editing one item's quantity
+  (draft edit, full item-list replace) never touches another item's
+  stored `calculated_unit_amount`/`calculated_total`, since each item is
+  entirely recalculated from its own input row.
+- **`duplicateInvoice`**: copies each item's own `quantity` (a duplicate
+  is "the same order again", batch sizes included) — this is separate
+  from lot number, which is deliberately never copied (see "Invoice
+  Discount + Lot Number" above).
+- **Frontend**: `CreateInvoiceForm.tsx`'s `ItemRow` gained its own
+  `quantity` field (default `'1'` for a new row); the invoice-level
+  Quantity input and state are gone entirely. The item table's column
+  order is `Category | Description | Quantity | Stitches | Rate |
+  Amount`, matching the print/PDF `Description | Quantity | Stitches |
+  Amount` order (Rate is print/PDF-internal only, never shown to the
+  customer — see the "don't show calculation internals" note in
+  `invoice-view-model.ts`). `InvoiceDetails.tsx` and all 5 templates +
+  `render-html.ts` show a Quantity column and no longer show a
+  standalone "Quantity: xxx" line near the customer/address block.
+
 ## Known gotchas / things to check before starting work
 
 - **Postgres cluster is often stopped** when a session starts:
@@ -866,6 +917,12 @@ snapshot — `discount_type text NULL CHECK (IN ('percentage','fixed'))`,
     free-text lot number; also added draft invoice editing
     (`PATCH /api/invoices/:id`), which didn't exist before this phase
     — see "Invoice Discount + Lot Number" below
+24. Per-Item Quantity: quantity moved from invoice-level to
+    invoice-item-level (`invoice_items.quantity`) — each category/line
+    (BAZU=12, FRONT=8, ...) has its own quantity fed into the formula
+    engine, never one invoice-wide value; `invoices.quantity` is now
+    unused (column kept, defaulted, never read/written/displayed) — see
+    "Per-Item Quantity" below
 
 Repo also went through a monorepo restructure (`server/` → `apps/api` +
 new `apps/web` + `packages/shared`) between Phase 1 and Phase 2.

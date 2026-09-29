@@ -31,7 +31,6 @@ export function ModernCurveTemplate({ invoice }: { invoice: InvoiceViewModel }) 
           <p className="text-xs font-semibold uppercase tracking-wide text-violet-400">Billed to</p>
           <p className="font-semibold text-slate-900">{invoice.customer.businessName || invoice.customer.name}</p>
           {invoice.customer.address && <p className="text-sm text-slate-600">{invoice.customer.address}</p>}
-          <p className="mt-1 text-sm text-slate-600">Quantity: {invoice.quantity}</p>
         </div>
 
         <div className="mt-6 overflow-hidden rounded-2xl border border-violet-100">
@@ -39,6 +38,7 @@ export function ModernCurveTemplate({ invoice }: { invoice: InvoiceViewModel }) 
             <thead>
               <tr className="bg-violet-50 text-left text-xs uppercase tracking-wide text-violet-500">
                 <th className="px-4 py-2">Description</th>
+                <th className="px-4 py-2 text-right">Quantity</th>
                 <th className="px-4 py-2 text-right">Stitches</th>
                 <th className="px-4 py-2 text-right">Amount</th>
               </tr>
@@ -47,6 +47,7 @@ export function ModernCurveTemplate({ invoice }: { invoice: InvoiceViewModel }) 
               {invoice.items.map((item) => (
                 <tr key={item.id} className="break-inside-avoid border-t border-violet-100">
                   <td className="px-4 py-2">{item.description}</td>
+                  <td className="px-4 py-2 text-right">{item.quantity}</td>
                   <td className="px-4 py-2 text-right">{item.stitches}</td>
                   <td className="px-4 py-2 text-right">{item.amount}</td>
                 </tr>

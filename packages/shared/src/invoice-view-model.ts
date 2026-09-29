@@ -32,10 +32,11 @@ export interface InvoiceViewModel {
   invoiceDate: string;
   /** Batch/material/job identifier, e.g. "LOT-001" — null when not set. */
   lotNumber: string | null;
-  quantity: string;
   items: {
     id: string;
     description: string;
+    /** This line's own quantity — each category/line has its own (e.g. BAZU=12, FRONT=8), not one invoice-wide value. */
+    quantity: string;
     stitches: number;
     amount: string;
   }[];
@@ -85,10 +86,10 @@ export function buildInvoiceViewModel(
     invoiceNumber: invoice.invoiceNumber,
     invoiceDate: invoice.invoiceDate,
     lotNumber: invoice.lotNumber,
-    quantity: invoice.quantity,
     items: invoice.items.map((item) => ({
       id: item.id,
       description: itemDescription(item),
+      quantity: item.quantity,
       stitches: item.stitches,
       amount: item.calculatedTotal,
     })),

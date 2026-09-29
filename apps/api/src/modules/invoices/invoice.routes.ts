@@ -40,6 +40,10 @@ function parseItems(body: Record<string, unknown>): service.InvoiceItemInput[] {
       description: optionalString(itemBody, 'description', { max: 500 }),
       stitches: requirePositiveInt(itemBody, 'stitches', { max: 10_000_000 }),
       rate: optionalMoney(itemBody, 'rate'),
+      // This item's own quantity — each category/line carries its own
+      // (e.g. BAZU=12, FRONT=8), never one invoice-wide value. Optional;
+      // defaults to "1" server-side (see createInvoiceItem) when omitted.
+      quantity: itemBody.quantity === undefined ? undefined : requirePositiveDecimal(itemBody, 'quantity'),
     };
   });
 }
@@ -68,7 +72,6 @@ invoicesRouter.post('/', requirePermission('invoice.create'), async (req, res) =
   const invoice = await service.createInvoice(auth(req).companyId, auth(req).userId, {
     customerId: requireUuid(body, 'customerId'),
     invoiceDate: optionalDate(body, 'invoiceDate'),
-    quantity: requirePositiveDecimal(body, 'quantity'),
     notes: optionalString(body, 'notes', { max: 2000 }),
     status: status as service.InvoiceStatus | undefined,
     items: parseItems(body),
@@ -77,17 +80,16 @@ invoicesRouter.post('/', requirePermission('invoice.create'), async (req, res) =
   res.status(201).json(invoice);
 });
 
-// Edits a draft invoice in place — items, quantity, date, notes, lot
-// number, and discount are all replaceable, but only while the invoice
-// is still a draft; see updateInvoice in invoice.service.ts. The
-// customer can't be reassigned here.
+// Edits a draft invoice in place — items (each with its own quantity),
+// date, notes, lot number, and discount are all replaceable, but only
+// while the invoice is still a draft; see updateInvoice in
+// invoice.service.ts. The customer can't be reassigned here.
 invoicesRouter.patch('/:invoiceId', requirePermission('invoice.edit'), async (req, res) => {
   const invoiceId = requireUuidParam(req.params.invoiceId, 'invoiceId');
   const body = asBody(req.body);
 
   const invoice = await service.updateInvoice(auth(req).companyId, auth(req).userId, invoiceId, {
     invoiceDate: optionalDate(body, 'invoiceDate'),
-    quantity: requirePositiveDecimal(body, 'quantity'),
     notes: optionalString(body, 'notes', { max: 2000 }),
     items: parseItems(body),
     ...parseDiscountAndLot(body),

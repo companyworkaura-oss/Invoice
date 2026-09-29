@@ -79,9 +79,8 @@ async function createInvoice(
 ) {
   const res = await agent.post('/api/invoices').send({
     customerId,
-    quantity: '10',
     status,
-    items: [{ categoryId, stitches: 12000 }],
+    items: [{ categoryId, stitches: 12000, quantity: '10' }],
   });
   assert.equal(res.status, 201);
   return res.body as { id: string; invoiceNumber: string; customerId: string };
