@@ -783,6 +783,26 @@ different batch sizes).
   `render-html.ts` show a Quantity column and no longer show a
   standalone "Quantity: xxx" line near the customer/address block.
 
+## Lot Number in Print/PDF — verification pass
+
+A bug report claimed lot number wasn't showing in print/PDF/some
+templates. Full inspection (schema → `getInvoice` → shared types →
+`buildInvoiceViewModel` → `render-html.ts` → all 5 React templates) plus
+a live Playwright run through create → details → every template in the
+print preview → PDF download found it already correct end-to-end — this
+was fully wired in the same phase that added lot number (see "Invoice
+Discount + Lot Number" above) and untouched by the later per-item
+quantity refactor. No code change was needed. What changed instead:
+added `packages/shared/test/invoice-view-model.test.ts` (`buildInvoiceViewModel`
+maps a lot number through, and maps null as null, not `""`) and two
+`invoice-pdf-html.test.ts` cases (every PDF theme hides the Lot # row
+when null, every theme shows it when set) — the render-html Lot #
+row's `invoice.lotNumber ?` conditional existed but had no test that
+specifically covered the null-hides-the-row case in isolation. If this
+ever regresses, check that the failure is really in one of the six
+layers listed above and not stale `apps/web/dist`/`apps/api/dist` build
+output — `npm run build` before checking again.
+
 ## Known gotchas / things to check before starting work
 
 - **Postgres cluster is often stopped** when a session starts:

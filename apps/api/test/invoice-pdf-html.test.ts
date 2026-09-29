@@ -68,6 +68,21 @@ test('renders the invoice data the customer should see', () => {
   assert.match(html, /Current Balance/);
 });
 
+test('hides the Lot # row entirely when lotNumber is null, across every theme', () => {
+  const noLot = { ...viewModel, lotNumber: null };
+  for (const id of Object.keys(PDF_THEMES)) {
+    const html = renderInvoiceHtml(getPdfTheme(id), noLot, null);
+    assert.ok(!html.includes('Lot #'), `${id} theme must not show a Lot # row when lotNumber is null`);
+  }
+});
+
+test('shows the Lot # row for every theme when a lot number is set', () => {
+  for (const id of Object.keys(PDF_THEMES)) {
+    const html = renderInvoiceHtml(getPdfTheme(id), viewModel, null);
+    assert.match(html, /Lot #: LOT-001/, `${id} theme must show the lot number`);
+  }
+});
+
 test('renders each item row with its own quantity, next to Description', () => {
   const html = renderInvoiceHtml(getPdfTheme('classic-navy'), viewModel, null);
   assert.match(html, /<th class="num">Quantity<\/th>/);
