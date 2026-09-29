@@ -1,17 +1,20 @@
-import type { InvoiceWithItems } from '@invoice/shared';
+import type { InvoiceWithItems, Permission } from '@invoice/shared';
 import { useState } from 'react';
 import { PaymentForm } from '../payments/PaymentForm';
 import * as invoicesApi from './api';
 
 interface Props {
   invoice: InvoiceWithItems;
+  permissions: Permission[];
   onBack: () => void;
   onViewTemplate: () => void;
   onInvoiceUpdated: (invoice: InvoiceWithItems) => void;
+  onEdit: () => void;
 }
 
-export function InvoiceDetails({ invoice, onBack, onViewTemplate, onInvoiceUpdated }: Props) {
+export function InvoiceDetails({ invoice, permissions, onBack, onViewTemplate, onInvoiceUpdated, onEdit }: Props) {
   const [showPaymentForm, setShowPaymentForm] = useState(false);
+  const canEdit = invoice.status === 'draft' && permissions.includes('invoice.edit');
 
   async function refresh() {
     onInvoiceUpdated(await invoicesApi.getInvoice(invoice.id));
@@ -24,9 +27,15 @@ export function InvoiceDetails({ invoice, onBack, onViewTemplate, onInvoiceUpdat
           <h3 className="text-sm font-semibold text-slate-900">{invoice.invoiceNumber}</h3>
           <p className="text-xs text-slate-500">
             {invoice.customerName} · {invoice.invoiceDate} · {invoice.status}
+            {invoice.lotNumber && <> · Lot #: {invoice.lotNumber}</>}
           </p>
         </div>
         <div className="flex items-center gap-3">
+          {canEdit && (
+            <button type="button" onClick={onEdit} className="text-xs text-slate-500 underline">
+              Edit
+            </button>
+          )}
           <button type="button" onClick={onViewTemplate} className="text-xs text-slate-500 underline">
             View / Print
           </button>
@@ -64,17 +73,31 @@ export function InvoiceDetails({ invoice, onBack, onViewTemplate, onInvoiceUpdat
         </tbody>
         <tfoot>
           <tr>
-            <td colSpan={5} className="pt-2 text-right text-sm font-medium text-slate-900">
-              Total
+            <td colSpan={5} className="pt-2 text-right text-sm text-slate-500">
+              Subtotal
             </td>
-            <td className="pt-2 text-right text-sm font-semibold text-slate-900">{invoice.totalAmount}</td>
+            <td className="pt-2 text-right text-sm text-slate-700">{invoice.totalAmount}</td>
+          </tr>
+          {invoice.discountType && (
+            <tr>
+              <td colSpan={5} className="pt-1 text-right text-sm text-slate-500">
+                {invoice.discountType === 'percentage' ? `Discount (${invoice.discountValue}%)` : 'Discount'}
+              </td>
+              <td className="pt-1 text-right text-sm text-slate-700">-{invoice.discountAmount}</td>
+            </tr>
+          )}
+          <tr>
+            <td colSpan={5} className="pt-1 text-right text-sm font-medium text-slate-900">
+              Grand Total
+            </td>
+            <td className="pt-1 text-right text-sm font-semibold text-slate-900">{invoice.grandTotal}</td>
           </tr>
         </tfoot>
       </table>
 
       <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-1 border-t border-slate-200 pt-3 text-sm sm:grid-cols-5">
         <StatRow label="Previous Balance" value={invoice.previousBalance} />
-        <StatRow label="Current Bill" value={invoice.totalAmount} />
+        <StatRow label="Grand Total" value={invoice.grandTotal} />
         <StatRow label="Total Receivable" value={invoice.totalReceivable} />
         <StatRow label="Amount Paid" value={invoice.amountPaid} />
         <StatRow label="Current Balance" value={invoice.currentBalance} emphasize />

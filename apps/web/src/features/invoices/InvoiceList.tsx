@@ -164,7 +164,7 @@ export function InvoiceList({ onSelect, onAction, permissions, refreshToken }: P
           type="text"
           value={searchInput}
           onChange={(e) => setSearchInput(e.target.value)}
-          placeholder="Search invoice # or customer…"
+          placeholder="Search invoice #, customer, or lot #…"
           className="min-w-[200px] flex-1 rounded-md border border-slate-300 px-2 py-1 text-sm"
         />
         <select
@@ -227,8 +227,9 @@ export function InvoiceList({ onSelect, onAction, permissions, refreshToken }: P
               <tr className="border-b border-slate-200 text-left text-xs text-slate-500">
                 <th className="py-1.5 pr-2 font-medium">Invoice No</th>
                 <th className="py-1.5 pr-2 font-medium">Date</th>
+                <th className="py-1.5 pr-2 font-medium">Lot #</th>
                 <th className="py-1.5 pr-2 font-medium">Customer</th>
-                <th className="py-1.5 pr-2 text-right font-medium">Current Bill</th>
+                <th className="py-1.5 pr-2 text-right font-medium">Grand Total</th>
                 <th className="py-1.5 pr-2 text-right font-medium">Paid</th>
                 <th className="py-1.5 pr-2 text-right font-medium">Balance</th>
                 <th className="py-1.5 pr-2 font-medium">Status</th>
@@ -250,8 +251,9 @@ export function InvoiceList({ onSelect, onAction, permissions, refreshToken }: P
                       )}
                     </td>
                     <td className="py-1.5 pr-2 text-slate-500">{inv.invoiceDate}</td>
+                    <td className="py-1.5 pr-2 text-slate-500">{inv.lotNumber ?? '—'}</td>
                     <td className="py-1.5 pr-2 text-slate-600">{inv.customerName}</td>
-                    <td className="py-1.5 pr-2 text-right tabular-nums">{inv.totalAmount}</td>
+                    <td className="py-1.5 pr-2 text-right tabular-nums">{inv.grandTotal}</td>
                     <td className="py-1.5 pr-2 text-right tabular-nums">{inv.paid}</td>
                     <td className="py-1.5 pr-2 text-right tabular-nums font-medium text-slate-900">{inv.balance}</td>
                     <td className="py-1.5 pr-2">

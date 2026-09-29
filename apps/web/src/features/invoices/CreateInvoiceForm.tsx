@@ -1,14 +1,16 @@
-import type { Customer, EmbroideryCategory, InvoiceWithItems } from '@invoice/shared';
+import type { Customer, DiscountType, EmbroideryCategory, InvoiceWithItems } from '@invoice/shared';
 import { useEffect, useMemo, useState } from 'react';
 import { ApiError } from '../../lib/api';
 import * as customersApi from '../customers/api';
 import * as categoriesApi from '../formulas/api';
 import * as ledgerApi from '../ledger/api';
 import * as invoicesApi from './api';
-import { previewItemAmount, sumAmounts } from './preview';
+import { previewDiscount, previewItemAmount, sumAmounts } from './preview';
 
 interface Props {
-  onCreated: (invoice: InvoiceWithItems) => void;
+  /** Present in edit mode: prefills the form from this draft and saves via PATCH instead of POST. The customer can't be changed. */
+  invoice?: InvoiceWithItems;
+  onSaved: (invoice: InvoiceWithItems) => void;
   onCancel: () => void;
 }
 
@@ -23,24 +25,33 @@ interface ItemRow {
 interface FieldErrors {
   customerId?: string;
   quantity?: string;
+  discountValue?: string;
   items?: Record<number, { categoryId?: string; stitches?: string }>;
 }
 
 let nextRowKey = 0;
 const newRow = (): ItemRow => ({ key: nextRowKey++, categoryId: '', description: '', stitches: '', rate: '' });
 
+function itemRowFromInvoice(item: InvoiceWithItems['items'][number]): ItemRow {
+  return { key: nextRowKey++, categoryId: item.categoryId ?? '', description: item.description ?? '', stitches: String(item.stitches), rate: item.rate };
+}
+
 function todayLocal(): string {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-export function CreateInvoiceForm({ onCreated, onCancel }: Props) {
+export function CreateInvoiceForm({ invoice, onSaved, onCancel }: Props) {
+  const editing = Boolean(invoice);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [categories, setCategories] = useState<EmbroideryCategory[]>([]);
-  const [customerId, setCustomerId] = useState('');
-  const [invoiceDate, setInvoiceDate] = useState(todayLocal);
-  const [quantity, setQuantity] = useState('1');
-  const [items, setItems] = useState<ItemRow[]>([newRow()]);
+  const [customerId, setCustomerId] = useState(invoice?.customerId ?? '');
+  const [invoiceDate, setInvoiceDate] = useState(invoice?.invoiceDate ?? todayLocal());
+  const [quantity, setQuantity] = useState(invoice?.quantity ?? '1');
+  const [lotNumber, setLotNumber] = useState(invoice?.lotNumber ?? '');
+  const [discountType, setDiscountType] = useState<DiscountType | ''>(invoice?.discountType ?? '');
+  const [discountValue, setDiscountValue] = useState(invoice?.discountType ? invoice.discountValue : '');
+  const [items, setItems] = useState<ItemRow[]>(() => (invoice ? invoice.items.map(itemRowFromInvoice) : [newRow()]));
   const [previousBalance, setPreviousBalance] = useState<string | null>(null);
   const [errors, setErrors] = useState<FieldErrors>({});
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -52,6 +63,13 @@ export function CreateInvoiceForm({ onCreated, onCancel }: Props) {
   }, []);
 
   useEffect(() => {
+    // Editing: the "previous balance" is the customer's balance immediately
+    // before *this* invoice was originally posted — already computed
+    // server-side and saved on the invoice itself, since a live ledger
+    // fetch here would double-count this invoice's own (still-posted)
+    // debit. Creating: nothing exists yet, so the customer's current
+    // balance *is* the previous balance for the invoice about to be made.
+    if (editing) return;
     if (!customerId) return;
     let cancelled = false;
     ledgerApi
@@ -65,7 +83,7 @@ export function CreateInvoiceForm({ onCreated, onCancel }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [customerId]);
+  }, [customerId, editing]);
 
   const categoryById = useMemo(() => new Map(categories.map((c) => [c.id, c])), [categories]);
 
@@ -76,14 +94,21 @@ export function CreateInvoiceForm({ onCreated, onCancel }: Props) {
     () => items.map((row) => previewItemAmount(categoryById.get(row.categoryId), row.stitches, row.rate, quantity)),
     [items, categoryById, quantity],
   );
-  const currentBill = useMemo(() => sumAmounts(previews.map((p) => p.amount)), [previews]);
-  const totalReceivable = useMemo(
-    () => sumAmounts([previousBalance ?? '0.00', currentBill]),
-    [previousBalance, currentBill],
+  const subtotal = useMemo(() => sumAmounts(previews.map((p) => p.amount)), [previews]);
+  const discountPreview = useMemo(
+    () => previewDiscount(subtotal, discountType, discountValue),
+    [subtotal, discountType, discountValue],
   );
-  // Nothing has been paid toward an invoice that doesn't exist yet.
-  const amountPaid = '0.00';
-  const currentBalance = totalReceivable;
+  const grandTotal = discountPreview.grandTotal;
+  const effectivePreviousBalance = editing ? (invoice?.previousBalance ?? '0.00') : (previousBalance ?? '0.00');
+  const totalReceivable = useMemo(
+    () => sumAmounts([effectivePreviousBalance, grandTotal]),
+    [effectivePreviousBalance, grandTotal],
+  );
+  // Nothing has been paid toward an invoice that doesn't exist yet; a
+  // draft being edited may already have a payment applied to it.
+  const amountPaid = editing ? (invoice?.amountPaid ?? '0.00') : '0.00';
+  const currentBalance = sumAmounts([totalReceivable, `-${amountPaid}`]);
 
   function updateItem(index: number, patch: Partial<ItemRow>) {
     setItems((rows) => rows.map((row, i) => (i === index ? { ...row, ...patch } : row)));
@@ -116,6 +141,7 @@ export function CreateInvoiceForm({ onCreated, onCancel }: Props) {
     const next: FieldErrors = {};
     if (!customerId) next.customerId = 'Choose a customer';
     if (!quantity || Number(quantity) <= 0) next.quantity = 'Enter a quantity greater than zero';
+    if (discountPreview.error) next.discountValue = discountPreview.error;
 
     const itemErrors: Record<number, { categoryId?: string; stitches?: string }> = {};
     items.forEach((row, index) => {
@@ -141,18 +167,23 @@ export function CreateInvoiceForm({ onCreated, onCancel }: Props) {
 
     setSaving(true);
     try {
-      const invoice = await invoicesApi.createInvoice({
-        customerId,
+      const payload = {
         invoiceDate,
         quantity,
+        lotNumber: lotNumber || undefined,
+        discountType: discountType || undefined,
+        discountValue: discountType ? discountValue || '0' : undefined,
         items: items.map((row) => ({
           categoryId: row.categoryId,
           description: row.description || undefined,
           stitches: Number(row.stitches),
           rate: row.rate || undefined,
         })),
-      });
-      onCreated(invoice);
+      };
+      const saved = invoice
+        ? await invoicesApi.updateInvoice(invoice.id, payload)
+        : await invoicesApi.createInvoice({ ...payload, customerId });
+      onSaved(saved);
     } catch (err) {
       setSubmitError(err instanceof ApiError ? err.body.error : 'Something went wrong saving this invoice');
     } finally {
@@ -162,22 +193,30 @@ export function CreateInvoiceForm({ onCreated, onCancel }: Props) {
 
   return (
     <form onSubmit={handleSubmit} className="rounded-md border border-slate-200 p-4 md:p-6">
-      {/* Header: customer / date / number / quantity */}
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+      {/* Header: customer / date / number / lot / quantity */}
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-5">
         <Field label="Customer" error={errors.customerId}>
-          <select
-            autoFocus
-            value={customerId}
-            onChange={(e) => setCustomerId(e.target.value)}
-            className={inputClass(Boolean(errors.customerId))}
-          >
-            <option value="">Select…</option>
-            {customers.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
+          {editing ? (
+            <input
+              disabled
+              value={invoice?.customerName ?? ''}
+              className="w-full rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5 text-sm text-slate-500"
+            />
+          ) : (
+            <select
+              autoFocus
+              value={customerId}
+              onChange={(e) => setCustomerId(e.target.value)}
+              className={inputClass(Boolean(errors.customerId))}
+            >
+              <option value="">Select…</option>
+              {customers.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          )}
         </Field>
 
         <Field label="Invoice date">
@@ -192,8 +231,18 @@ export function CreateInvoiceForm({ onCreated, onCancel }: Props) {
         <Field label="Invoice number">
           <input
             disabled
-            value="Assigned when saved"
+            value={editing ? invoice?.invoiceNumber : 'Assigned when saved'}
             className="w-full rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5 text-sm text-slate-400"
+          />
+        </Field>
+
+        <Field label="Lot Number">
+          <input
+            type="text"
+            value={lotNumber}
+            onChange={(e) => setLotNumber(e.target.value)}
+            placeholder="e.g. LOT-001"
+            className={inputClass(false)}
           />
         </Field>
 
@@ -312,11 +361,48 @@ export function CreateInvoiceForm({ onCreated, onCancel }: Props) {
         + Add Work
       </button>
 
+      {/* Discount */}
+      <div className="mt-6 flex flex-wrap items-end justify-end gap-3">
+        <Field label="Discount Type">
+          <select
+            value={discountType}
+            onChange={(e) => {
+              const next = e.target.value as DiscountType | '';
+              setDiscountType(next);
+              if (!next) setDiscountValue('');
+            }}
+            className={inputClass(false)}
+          >
+            <option value="">None</option>
+            <option value="percentage">Percentage</option>
+            <option value="fixed">Fixed Amount</option>
+          </select>
+        </Field>
+        {discountType && (
+          <Field label="Discount" error={errors.discountValue}>
+            <input
+              inputMode="decimal"
+              value={discountValue}
+              onChange={(e) => setDiscountValue(e.target.value)}
+              placeholder={discountType === 'percentage' ? 'e.g. 10' : 'e.g. 500.00'}
+              className={`${inputClass(Boolean(errors.discountValue))} text-right`}
+            />
+          </Field>
+        )}
+      </div>
+
       {/* Summary */}
-      <div className="mt-6 flex justify-end">
+      <div className="mt-4 flex justify-end">
         <dl className="w-full max-w-xs space-y-1 text-sm">
-          <SummaryRow label="Current Bill" value={currentBill} />
-          <SummaryRow label="Previous Balance" value={previousBalance ?? '0.00'} />
+          <SummaryRow label="Subtotal" value={subtotal} />
+          {discountType && (
+            <SummaryRow
+              label={discountType === 'percentage' ? `Discount (${discountValue || '0'}%)` : 'Discount'}
+              value={`-${discountPreview.discountAmount}`}
+            />
+          )}
+          <SummaryRow label="Grand Total" value={grandTotal} />
+          <SummaryRow label="Previous Balance" value={effectivePreviousBalance} />
           <SummaryRow label="Total Receivable" value={totalReceivable} />
           <SummaryRow label="Amount Paid" value={amountPaid} />
           <SummaryRow label="Current Balance" value={currentBalance} emphasize />
@@ -338,7 +424,7 @@ export function CreateInvoiceForm({ onCreated, onCancel }: Props) {
           disabled={saving}
           className="rounded-md bg-slate-900 px-4 py-1.5 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50"
         >
-          {saving ? 'Saving…' : 'Save invoice'}
+          {saving ? 'Saving…' : editing ? 'Save changes' : 'Save invoice'}
         </button>
       </div>
     </form>

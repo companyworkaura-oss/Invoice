@@ -30,6 +30,7 @@ export function PremiumModernTemplate({ invoice }: { invoice: InvoiceViewModel }
           </div>
           <div className="text-right text-slate-500">
             <p>{invoice.invoiceDate}</p>
+            {invoice.lotNumber && <p>Lot #: {invoice.lotNumber}</p>}
             <p>Quantity: {invoice.quantity}</p>
           </div>
         </div>
@@ -57,7 +58,9 @@ export function PremiumModernTemplate({ invoice }: { invoice: InvoiceViewModel }
 
         <div className="mt-6 flex justify-end break-inside-avoid">
           <div className="w-64 space-y-1.5 text-sm">
-            <Row label="Current Bill" value={invoice.currentBill} />
+            <Row label="Subtotal" value={invoice.subtotal} />
+            {invoice.discountType && <Row label={invoice.discountLabel} value={`-${invoice.discountAmount}`} />}
+            <Row label="Grand Total" value={invoice.grandTotal} />
             <Row label="Previous Balance" value={invoice.previousBalance} />
             <Row label="Amount Paid" value={invoice.amountPaid} />
             <div className="mt-2 flex justify-between border-t-2 border-slate-900 pt-2 text-base font-semibold text-slate-900">

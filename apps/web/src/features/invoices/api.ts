@@ -1,4 +1,5 @@
 import type {
+  DiscountType,
   InvoiceArchivedFilter,
   InvoiceListEntry,
   InvoicePaymentStatus,
@@ -22,8 +23,15 @@ export interface InvoiceInput {
   quantity: string;
   notes?: string;
   status?: InvoiceStatus;
+  /** Batch/material/job identifier, e.g. "LOT-001" — optional, not required to be unique. */
+  lotNumber?: string;
+  discountType?: DiscountType;
+  discountValue?: string;
   items: InvoiceItemInput[];
 }
+
+/** Same shape as InvoiceInput minus customerId/status — a draft's customer is fixed; see PATCH /invoices/:id. */
+export type InvoiceUpdateInput = Omit<InvoiceInput, 'customerId' | 'status'>;
 
 export interface ListParams {
   status?: string;
@@ -57,6 +65,10 @@ export const createInvoice = (input: InvoiceInput) => api<InvoiceWithItems>('/in
   method: 'POST',
   body: JSON.stringify(input),
 });
+
+/** Edits a draft invoice in place — see apps/api's updateInvoice. Only drafts can be edited. */
+export const updateInvoice = (invoiceId: string, input: InvoiceUpdateInput) =>
+  api<InvoiceWithItems>(`/invoices/${invoiceId}`, { method: 'PATCH', body: JSON.stringify(input) });
 
 /**
  * A same-origin URL, not a fetch call — actually downloading it goes

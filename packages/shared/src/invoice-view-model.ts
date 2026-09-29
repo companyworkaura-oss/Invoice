@@ -30,6 +30,8 @@ export interface InvoiceViewModel {
   };
   invoiceNumber: string;
   invoiceDate: string;
+  /** Batch/material/job identifier, e.g. "LOT-001" — null when not set. */
+  lotNumber: string | null;
   quantity: string;
   items: {
     id: string;
@@ -37,7 +39,16 @@ export interface InvoiceViewModel {
     stitches: number;
     amount: string;
   }[];
-  currentBill: string;
+  /** Sum of the items above, before discount. */
+  subtotal: string;
+  /** Null when no discount applies — a template should hide the discount row entirely in that case. */
+  discountType: 'percentage' | 'fixed' | null;
+  discountValue: string;
+  /** e.g. "Discount (10%)" or "Discount" — already formatted for display, never re-derived by a template. */
+  discountLabel: string;
+  discountAmount: string;
+  /** subtotal - discountAmount. What the customer actually owes for this invoice. */
+  grandTotal: string;
   previousBalance: string;
   amountPaid: string;
   currentBalance: string;
@@ -73,6 +84,7 @@ export function buildInvoiceViewModel(
     },
     invoiceNumber: invoice.invoiceNumber,
     invoiceDate: invoice.invoiceDate,
+    lotNumber: invoice.lotNumber,
     quantity: invoice.quantity,
     items: invoice.items.map((item) => ({
       id: item.id,
@@ -80,7 +92,12 @@ export function buildInvoiceViewModel(
       stitches: item.stitches,
       amount: item.calculatedTotal,
     })),
-    currentBill: invoice.totalAmount,
+    subtotal: invoice.totalAmount,
+    discountType: invoice.discountType,
+    discountValue: invoice.discountValue,
+    discountLabel: invoice.discountType === 'percentage' ? `Discount (${invoice.discountValue}%)` : 'Discount',
+    discountAmount: invoice.discountAmount,
+    grandTotal: invoice.grandTotal,
     previousBalance: invoice.previousBalance,
     amountPaid: invoice.amountPaid,
     currentBalance: invoice.currentBalance,

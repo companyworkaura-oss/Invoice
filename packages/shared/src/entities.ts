@@ -84,6 +84,9 @@ export interface EmbroideryCategory {
 
 export type InvoiceStatus = 'draft' | 'issued' | 'cancelled';
 
+/** Percentage of the subtotal, or a fixed money amount — see Invoice.discountType. */
+export type DiscountType = 'percentage' | 'fixed';
+
 /**
  * A saved invoice line item (Phase 7). Every field below this comment is
  * a snapshot taken when the item was created — category_name, rate,
@@ -120,6 +123,21 @@ export interface Invoice {
   notes: string | null;
   status: InvoiceStatus;
   createdAt: string;
+  /** Batch/material/job identifier, e.g. "LOT-001" — free text, not required to be unique. */
+  lotNumber: string | null;
+  /**
+   * Invoice-level discount (never per-item). `discountType` null means no
+   * discount at all — `discountValue`/`discountAmount` are then always
+   * "0.00", not just unused. `discountAmount` is the server-calculated
+   * snapshot (percentage of the subtotal, or the fixed amount itself,
+   * clamped so it can never exceed the subtotal) — see
+   * apps/api's invoice.service.ts calculateDiscount. It's recalculated
+   * whenever the invoice's items change (create, or a draft edit), never
+   * on a plain read.
+   */
+  discountType: DiscountType | null;
+  discountValue: Money;
+  discountAmount: Money;
   /**
    * Visibility only, not an accounting reversal (Phase 21): archiving an
    * invoice hides it from the default list but never touches its ledger
@@ -144,11 +162,13 @@ export type InvoicePaymentStatus = 'PAID' | 'PARTIAL' | 'UNPAID' | 'CANCELLED';
 
 /** Returned by GET /api/invoices (list) and as the summary row for GET /api/invoices/:id. */
 export interface InvoiceListEntry extends Invoice {
-  /** Sum of the items' calculatedTotal — derived on read, never stored. Also "Current Bill". */
+  /** Sum of the items' calculatedTotal — derived on read, never stored. This is the pre-discount subtotal. */
   totalAmount: Money;
-  /** This invoice's own FIFO-allocated paid amount (Phase 15). */
+  /** totalAmount - discountAmount — derived on read, never stored. What the customer actually owes for this invoice, and what the ledger debit equals. */
+  grandTotal: Money;
+  /** This invoice's own FIFO-allocated paid amount (Phase 15), allocated against grandTotal. */
   paid: Money;
-  /** totalAmount - paid. */
+  /** grandTotal - paid. */
   balance: Money;
   paymentStatus: InvoicePaymentStatus;
 }
@@ -157,8 +177,7 @@ export interface InvoiceListEntry extends Invoice {
  * The ledger-derived statement for one invoice (Phase 8), generated from
  * ledger_entries on every read and never stored:
  *   previousBalance — customer's balance immediately before this invoice
- *   totalAmount      — this invoice's own total ("Current Invoice Amount")
- *   totalReceivable  — previousBalance + totalAmount
+ *   totalReceivable  — previousBalance + this invoice's grandTotal
  *   currentBalance    — the customer's live overall balance right now
  *   amountPaid        — totalReceivable - currentBalance
  */
@@ -172,7 +191,10 @@ export interface InvoiceLedgerSummary {
 /** Returned by POST /api/invoices and GET /api/invoices/:id. */
 export interface InvoiceWithItems extends Invoice, InvoiceLedgerSummary {
   items: InvoiceItem[];
+  /** Pre-discount subtotal — sum of items' calculatedTotal. */
   totalAmount: Money;
+  /** totalAmount - discountAmount. What the ledger debit equals. */
+  grandTotal: Money;
 }
 
 export type LedgerEntryType = 'OPENING_BALANCE' | 'INVOICE' | 'PAYMENT' | 'ADJUSTMENT';

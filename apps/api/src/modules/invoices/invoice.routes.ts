@@ -23,6 +23,7 @@ invoicesRouter.use(requireAuth);
 const STATUSES = ['draft', 'issued'] as const;
 const PAYMENT_STATUSES = ['PAID', 'PARTIAL', 'UNPAID', 'CANCELLED'] as const;
 const ARCHIVED_FILTERS = ['active', 'archived', 'all'] as const;
+const DISCOUNT_TYPES = ['percentage', 'fixed'] as const;
 
 function parseItems(body: Record<string, unknown>): service.InvoiceItemInput[] {
   const raw = body.items;
@@ -43,6 +44,19 @@ function parseItems(body: Record<string, unknown>): service.InvoiceItemInput[] {
   });
 }
 
+/** discountType/discountValue/lotNumber — shared by create (POST /) and edit (PATCH /:id). */
+function parseDiscountAndLot(body: Record<string, unknown>) {
+  const discountType = optionalString(body, 'discountType', { max: 20 });
+  if (discountType && !(DISCOUNT_TYPES as readonly string[]).includes(discountType)) {
+    throw badRequest('Validation failed', { discountType: `Must be one of: ${DISCOUNT_TYPES.join(', ')}` });
+  }
+  return {
+    lotNumber: optionalString(body, 'lotNumber', { max: 100 }),
+    discountType: discountType as service.InvoiceInput['discountType'],
+    discountValue: optionalMoney(body, 'discountValue'),
+  };
+}
+
 invoicesRouter.post('/', requirePermission('invoice.create'), async (req, res) => {
   const body = asBody(req.body);
 
@@ -58,8 +72,27 @@ invoicesRouter.post('/', requirePermission('invoice.create'), async (req, res) =
     notes: optionalString(body, 'notes', { max: 2000 }),
     status: status as service.InvoiceStatus | undefined,
     items: parseItems(body),
+    ...parseDiscountAndLot(body),
   });
   res.status(201).json(invoice);
+});
+
+// Edits a draft invoice in place — items, quantity, date, notes, lot
+// number, and discount are all replaceable, but only while the invoice
+// is still a draft; see updateInvoice in invoice.service.ts. The
+// customer can't be reassigned here.
+invoicesRouter.patch('/:invoiceId', requirePermission('invoice.edit'), async (req, res) => {
+  const invoiceId = requireUuidParam(req.params.invoiceId, 'invoiceId');
+  const body = asBody(req.body);
+
+  const invoice = await service.updateInvoice(auth(req).companyId, auth(req).userId, invoiceId, {
+    invoiceDate: optionalDate(body, 'invoiceDate'),
+    quantity: requirePositiveDecimal(body, 'quantity'),
+    notes: optionalString(body, 'notes', { max: 2000 }),
+    items: parseItems(body),
+    ...parseDiscountAndLot(body),
+  });
+  res.json(invoice);
 });
 
 function queryString(req: Request, key: string): string | undefined {

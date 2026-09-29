@@ -662,6 +662,76 @@ dependency, works identically on Windows/Linux/macOS. Avoid
 scripts going forward; use a small `.mjs` script with Node builtins
 instead.
 
+## Invoice Discount + Lot Number
+
+Two invoice-level fields added to `invoices` (migration
+`010_invoice_discount_lot.sql`): `lot_number text NULL` (free text, no
+uniqueness constraint — searchable via the invoice list's existing
+`search` param, which now also matches `lotNumber`) and a discount
+snapshot — `discount_type text NULL CHECK (IN ('percentage','fixed'))`,
+`discount_value numeric(12,2)`, `discount_amount numeric(14,2)`.
+`discount_type IS NULL` means no discount at all, not just "0%".
+
+- **`grandTotal` is the load-bearing new concept**: `subtotal` (the
+  existing `totalAmount`, sum of item totals) minus `discountAmount`.
+  Like `totalAmount` itself, `grandTotal` is never stored — it's cheap
+  to derive on every read since `discountAmount` (the snapshot) and the
+  items it summarizes are both fixed once written.
+  **The ledger debit, `buildLedgerSummary`'s `previousBalance`/
+  `totalReceivable`, the dashboard's "invoiced" figures, and the
+  WhatsApp share message all use `grandTotal`, never `totalAmount`** —
+  a discounted invoice must never bill, or count as revenue, more than
+  what the customer actually owes. `invoice.service.ts`'s
+  `calculateDiscount(subtotal, discountType, discountValue)` is the one
+  authoritative place this is computed and validated (negative
+  rejected; percentage clamped to 0–100; fixed clamped to ≤ subtotal) —
+  the frontend's `previewDiscount` in `preview.ts` mirrors it for live
+  feedback only, and is never trusted.
+- **Zero-total edge case**: a 100%-discount invoice has `grandTotal =
+  "0.00"`, and `ledger_entries` has a check constraint requiring exactly
+  one of `debit`/`credit` to be positive — there is nothing to post.
+  `createInvoice` skips posting a ledger entry entirely when
+  `grandTotal === '0.00'`; `updateInvoice` deletes the existing entry if
+  editing down to zero, and re-creates one (via `postLedgerEntry`, a
+  fresh row — this is the one case where FIFO-order-preservation below
+  doesn't apply, since there's no existing row to preserve) if editing
+  back up from zero. `getInvoice`'s ledger lookup already had a
+  defensive "not found" fallback from Phase 8 that made this safe
+  without further changes.
+- **Draft invoice editing didn't exist before this phase** — memory.md
+  previously said so explicitly ("Invoice editing... only create/view/
+  list exist, by design"). Added `updateInvoice` + `PATCH
+  /api/invoices/:id`, gated by the pre-existing (previously unused)
+  `invoice.edit` permission, owner/admin only. Only `status === 'draft'`
+  is editable; the customer can't be reassigned (duplicate instead).
+  Items are fully replaced (delete + recreate), same as create. The
+  invoice's own ledger entry is **updated in place** (`UPDATE
+  ledger_entries SET debit/date/notes ... WHERE reference_id = $1`), not
+  deleted-and-reposted, specifically so its `created_at` — and therefore
+  its position in every customer's FIFO payment allocation — never
+  shifts just because the invoice was edited.
+- **`duplicateInvoice`**: copies `discountType`/`discountValue` (a
+  duplicate is usually "the same order again") but never `lotNumber` —
+  each new batch/job is expected to get its own lot number.
+- **Frontend**: `CreateInvoiceForm.tsx` now does double duty — an
+  `invoice?: InvoiceWithItems` prop switches it into edit mode (prefills
+  from the draft, customer select becomes a disabled text field, submits
+  via `PATCH` instead of `POST`); `InvoicesPage.tsx` gained an `'edit'`
+  view. `InvoiceDetails.tsx` shows an Edit link only when
+  `status === 'draft'` and `permissions.includes('invoice.edit')`.
+  `InvoiceList.tsx`'s "Current Bill" column was renamed "Grand Total"
+  and a "Lot #" column added.
+- **Print/PDF**: `InvoiceViewModel` (packages/shared) gained
+  `lotNumber`, `subtotal`, `discountType`/`discountValue`/
+  `discountLabel`/`discountAmount`, `grandTotal`, replacing the old flat
+  `currentBill` field. All 5 React templates and the server-side
+  `render-html.ts` (used for the actual PDF download — a separate
+  hand-rolled HTML template, not the React ones; browser Print uses the
+  React templates directly) show Lot # near
+  the invoice number/date and a Subtotal/Discount/Grand Total block; the
+  discount row is omitted entirely (not shown as "Rs 0.00") when
+  `discountType` is null.
+
 ## Known gotchas / things to check before starting work
 
 - **Postgres cluster is often stopped** when a session starts:
@@ -790,6 +860,12 @@ instead.
     /api/customers/:id/unarchive` route, a Restore/Unarchive button on
     archived customers in `CustomerDetails.tsx`, two new audit actions
     — see "Customer Unarchive / Restore" below
+23. Invoice Discount + Lot Number: invoice-level percentage/fixed
+    discount (server-authoritative, `grandTotal` = subtotal -
+    discountAmount is what the ledger actually debits) and an optional
+    free-text lot number; also added draft invoice editing
+    (`PATCH /api/invoices/:id`), which didn't exist before this phase
+    — see "Invoice Discount + Lot Number" below
 
 Repo also went through a monorepo restructure (`server/` → `apps/api` +
 new `apps/web` + `packages/shared`) between Phase 1 and Phase 2.

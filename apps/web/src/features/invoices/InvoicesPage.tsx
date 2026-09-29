@@ -13,7 +13,8 @@ type View =
   | { name: 'list' }
   | { name: 'details'; invoice: InvoiceWithItems }
   | { name: 'template'; invoice: InvoiceWithItems; initialAction?: TemplateInitialAction; returnTo: 'list' | 'details' }
-  | { name: 'form' };
+  | { name: 'form' }
+  | { name: 'edit'; invoice: InvoiceWithItems };
 
 const ROW_ACTION_TO_INITIAL_ACTION: Record<InvoiceRowAction, TemplateInitialAction | undefined> = {
   print: 'print',
@@ -86,12 +87,14 @@ export function InvoicesPage({ permissions }: Props) {
         {view.name === 'details' && (
           <InvoiceDetails
             invoice={view.invoice}
+            permissions={permissions}
             onBack={() => {
               setRefreshToken((t) => t + 1);
               setView({ name: 'list' });
             }}
             onViewTemplate={() => setView({ name: 'template', invoice: view.invoice, returnTo: 'details' })}
             onInvoiceUpdated={(invoice) => setView({ name: 'details', invoice })}
+            onEdit={() => setView({ name: 'edit', invoice: view.invoice })}
           />
         )}
 
@@ -112,11 +115,22 @@ export function InvoicesPage({ permissions }: Props) {
 
         {view.name === 'form' && (
           <CreateInvoiceForm
-            onCreated={(invoice) => {
+            onSaved={(invoice) => {
               setRefreshToken((t) => t + 1);
               setView({ name: 'details', invoice });
             }}
             onCancel={() => setView({ name: 'list' })}
+          />
+        )}
+
+        {view.name === 'edit' && (
+          <CreateInvoiceForm
+            invoice={view.invoice}
+            onSaved={(invoice) => {
+              setRefreshToken((t) => t + 1);
+              setView({ name: 'details', invoice });
+            }}
+            onCancel={() => setView({ name: 'details', invoice: view.invoice })}
           />
         )}
       </div>

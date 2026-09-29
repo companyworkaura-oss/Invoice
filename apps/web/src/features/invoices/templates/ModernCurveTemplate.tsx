@@ -21,6 +21,7 @@ export function ModernCurveTemplate({ invoice }: { invoice: InvoiceViewModel }) 
             <p className="text-xs uppercase tracking-widest text-violet-100">Invoice</p>
             <p className="font-semibold">{invoice.invoiceNumber}</p>
             <p className="text-xs text-violet-100">{invoice.invoiceDate}</p>
+            {invoice.lotNumber && <p className="text-xs text-violet-100">Lot #: {invoice.lotNumber}</p>}
           </div>
         </div>
       </div>
@@ -56,7 +57,9 @@ export function ModernCurveTemplate({ invoice }: { invoice: InvoiceViewModel }) 
 
         <div className="mt-6 flex justify-end break-inside-avoid">
           <div className="w-64 space-y-1 rounded-2xl bg-violet-600 p-4 text-sm text-white">
-            <Row label="Current Bill" value={invoice.currentBill} />
+            <Row label="Subtotal" value={invoice.subtotal} />
+            {invoice.discountType && <Row label={invoice.discountLabel} value={`-${invoice.discountAmount}`} />}
+            <Row label="Grand Total" value={invoice.grandTotal} />
             <Row label="Previous Balance" value={invoice.previousBalance} />
             <Row label="Amount Paid" value={invoice.amountPaid} />
             <div className="mt-1 flex justify-between border-t border-white/30 pt-1 text-base font-semibold">

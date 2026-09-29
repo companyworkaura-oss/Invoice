@@ -44,11 +44,20 @@ async function resolvePeriod(range: DashboardRange, from?: string, to?: string):
 }
 
 async function getInvoiceAmount(companyId: string, period: Period): Promise<string> {
+  // Post-discount grand total, not the raw item subtotal — a discounted
+  // invoice never counts toward "invoiced" revenue for more than the
+  // customer actually owes (see invoice.service.ts's calculateDiscount;
+  // discount_amount is a per-invoice column, so it's grouped once per
+  // invoice, not once per item, to avoid double-subtracting it).
   const { rows } = await pool.query<{ total: string }>(
-    `SELECT COALESCE(SUM(it.calculated_total), 0) AS total
-       FROM invoices i
-       JOIN invoice_items it ON it.invoice_id = i.id
-      WHERE i.company_id = $1 AND i.status != 'cancelled' AND i.invoice_date BETWEEN $2 AND $3`,
+    `SELECT COALESCE(SUM(inv.total), 0) AS total
+       FROM (
+         SELECT i.id, COALESCE(SUM(it.calculated_total), 0) - i.discount_amount AS total
+           FROM invoices i
+           JOIN invoice_items it ON it.invoice_id = i.id
+          WHERE i.company_id = $1 AND i.status != 'cancelled' AND i.invoice_date BETWEEN $2 AND $3
+          GROUP BY i.id, i.discount_amount
+       ) inv`,
     [companyId, period.from, period.to],
   );
   return roundMoney(new Decimal(rows[0].total));
@@ -119,7 +128,8 @@ async function getRecentInvoices(companyId: string, period: Period): Promise<Das
   const { rows } = await pool.query<DashboardRecentInvoice>(
     `SELECT i.id, i.invoice_number AS "invoiceNumber", c.name AS "customerName",
             i.invoice_date AS "invoiceDate", i.status,
-            COALESCE((SELECT SUM(it.calculated_total) FROM invoice_items it WHERE it.invoice_id = i.id), 0) AS "totalAmount"
+            COALESCE((SELECT SUM(it.calculated_total) FROM invoice_items it WHERE it.invoice_id = i.id), 0)
+              - i.discount_amount AS "totalAmount"
        FROM invoices i
        JOIN customers c ON c.id = i.customer_id
       WHERE i.company_id = $1 AND i.invoice_date BETWEEN $2 AND $3

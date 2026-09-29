@@ -13,9 +13,10 @@ export function IndustrialBlueTemplate({ invoice }: { invoice: InvoiceViewModel 
         <p className="text-xl font-black uppercase tracking-widest">Invoice</p>
       </div>
 
-      <div className="grid grid-cols-3 divide-x-2 divide-blue-800 border-b-2 border-blue-800 text-sm">
+      <div className={`grid divide-x-2 divide-blue-800 border-b-2 border-blue-800 text-sm ${invoice.lotNumber ? 'grid-cols-4' : 'grid-cols-3'}`}>
         <InfoCell label="Invoice No." value={invoice.invoiceNumber} />
         <InfoCell label="Date" value={invoice.invoiceDate} />
+        {invoice.lotNumber && <InfoCell label="Lot #" value={invoice.lotNumber} />}
         <InfoCell label="Quantity" value={invoice.quantity} />
       </div>
 
@@ -46,7 +47,9 @@ export function IndustrialBlueTemplate({ invoice }: { invoice: InvoiceViewModel 
 
       <div className="flex break-inside-avoid justify-end border-t-2 border-blue-800 px-6 py-4">
         <div className="w-64 space-y-1 text-sm">
-          <Row label="Current Bill" value={invoice.currentBill} />
+          <Row label="Subtotal" value={invoice.subtotal} />
+          {invoice.discountType && <Row label={invoice.discountLabel} value={`-${invoice.discountAmount}`} />}
+          <Row label="Grand Total" value={invoice.grandTotal} />
           <Row label="Previous Balance" value={invoice.previousBalance} />
           <Row label="Amount Paid" value={invoice.amountPaid} />
           <div className="mt-1 flex justify-between bg-blue-800 px-2 py-1.5 font-black text-white">

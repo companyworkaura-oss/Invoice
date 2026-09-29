@@ -4,6 +4,7 @@ import {
   ALLOWED_VARIABLES,
   Decimal,
   FormulaError,
+  type DiscountType,
   type FormulaVariable,
   type InvoiceArchivedFilter,
   evaluateFormula,
@@ -28,7 +29,81 @@ export interface InvoiceInput {
   quantity: string;
   notes?: string;
   status?: InvoiceStatus;
+  /** Batch/material/job identifier, e.g. "LOT-001" — free text, optional, never required to be unique. */
+  lotNumber?: string;
+  /** Omitted/undefined means no discount — same as passing 'percentage'/'fixed' with a value of "0.00". */
+  discountType?: DiscountType;
+  discountValue?: string;
   items: InvoiceItemInput[];
+}
+
+/** Same shape as InvoiceInput minus customerId — a draft's customer is fixed once created; see updateInvoice. */
+export type InvoiceUpdateInput = Omit<InvoiceInput, 'customerId' | 'status'>;
+
+export interface DiscountResult {
+  discountType: DiscountType | null;
+  discountValue: string;
+  discountAmount: string;
+  grandTotal: string;
+}
+
+/**
+ * Server-side-authoritative discount calculation (never trusts a total
+ * sent from the frontend) — subtotal is always this invoice's own
+ * sum-of-items, computed the same call it's used in, never passed in
+ * from anywhere the client could influence.
+ *
+ *   percentage: discountAmount = subtotal * discountValue / 100, and
+ *     discountValue must be within [0, 100].
+ *   fixed: discountAmount = discountValue, and discountValue must not
+ *     exceed subtotal (which also guarantees grandTotal can't go
+ *     negative — the same guarantee percentage gets from the 0-100
+ *     bound).
+ *
+ * No discountType (undefined/null) means no discount at all: any
+ * discountValue passed alongside it is ignored, not an error — the
+ * caller didn't ask for a discount.
+ */
+export function calculateDiscount(
+  subtotal: string,
+  discountType: DiscountType | null | undefined,
+  discountValue: string | undefined,
+): DiscountResult {
+  if (!discountType) {
+    return { discountType: null, discountValue: '0.00', discountAmount: '0.00', grandTotal: roundMoney(new Decimal(subtotal)) };
+  }
+
+  const value = new Decimal(discountValue ?? '0');
+  if (value.isNegative()) {
+    throw badRequest('Validation failed', { discountValue: 'Discount cannot be negative' });
+  }
+
+  let discountAmount: Decimal;
+  if (discountType === 'percentage') {
+    if (value.greaterThan(100)) {
+      throw badRequest('Validation failed', { discountValue: 'Percentage discount must be between 0 and 100' });
+    }
+    discountAmount = new Decimal(subtotal).times(value).dividedBy(100);
+  } else {
+    if (value.greaterThan(subtotal)) {
+      throw badRequest('Validation failed', { discountValue: 'Fixed discount cannot exceed the subtotal' });
+    }
+    discountAmount = value;
+  }
+
+  const grandTotal = new Decimal(subtotal).minus(discountAmount);
+  if (grandTotal.isNegative()) {
+    // Defensive only — unreachable given the checks above, kept so a
+    // future change to this function can't silently let the total go negative.
+    throw badRequest('Validation failed', { discountValue: 'Discount cannot exceed the invoice subtotal' });
+  }
+
+  return {
+    discountType,
+    discountValue: roundMoney(value),
+    discountAmount: roundMoney(discountAmount),
+    grandTotal: roundMoney(grandTotal),
+  };
 }
 
 export interface InvoiceItem {
@@ -59,13 +134,16 @@ export interface Invoice {
   status: InvoiceStatus;
   createdAt: string;
   archivedAt: string | null;
+  lotNumber: string | null;
+  discountType: DiscountType | null;
+  discountValue: string;
+  discountAmount: string;
 }
 
 /**
  * The ledger-derived statement for one invoice (Phase 8):
  *   previousBalance   — customer's balance immediately before this invoice was posted
- *   totalAmount        — this invoice's own total ("Current Invoice Amount")
- *   totalReceivable    — previousBalance + totalAmount
+ *   totalReceivable    — previousBalance + this invoice's grandTotal (post-discount)
  *   currentBalance      — the customer's live balance right now (total debit - total credit, overall)
  *   amountPaid          — totalReceivable - currentBalance
  * All five are generated from ledger_entries on every read, never stored.
@@ -79,14 +157,17 @@ export interface InvoiceLedgerSummary {
 
 export interface InvoiceWithItems extends Invoice, InvoiceLedgerSummary {
   items: InvoiceItem[];
-  /** Sum of items' calculated_total — derived on read, never stored. Also "Current Invoice Amount". */
+  /** Sum of items' calculated_total — derived on read, never stored. Pre-discount subtotal. */
   totalAmount: string;
+  /** totalAmount - discountAmount — derived on read, never stored. What the ledger debit equals. */
+  grandTotal: string;
 }
 
 export type InvoicePaymentStatus = 'PAID' | 'PARTIAL' | 'UNPAID' | 'CANCELLED';
 
 export interface InvoiceListEntry extends Invoice {
   totalAmount: string;
+  grandTotal: string;
   paid: string;
   balance: string;
   paymentStatus: InvoicePaymentStatus;
@@ -112,7 +193,9 @@ type Queryable = Pick<typeof pool, 'query'>;
 const INVOICE_HEADER_COLUMNS = `
   i.id, i.company_id AS "companyId", i.customer_id AS "customerId", c.name AS "customerName",
   i.invoice_number AS "invoiceNumber", i.invoice_date AS "invoiceDate", i.quantity, i.notes, i.status,
-  i.created_at AS "createdAt", i.archived_at AS "archivedAt"
+  i.created_at AS "createdAt", i.archived_at AS "archivedAt",
+  i.lot_number AS "lotNumber", i.discount_type AS "discountType",
+  i.discount_value AS "discountValue", i.discount_amount AS "discountAmount"
 `;
 
 const ITEM_COLUMNS = `
@@ -283,10 +366,19 @@ export async function createInvoice(
     const invoiceNumber = await nextInvoiceNumber(client, companyId);
 
     const invoiceRes = await client.query<{ id: string; invoiceDate: string; quantity: string; createdAt: string }>(
-      `INSERT INTO invoices (company_id, customer_id, invoice_number, invoice_date, quantity, notes, status)
-       VALUES ($1, $2, $3, COALESCE($4::date, CURRENT_DATE), $5, $6, COALESCE($7, 'draft'))
+      `INSERT INTO invoices (company_id, customer_id, invoice_number, invoice_date, quantity, notes, status, lot_number)
+       VALUES ($1, $2, $3, COALESCE($4::date, CURRENT_DATE), $5, $6, COALESCE($7, 'draft'), $8)
        RETURNING id, invoice_date AS "invoiceDate", quantity, created_at AS "createdAt"`,
-      [companyId, input.customerId, invoiceNumber, input.invoiceDate ?? null, input.quantity, input.notes ?? null, input.status ?? null],
+      [
+        companyId,
+        input.customerId,
+        invoiceNumber,
+        input.invoiceDate ?? null,
+        input.quantity,
+        input.notes ?? null,
+        input.status ?? null,
+        input.lotNumber ?? null,
+      ],
     );
     // Use the DB-normalized quantity (e.g. "10.00") everywhere below, so a
     // freshly created invoice's response matches what a later GET returns.
@@ -297,19 +389,36 @@ export async function createInvoice(
       items.push(await createInvoiceItem(client, companyId, invoiceId, quantity, itemInput));
     }
     const totalAmount = sumDecimalStrings(items.map((item) => item.calculatedTotal));
+    const discount = calculateDiscount(totalAmount, input.discountType, input.discountValue);
+
+    await client.query(
+      'UPDATE invoices SET discount_type = $2, discount_value = $3, discount_amount = $4 WHERE id = $1',
+      [invoiceId, discount.discountType, discount.discountValue, discount.discountAmount],
+    );
 
     // Posting this in the same transaction as the invoice and its items
-    // means all of it commits together or none of it does.
-    const ledgerEntry = await postLedgerEntry(client, {
-      companyId,
-      customerId: input.customerId,
-      type: 'INVOICE',
-      referenceId: invoiceId,
-      debit: totalAmount,
-      date: invoiceDate,
-      notes: `Invoice ${invoiceNumber}`,
-    });
-    const summary = await buildLedgerSummary(client, companyId, input.customerId, totalAmount, ledgerEntry.createdAt);
+    // means all of it commits together or none of it does. The ledger
+    // debit — and everything derived from it (balances, statements,
+    // dashboard totals) — is the post-discount grand total, never the
+    // subtotal: a discounted invoice never bills the customer for more
+    // than what they actually owe. A 100%-discounted invoice has nothing
+    // to bill at all (grandTotal "0.00") — ledger_entries requires
+    // exactly one of debit/credit to be positive, so there's simply no
+    // entry to post here; the invoice and its items are still saved.
+    const ledgerCreatedAt = discount.grandTotal === '0.00'
+      ? createdAt
+      : (
+          await postLedgerEntry(client, {
+            companyId,
+            customerId: input.customerId,
+            type: 'INVOICE',
+            referenceId: invoiceId,
+            debit: discount.grandTotal,
+            date: invoiceDate,
+            notes: `Invoice ${invoiceNumber}`,
+          })
+        ).createdAt;
+    const summary = await buildLedgerSummary(client, companyId, input.customerId, discount.grandTotal, ledgerCreatedAt);
 
     await postAuditLog(client, {
       companyId,
@@ -317,7 +426,7 @@ export async function createInvoice(
       action: 'INVOICE_CREATED',
       entityType: 'invoice',
       entityId: invoiceId,
-      metadata: { invoiceNumber, customerId: input.customerId, totalAmount, ...auditMetadataExtra },
+      metadata: { invoiceNumber, customerId: input.customerId, totalAmount, grandTotal: discount.grandTotal, ...auditMetadataExtra },
     });
 
     return {
@@ -332,8 +441,13 @@ export async function createInvoice(
       status: input.status ?? 'draft',
       createdAt,
       archivedAt: null,
+      lotNumber: input.lotNumber ?? null,
+      discountType: discount.discountType,
+      discountValue: discount.discountValue,
+      discountAmount: discount.discountAmount,
       items,
       totalAmount,
+      grandTotal: discount.grandTotal,
       ...summary,
     };
   });
@@ -382,7 +496,7 @@ export async function listInvoices(companyId: string, filter: InvoiceListFilter)
   }
   if (filter.search) {
     params.push(`%${filter.search}%`);
-    conditions.push(`("invoiceNumber" ILIKE $${params.length} OR "customerName" ILIKE $${params.length})`);
+    conditions.push(`("invoiceNumber" ILIKE $${params.length} OR "customerName" ILIKE $${params.length} OR "lotNumber" ILIKE $${params.length})`);
   }
   // Default 'active': archived invoices are hidden unless explicitly
   // asked for — see InvoiceArchivedFilter. Archiving never deletes or
@@ -425,12 +539,15 @@ export async function listInvoices(companyId: string, filter: InvoiceListFilter)
          i.id, i.company_id AS "companyId", i.customer_id AS "customerId", c.name AS "customerName",
          i.invoice_number AS "invoiceNumber", i.invoice_date AS "invoiceDate", i.quantity, i.notes,
          i.status, i.created_at AS "createdAt", i.archived_at AS "archivedAt",
+         i.lot_number AS "lotNumber", i.discount_type AS "discountType",
+         i.discount_value AS "discountValue", i.discount_amount AS "discountAmount",
          COALESCE(items.total, 0) AS "totalAmount",
+         COALESCE(items.total, 0) - i.discount_amount AS "grandTotal",
          COALESCE(pa.paid, 0) AS paid,
-         COALESCE(items.total, 0) - COALESCE(pa.paid, 0) AS balance,
+         COALESCE(items.total, 0) - i.discount_amount - COALESCE(pa.paid, 0) AS balance,
          CASE
            WHEN i.status = 'cancelled' THEN 'CANCELLED'
-           WHEN COALESCE(items.total, 0) - COALESCE(pa.paid, 0) <= 0 THEN 'PAID'
+           WHEN COALESCE(items.total, 0) - i.discount_amount - COALESCE(pa.paid, 0) <= 0 THEN 'PAID'
            WHEN COALESCE(pa.paid, 0) > 0 THEN 'PARTIAL'
            ELSE 'UNPAID'
          END AS "paymentStatus"
@@ -465,6 +582,7 @@ export async function getInvoice(companyId: string, invoiceId: string): Promise<
     [invoiceId],
   );
   const totalAmount = sumDecimalStrings(itemsRes.rows.map((i) => i.calculatedTotal));
+  const grandTotal = roundMoney(new Decimal(totalAmount).minus(header.discountAmount));
 
   const ledgerRes = await pool.query<{ createdAt: string }>(
     `SELECT created_at AS "createdAt" FROM ledger_entries WHERE reference_id = $1 AND type = 'INVOICE' LIMIT 1`,
@@ -474,9 +592,9 @@ export async function getInvoice(companyId: string, invoiceId: string): Promise<
   // createInvoice), so this should always be found; fall back to "now"
   // defensively rather than fail the whole read if it somehow isn't.
   const ledgerCreatedAt = ledgerRes.rows[0]?.createdAt ?? new Date().toISOString();
-  const summary = await buildLedgerSummary(pool, companyId, header.customerId, totalAmount, ledgerCreatedAt);
+  const summary = await buildLedgerSummary(pool, companyId, header.customerId, grandTotal, ledgerCreatedAt);
 
-  return { ...header, items: itemsRes.rows, totalAmount, ...summary };
+  return { ...header, items: itemsRes.rows, totalAmount, grandTotal, ...summary };
 }
 
 /**
@@ -488,6 +606,11 @@ export async function getInvoice(companyId: string, invoiceId: string): Promise<
  * never touched or copied. A deleted category (categoryId now null)
  * can't be re-validated by createInvoice, so that's rejected up front
  * with a clear reason instead of silently dropping the item.
+ *
+ * The discount type/value carry over (a duplicate is usually "the same
+ * order again"), but the lot number deliberately does not — each new
+ * batch/job is expected to get its own lot number, so leaving the field
+ * blank is safer than silently reusing the original's.
  */
 export async function duplicateInvoice(companyId: string, userId: string, invoiceId: string): Promise<InvoiceWithItems> {
   const original = await getInvoice(companyId, invoiceId);
@@ -506,6 +629,8 @@ export async function duplicateInvoice(companyId: string, userId: string, invoic
       quantity: original.quantity,
       notes: original.notes ?? undefined,
       status: 'draft',
+      discountType: original.discountType ?? undefined,
+      discountValue: original.discountType ? original.discountValue : undefined,
       items: original.items.map((item) => ({
         categoryId: item.categoryId as string,
         description: item.description ?? undefined,
@@ -515,6 +640,110 @@ export async function duplicateInvoice(companyId: string, userId: string, invoic
     },
     { duplicatedFromInvoiceId: original.id, duplicatedFromInvoiceNumber: original.invoiceNumber },
   );
+}
+
+/**
+ * Edits a draft invoice in place: quantity, date, notes, lot number,
+ * discount, and the full item list are all replaceable — but only while
+ * `status === 'draft'`. Once issued, an invoice is immutable (archive or
+ * duplicate instead), same boundary deleteInvoice already draws. The
+ * customer can't be reassigned here (that would mean moving the ledger
+ * debit to a different customer's history, a bigger operation this app
+ * doesn't support yet) — to bill a different customer, duplicate the
+ * invoice instead.
+ *
+ * Items are fully replaced (delete + recreate) rather than diffed, same
+ * as createInvoice's own item-creation path — every amount is
+ * recalculated fresh from the current formula engine and category state,
+ * exactly like a brand-new invoice would be. The invoice's own ledger
+ * entry is updated in place (not deleted and reposted) so its
+ * created_at — and therefore its position in every customer's FIFO
+ * payment allocation — never moves just because the invoice was edited.
+ */
+export async function updateInvoice(
+  companyId: string,
+  userId: string,
+  invoiceId: string,
+  input: InvoiceUpdateInput,
+): Promise<InvoiceWithItems> {
+  if (input.items.length === 0) {
+    throw badRequest('Validation failed', { items: 'At least one item is required' });
+  }
+
+  await withTransaction(async (client) => {
+    const existing = await lockInvoiceForUpdate(client, companyId, invoiceId);
+    if (existing.status !== 'draft') {
+      throw badRequest('Validation failed', { status: 'Only draft invoices can be edited.' });
+    }
+
+    const invoiceRes = await client.query<{ invoiceDate: string; quantity: string }>(
+      `UPDATE invoices
+          SET invoice_date = COALESCE($3::date, invoice_date),
+              quantity = $4,
+              notes = $5,
+              lot_number = $6,
+              updated_at = now()
+        WHERE id = $1 AND company_id = $2
+        RETURNING invoice_date AS "invoiceDate", quantity`,
+      [invoiceId, companyId, input.invoiceDate ?? null, input.quantity, input.notes ?? null, input.lotNumber ?? null],
+    );
+    const { invoiceDate, quantity } = invoiceRes.rows[0];
+
+    await client.query('DELETE FROM invoice_items WHERE invoice_id = $1', [invoiceId]);
+    const items: InvoiceItem[] = [];
+    for (const itemInput of input.items) {
+      items.push(await createInvoiceItem(client, companyId, invoiceId, quantity, itemInput));
+    }
+    const totalAmount = sumDecimalStrings(items.map((item) => item.calculatedTotal));
+    const discount = calculateDiscount(totalAmount, input.discountType, input.discountValue);
+
+    await client.query(
+      'UPDATE invoices SET discount_type = $2, discount_value = $3, discount_amount = $4 WHERE id = $1',
+      [invoiceId, discount.discountType, discount.discountValue, discount.discountAmount],
+    );
+
+    // Same row, same created_at — only debit/date/notes move, so this
+    // invoice's place in FIFO payment allocation across the customer's
+    // whole ledger never shifts just because it was edited. A
+    // 100%-discounted edit has nothing to bill (see the same case in
+    // createInvoice above), so the entry is removed rather than updated
+    // to a zero debit, which the ledger_entries check constraint
+    // forbids; editing back up from zero re-creates it as a fresh row.
+    if (discount.grandTotal === '0.00') {
+      await client.query(`DELETE FROM ledger_entries WHERE company_id = $1 AND reference_id = $2 AND type = 'INVOICE'`, [
+        companyId,
+        invoiceId,
+      ]);
+    } else {
+      const updated = await client.query(
+        `UPDATE ledger_entries SET debit = $3, date = $4, notes = $5
+          WHERE company_id = $1 AND reference_id = $2 AND type = 'INVOICE'`,
+        [companyId, invoiceId, discount.grandTotal, invoiceDate, `Invoice ${existing.invoiceNumber}`],
+      );
+      if (updated.rowCount === 0) {
+        await postLedgerEntry(client, {
+          companyId,
+          customerId: existing.customerId,
+          type: 'INVOICE',
+          referenceId: invoiceId,
+          debit: discount.grandTotal,
+          date: invoiceDate,
+          notes: `Invoice ${existing.invoiceNumber}`,
+        });
+      }
+    }
+
+    await postAuditLog(client, {
+      companyId,
+      userId,
+      action: 'INVOICE_EDITED',
+      entityType: 'invoice',
+      entityId: invoiceId,
+      metadata: { invoiceNumber: existing.invoiceNumber, customerId: existing.customerId, totalAmount, grandTotal: discount.grandTotal },
+    });
+  });
+
+  return getInvoice(companyId, invoiceId);
 }
 
 /**

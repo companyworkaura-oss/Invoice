@@ -19,6 +19,7 @@ export function ClassicNavyTemplate({ invoice }: { invoice: InvoiceViewModel }) 
           <p className="text-2xl font-bold tracking-wide text-blue-950">INVOICE</p>
           <p className="text-sm text-slate-600">{invoice.invoiceNumber}</p>
           <p className="text-sm text-slate-600">{invoice.invoiceDate}</p>
+          {invoice.lotNumber && <p className="text-sm text-slate-600">Lot #: {invoice.lotNumber}</p>}
         </div>
       </div>
 
@@ -51,7 +52,9 @@ export function ClassicNavyTemplate({ invoice }: { invoice: InvoiceViewModel }) 
 
       <div className="mt-6 flex justify-end break-inside-avoid">
         <div className="w-64 space-y-1 border-t-2 border-blue-950 pt-2 text-sm">
-          <Row label="Current Bill" value={invoice.currentBill} />
+          <Row label="Subtotal" value={invoice.subtotal} />
+          {invoice.discountType && <Row label={invoice.discountLabel} value={`-${invoice.discountAmount}`} />}
+          <Row label="Grand Total" value={invoice.grandTotal} />
           <Row label="Previous Balance" value={invoice.previousBalance} />
           <Row label="Amount Paid" value={invoice.amountPaid} />
           <Row label="Current Balance" value={invoice.currentBalance} strong />

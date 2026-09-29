@@ -28,11 +28,17 @@ const viewModel: InvoiceViewModel = {
   },
   invoiceNumber: 'INV-000042',
   invoiceDate: '2026-01-15',
+  lotNumber: 'LOT-001',
   quantity: '10.00',
   items: [
     { id: 'item-1', description: 'HS/HP embroidery', stitches: 12000, amount: '144.00' },
   ],
-  currentBill: '144.00',
+  subtotal: '144.00',
+  discountType: null,
+  discountValue: '0.00',
+  discountLabel: 'Discount',
+  discountAmount: '0.00',
+  grandTotal: '144.00',
   previousBalance: '50.00',
   amountPaid: '30.00',
   currentBalance: '164.00',
@@ -54,11 +60,31 @@ test('renders the invoice data the customer should see', () => {
   assert.match(html, /HS\/HP embroidery/);
   assert.match(html, /144\.00/);
   assert.match(html, /Payment due within 30 days\./);
-  // The five spec'd summary fields, by label.
-  assert.match(html, /Current Bill/);
+  assert.match(html, /Lot #: LOT-001/);
+  // The spec'd summary fields, by label.
+  assert.match(html, /Subtotal/);
+  assert.match(html, /Grand Total/);
   assert.match(html, /Previous Balance/);
   assert.match(html, /Amount Paid/);
   assert.match(html, /Current Balance/);
+});
+
+test('shows a discount row only when a discount applies, and hides it entirely when zero', () => {
+  const discounted = {
+    ...viewModel,
+    discountType: 'percentage' as const,
+    discountValue: '10',
+    discountLabel: 'Discount (10%)',
+    discountAmount: '14.40',
+    grandTotal: '129.60',
+  };
+  const withDiscount = renderInvoiceHtml(getPdfTheme('classic-navy'), discounted, null);
+  assert.match(withDiscount, /Discount \(10%\)/);
+  assert.match(withDiscount, /-14\.40/);
+  assert.match(withDiscount, /129\.60/);
+
+  const withoutDiscount = renderInvoiceHtml(getPdfTheme('classic-navy'), viewModel, null);
+  assert.ok(!withoutDiscount.includes('Discount'), 'no discount row when discountType is null');
 });
 
 test('never renders formula/factor/multiplier/divisor or calculation internals', () => {

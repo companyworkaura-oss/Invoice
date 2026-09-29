@@ -55,3 +55,56 @@ export function previewItemAmount(
 export function sumAmounts(amounts: (string | null)[]): string {
   return roundMoney(amounts.reduce((sum, a) => (a ? sum.plus(new Decimal(a)) : sum), new Decimal(0)));
 }
+
+export interface DiscountPreview {
+  discountAmount: string;
+  grandTotal: string;
+  /** Only set for a real problem (negative, out of range, exceeds subtotal) — the server re-validates and is authoritative either way. */
+  error: string | null;
+}
+
+/**
+ * Client-side preview only, mirroring the server's calculateDiscount
+ * (invoice.service.ts) exactly — but this is never what gets saved. The
+ * backend recalculates and validates from scratch when the invoice is
+ * created or edited.
+ */
+export function previewDiscount(
+  subtotal: string,
+  discountType: 'percentage' | 'fixed' | '',
+  discountValueRaw: string,
+): DiscountPreview {
+  if (!discountType) return { discountAmount: '0.00', grandTotal: roundMoney(new Decimal(subtotal)), error: null };
+
+  const value = new Decimal(discountValueRaw || '0');
+  if (value.isNegative()) {
+    return { discountAmount: '0.00', grandTotal: roundMoney(new Decimal(subtotal)), error: 'Discount cannot be negative' };
+  }
+
+  let discountAmount: Decimal;
+  if (discountType === 'percentage') {
+    if (value.greaterThan(100)) {
+      return {
+        discountAmount: '0.00',
+        grandTotal: roundMoney(new Decimal(subtotal)),
+        error: 'Percentage discount must be between 0 and 100',
+      };
+    }
+    discountAmount = new Decimal(subtotal).times(value).dividedBy(100);
+  } else {
+    if (value.greaterThan(subtotal)) {
+      return {
+        discountAmount: '0.00',
+        grandTotal: roundMoney(new Decimal(subtotal)),
+        error: 'Fixed discount cannot exceed the subtotal',
+      };
+    }
+    discountAmount = value;
+  }
+
+  return {
+    discountAmount: roundMoney(discountAmount),
+    grandTotal: roundMoney(new Decimal(subtotal).minus(discountAmount)),
+    error: null,
+  };
+}

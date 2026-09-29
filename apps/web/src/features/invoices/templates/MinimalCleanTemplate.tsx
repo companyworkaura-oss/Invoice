@@ -13,7 +13,10 @@ export function MinimalCleanTemplate({ invoice }: { invoice: InvoiceViewModel })
 
       <div className="mt-10 flex items-baseline justify-between">
         <h1 className="text-3xl font-light tracking-tight">Invoice</h1>
-        <p className="font-mono text-sm text-slate-500">{invoice.invoiceNumber}</p>
+        <div className="text-right">
+          <p className="font-mono text-sm text-slate-500">{invoice.invoiceNumber}</p>
+          {invoice.lotNumber && <p className="font-mono text-xs text-slate-400">Lot #: {invoice.lotNumber}</p>}
+        </div>
       </div>
 
       <div className="mt-8 grid grid-cols-2 gap-8 text-sm">
@@ -52,7 +55,9 @@ export function MinimalCleanTemplate({ invoice }: { invoice: InvoiceViewModel })
 
       <div className="mt-8 flex justify-end break-inside-avoid">
         <div className="w-56 space-y-1.5 text-sm">
-          <Row label="Current Bill" value={invoice.currentBill} />
+          <Row label="Subtotal" value={invoice.subtotal} />
+          {invoice.discountType && <Row label={invoice.discountLabel} value={`-${invoice.discountAmount}`} />}
+          <Row label="Grand Total" value={invoice.grandTotal} />
           <Row label="Previous Balance" value={invoice.previousBalance} />
           <Row label="Amount Paid" value={invoice.amountPaid} />
           <div className="flex justify-between border-t border-slate-900 pt-1.5 font-medium">

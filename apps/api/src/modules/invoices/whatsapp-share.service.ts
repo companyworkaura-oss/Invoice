@@ -19,7 +19,7 @@ export async function buildInvoiceWhatsAppShare(companyId: string, invoiceId: st
   const message = buildInvoiceWhatsAppMessage({
     customerName: customer.name,
     invoiceNumber: invoice.invoiceNumber,
-    invoiceAmount: invoice.totalAmount,
+    invoiceAmount: invoice.grandTotal,
     previousBalance: invoice.previousBalance,
     amountPaid: invoice.amountPaid,
     currentBalance: invoice.currentBalance,

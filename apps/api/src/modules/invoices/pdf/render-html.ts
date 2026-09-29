@@ -108,6 +108,7 @@ export function renderInvoiceHtml(theme: PdfTheme, invoice: InvoiceViewModel, lo
         <p class="invoice-title">Invoice</p>
         <p class="invoice-number">${escapeHtml(invoice.invoiceNumber)}</p>
         <p class="invoice-date">${escapeHtml(invoice.invoiceDate)}</p>
+        ${invoice.lotNumber ? `<p class="invoice-date">Lot #: ${escapeHtml(invoice.lotNumber)}</p>` : ''}
       </div>
     </div>
 
@@ -132,7 +133,13 @@ export function renderInvoiceHtml(theme: PdfTheme, invoice: InvoiceViewModel, lo
 
       <div class="summary-wrap">
         <div class="summary">
-          <div class="row"><span>Current Bill</span><span>${escapeHtml(invoice.currentBill)}</span></div>
+          <div class="row"><span>Subtotal</span><span>${escapeHtml(invoice.subtotal)}</span></div>
+          ${
+            invoice.discountType
+              ? `<div class="row"><span>${escapeHtml(invoice.discountLabel)}</span><span>-${escapeHtml(invoice.discountAmount)}</span></div>`
+              : ''
+          }
+          <div class="row"><span>Grand Total</span><span>${escapeHtml(invoice.grandTotal)}</span></div>
           <div class="row"><span>Previous Balance</span><span>${escapeHtml(invoice.previousBalance)}</span></div>
           <div class="row"><span>Amount Paid</span><span>${escapeHtml(invoice.amountPaid)}</span></div>
           <div class="row total"><span>Current Balance</span><span>${escapeHtml(invoice.currentBalance)}</span></div>
