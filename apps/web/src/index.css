@@ -1,16 +1,54 @@
 @import "tailwindcss";
 
 /*
- * A4 print output for invoice templates (Phase 11). margin: 0 here is
- * deliberate — each invoice template's own root element is sized to
- * exactly 210mm x 297mm with its own internal padding standing in for
- * the page margin, so the on-screen preview (already that same size)
- * and what actually prints are the same box, not two independent
+ * A4 print output, shared by every invoice template and the customer
+ * statement print document (Phase 11, extended Phase 22). margin: 0 on
+ * @page is deliberate — each printable document's own root element is
+ * sized to exactly 210mm x 297mm with its own internal padding standing
+ * in for the page margin, so the on-screen preview (already that same
+ * size) and what actually prints are the same box, not two independent
  * margin systems fighting each other.
+ *
+ * print-color-adjust: exact is what makes a template's colored header
+ * band or a table's shaded header row actually print instead of coming
+ * out flat white/gray — browsers suppress background colors on print by
+ * default unless told otherwise, which is what "page looks washed out /
+ * not clean" on paper usually turns out to be.
  */
 @media print {
   @page {
     size: A4;
     margin: 0;
+  }
+
+  body {
+    margin: 0;
+    background: white;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /*
+   * Shared sizing/page-break contract for a printable A4 document —
+   * applied alongside (not instead of) each template's own padding/
+   * border/background classes, so a template keeps its own visual
+   * identity while getting the same page mechanics as every other one.
+   * Deliberately no max-height/overflow:hidden here: min-height lets a
+   * short document's box stay exactly one page, but a genuinely long
+   * one (many invoice items, a long statement) must still be free to
+   * flow onto additional A4 pages instead of having its tail silently
+   * clipped off.
+   */
+  .print-page {
+    width: 210mm;
+    min-height: 297mm;
+    box-sizing: border-box;
+    page-break-after: avoid;
+    break-after: avoid;
+  }
+
+  .print-page table tr {
+    page-break-inside: avoid;
+    break-inside: avoid;
   }
 }

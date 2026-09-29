@@ -1,4 +1,4 @@
-import type { InvoiceListEntry, InvoiceWithItems } from '@invoice/shared';
+import type { InvoiceListEntry, InvoiceWithItems, Permission } from '@invoice/shared';
 import { useState } from 'react';
 import { ApiError } from '../../lib/api';
 import { CreateInvoiceForm } from './CreateInvoiceForm';
@@ -22,7 +22,11 @@ const ROW_ACTION_TO_INITIAL_ACTION: Record<InvoiceRowAction, TemplateInitialActi
   duplicate: undefined, // handled separately — never opens the template view
 };
 
-export function InvoicesPage() {
+interface Props {
+  permissions: Permission[];
+}
+
+export function InvoicesPage({ permissions }: Props) {
   const [view, setView] = useState<View>({ name: 'list' });
   const [refreshToken, setRefreshToken] = useState(0);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -54,7 +58,7 @@ export function InvoicesPage() {
 
   return (
     <div>
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between print:hidden">
         <h2 className="text-sm font-semibold text-slate-900">Invoices</h2>
         {view.name === 'list' && (
           <button
@@ -69,9 +73,14 @@ export function InvoicesPage() {
 
       {loadError && <p className="mt-2 text-sm text-red-600">{loadError}</p>}
 
-      <div className="mt-3">
+      <div className="mt-3 print:mt-0">
         {view.name === 'list' && (
-          <InvoiceList refreshToken={refreshToken} onSelect={(entry) => openInvoice(entry.id)} onAction={handleRowAction} />
+          <InvoiceList
+            refreshToken={refreshToken}
+            permissions={permissions}
+            onSelect={(entry) => openInvoice(entry.id)}
+            onAction={handleRowAction}
+          />
         )}
 
         {view.name === 'details' && (

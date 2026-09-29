@@ -2,7 +2,7 @@ import type { InvoiceViewModel } from '@invoice/shared';
 
 export function ModernCurveTemplate({ invoice }: { invoice: InvoiceViewModel }) {
   return (
-    <div className="mx-auto w-[210mm] min-h-[297mm] overflow-hidden rounded-3xl bg-white shadow print:shadow-none print:rounded-none">
+    <div className="print-page mx-auto w-[210mm] min-h-[297mm] overflow-hidden rounded-3xl bg-white shadow print:shadow-none print:rounded-none">
       <div className="relative overflow-hidden bg-violet-600 px-8 pb-10 pt-8 text-white">
         <div className="pointer-events-none absolute -bottom-16 -right-16 h-48 w-48 rounded-full bg-violet-500/50" />
         <div className="relative flex items-start justify-between">

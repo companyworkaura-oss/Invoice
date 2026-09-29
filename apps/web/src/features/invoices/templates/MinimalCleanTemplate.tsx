@@ -2,7 +2,7 @@ import type { InvoiceViewModel } from '@invoice/shared';
 
 export function MinimalCleanTemplate({ invoice }: { invoice: InvoiceViewModel }) {
   return (
-    <div className="mx-auto w-[210mm] min-h-[297mm] bg-white p-10 text-slate-900">
+    <div className="print-page mx-auto w-[210mm] min-h-[297mm] bg-white p-10 text-slate-900">
       <div className="flex items-start justify-between">
         <div className="flex items-center gap-3">
           {invoice.company.logoUrl && <img src={invoice.company.logoUrl} alt="" className="h-10 w-10 object-contain" />}

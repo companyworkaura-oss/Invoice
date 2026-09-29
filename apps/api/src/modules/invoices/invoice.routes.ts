@@ -22,6 +22,7 @@ invoicesRouter.use(requireAuth);
 
 const STATUSES = ['draft', 'issued'] as const;
 const PAYMENT_STATUSES = ['PAID', 'PARTIAL', 'UNPAID', 'CANCELLED'] as const;
+const ARCHIVED_FILTERS = ['active', 'archived', 'all'] as const;
 
 function parseItems(body: Record<string, unknown>): service.InvoiceItemInput[] {
   const raw = body.items;
@@ -78,7 +79,15 @@ invoicesRouter.get('/', requirePermission('invoice.view'), async (req, res) => {
   }
   const paymentStatus = paymentStatusRaw as service.InvoicePaymentStatus | undefined;
 
-  res.json(await service.listInvoices(auth(req).companyId, { status, customerId, from, to, paymentStatus, search }));
+  const archivedRaw = queryString(req, 'archived');
+  if (archivedRaw && !(ARCHIVED_FILTERS as readonly string[]).includes(archivedRaw)) {
+    throw badRequest('Validation failed', { archived: `Must be one of: ${ARCHIVED_FILTERS.join(', ')}` });
+  }
+  const archived = archivedRaw as service.InvoiceArchivedFilter | undefined;
+
+  res.json(
+    await service.listInvoices(auth(req).companyId, { status, customerId, from, to, paymentStatus, search, archived }),
+  );
 });
 
 invoicesRouter.get('/:invoiceId', requirePermission('invoice.view'), async (req, res) => {
@@ -92,6 +101,29 @@ invoicesRouter.post('/:invoiceId/duplicate', requirePermission('invoice.create')
   const invoiceId = requireUuidParam(req.params.invoiceId, 'invoiceId');
   const invoice = await service.duplicateInvoice(auth(req).companyId, auth(req).userId, invoiceId);
   res.status(201).json(invoice);
+});
+
+// Hides the invoice from the default list without touching ledger
+// entries, items, or payments — see archiveInvoice in invoice.service.ts.
+invoicesRouter.patch('/:invoiceId/archive', requirePermission('invoice.archive'), async (req, res) => {
+  const invoiceId = requireUuidParam(req.params.invoiceId, 'invoiceId');
+  res.json(await service.archiveInvoice(auth(req).companyId, auth(req).userId, invoiceId));
+});
+
+invoicesRouter.patch('/:invoiceId/unarchive', requirePermission('invoice.archive'), async (req, res) => {
+  const invoiceId = requireUuidParam(req.params.invoiceId, 'invoiceId');
+  res.json(await service.unarchiveInvoice(auth(req).companyId, auth(req).userId, invoiceId));
+});
+
+// Permanently removes an invoice — only when it's still a draft with no
+// payment applied to it; see deleteInvoice in invoice.service.ts for the
+// exact safety rules. Returns a small JSON body (not a bare 204) so the
+// frontend's shared api() wrapper, which always expects a JSON body,
+// doesn't need a special case for this one route.
+invoicesRouter.delete('/:invoiceId', requirePermission('invoice.delete'), async (req, res) => {
+  const invoiceId = requireUuidParam(req.params.invoiceId, 'invoiceId');
+  await service.deleteInvoice(auth(req).companyId, auth(req).userId, invoiceId);
+  res.status(200).json({ deleted: true, id: invoiceId });
 });
 
 // A4 PDF, rendered server-side from this invoice's saved snapshots — see

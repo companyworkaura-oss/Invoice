@@ -2,7 +2,7 @@ import type { InvoiceViewModel } from '@invoice/shared';
 
 export function PremiumModernTemplate({ invoice }: { invoice: InvoiceViewModel }) {
   return (
-    <div className="mx-auto w-[210mm] min-h-[297mm] bg-white text-slate-800 shadow print:shadow-none">
+    <div className="print-page mx-auto w-[210mm] min-h-[297mm] bg-white text-slate-800 shadow print:shadow-none">
       <div className="flex items-center justify-between bg-slate-900 px-8 py-6">
         <div className="flex items-center gap-3">
           {invoice.company.logoUrl && (

@@ -5,6 +5,7 @@ import {
   Decimal,
   FormulaError,
   type FormulaVariable,
+  type InvoiceArchivedFilter,
   evaluateFormula,
   roundMoney,
 } from '@invoice/shared';
@@ -57,6 +58,7 @@ export interface Invoice {
   notes: string | null;
   status: InvoiceStatus;
   createdAt: string;
+  archivedAt: string | null;
 }
 
 /**
@@ -90,6 +92,8 @@ export interface InvoiceListEntry extends Invoice {
   paymentStatus: InvoicePaymentStatus;
 }
 
+export type { InvoiceArchivedFilter };
+
 export interface InvoiceListFilter {
   status?: string;
   customerId?: string;
@@ -97,6 +101,8 @@ export interface InvoiceListFilter {
   to?: string;
   paymentStatus?: InvoicePaymentStatus;
   search?: string;
+  /** Defaults to 'active' (archived invoices hidden) when not given. */
+  archived?: InvoiceArchivedFilter;
 }
 
 // A pg Pool and a pg PoolClient (inside a transaction) share this shape,
@@ -106,7 +112,7 @@ type Queryable = Pick<typeof pool, 'query'>;
 const INVOICE_HEADER_COLUMNS = `
   i.id, i.company_id AS "companyId", i.customer_id AS "customerId", c.name AS "customerName",
   i.invoice_number AS "invoiceNumber", i.invoice_date AS "invoiceDate", i.quantity, i.notes, i.status,
-  i.created_at AS "createdAt"
+  i.created_at AS "createdAt", i.archived_at AS "archivedAt"
 `;
 
 const ITEM_COLUMNS = `
@@ -325,6 +331,7 @@ export async function createInvoice(
       notes: input.notes ?? null,
       status: input.status ?? 'draft',
       createdAt,
+      archivedAt: null,
       items,
       totalAmount,
       ...summary,
@@ -377,6 +384,16 @@ export async function listInvoices(companyId: string, filter: InvoiceListFilter)
     params.push(`%${filter.search}%`);
     conditions.push(`("invoiceNumber" ILIKE $${params.length} OR "customerName" ILIKE $${params.length})`);
   }
+  // Default 'active': archived invoices are hidden unless explicitly
+  // asked for — see InvoiceArchivedFilter. Archiving never deletes or
+  // recalculates anything, so an 'all'/'archived' read returns exactly
+  // the same totals/paymentStatus math as 'active', just a different
+  // WHERE clause.
+  if ((filter.archived ?? 'active') === 'active') {
+    conditions.push(`"archivedAt" IS NULL`);
+  } else if (filter.archived === 'archived') {
+    conditions.push(`"archivedAt" IS NOT NULL`);
+  }
 
   const { rows } = await pool.query<InvoiceListEntry>(
     `WITH balances AS (
@@ -407,7 +424,7 @@ export async function listInvoices(companyId: string, filter: InvoiceListFilter)
        SELECT
          i.id, i.company_id AS "companyId", i.customer_id AS "customerId", c.name AS "customerName",
          i.invoice_number AS "invoiceNumber", i.invoice_date AS "invoiceDate", i.quantity, i.notes,
-         i.status, i.created_at AS "createdAt",
+         i.status, i.created_at AS "createdAt", i.archived_at AS "archivedAt",
          COALESCE(items.total, 0) AS "totalAmount",
          COALESCE(pa.paid, 0) AS paid,
          COALESCE(items.total, 0) - COALESCE(pa.paid, 0) AS balance,
@@ -498,4 +515,186 @@ export async function duplicateInvoice(companyId: string, userId: string, invoic
     },
     { duplicatedFromInvoiceId: original.id, duplicatedFromInvoiceNumber: original.invoiceNumber },
   );
+}
+
+/**
+ * This one invoice's own FIFO-allocated paid amount — the exact same
+ * "oldest debt gets paid first" rule listInvoices applies per row (see
+ * its paid_amounts CTE above), just scoped to a single invoice instead
+ * of a whole company. Used by deleteInvoice to decide whether any
+ * payment has actually reached this invoice before allowing a hard
+ * delete — never by anything that touches balances themselves.
+ */
+async function getInvoicePaidAmount(
+  client: Queryable,
+  companyId: string,
+  customerId: string,
+  invoiceId: string,
+): Promise<string> {
+  const { rows } = await client.query<{ paid: string | null }>(
+    `WITH balances AS (
+       SELECT COALESCE(SUM(debit) - SUM(credit), 0) AS current_balance
+         FROM ledger_entries WHERE company_id = $1 AND customer_id = $2
+     ),
+     ordered AS (
+       SELECT
+         le.reference_id AS invoice_id,
+         le.debit,
+         SUM(le.debit) OVER (
+           ORDER BY le.created_at DESC, le.id DESC
+           ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+         ) AS cumulative_before
+       FROM ledger_entries le
+       WHERE le.company_id = $1 AND le.customer_id = $2 AND le.type = 'INVOICE' AND le.debit > 0
+     )
+     SELECT o.debit - LEAST(o.debit, GREATEST(b.current_balance - COALESCE(o.cumulative_before, 0), 0)) AS paid
+       FROM balances b
+       LEFT JOIN ordered o ON o.invoice_id = $3
+      WHERE o.invoice_id = $3`,
+    [companyId, customerId, invoiceId],
+  );
+  return roundMoney(new Decimal(rows[0]?.paid ?? 0));
+}
+
+/**
+ * Fetches an invoice header row-locked (FOR UPDATE) for a lifecycle
+ * mutation (archive/unarchive/delete) — the lock serializes two
+ * concurrent requests against the same invoice (e.g. a doubled click on
+ * Archive) so the second one sees the first one's committed change
+ * instead of racing it.
+ */
+async function lockInvoiceForUpdate(
+  client: Queryable,
+  companyId: string,
+  invoiceId: string,
+): Promise<{ invoiceNumber: string; customerId: string; status: InvoiceStatus; archivedAt: string | null }> {
+  const { rows } = await client.query<{
+    invoiceNumber: string;
+    customerId: string;
+    status: InvoiceStatus;
+    archivedAt: string | null;
+  }>(
+    `SELECT invoice_number AS "invoiceNumber", customer_id AS "customerId", status, archived_at AS "archivedAt"
+       FROM invoices WHERE id = $1 AND company_id = $2 FOR UPDATE`,
+    [invoiceId, companyId],
+  );
+  const row = rows[0];
+  if (!row) throw notFound('Invoice not found');
+  return row;
+}
+
+/**
+ * Archive (Phase 21): hides the invoice from the default list. Never
+ * touches ledger_entries, invoice_items, or payments — purely a
+ * visibility flag, so every balance/statement/dashboard figure derived
+ * from those tables is unaffected.
+ */
+export async function archiveInvoice(companyId: string, userId: string, invoiceId: string): Promise<InvoiceWithItems> {
+  await withTransaction(async (client) => {
+    const invoice = await lockInvoiceForUpdate(client, companyId, invoiceId);
+    if (invoice.archivedAt) {
+      throw badRequest('Validation failed', { archived: 'This invoice is already archived' });
+    }
+
+    await client.query('UPDATE invoices SET archived_at = now(), archived_by = $3 WHERE id = $1 AND company_id = $2', [
+      invoiceId,
+      companyId,
+      userId,
+    ]);
+
+    await postAuditLog(client, {
+      companyId,
+      userId,
+      action: 'INVOICE_ARCHIVED',
+      entityType: 'invoice',
+      entityId: invoiceId,
+      metadata: { invoiceNumber: invoice.invoiceNumber, customerId: invoice.customerId },
+    });
+  });
+  return getInvoice(companyId, invoiceId);
+}
+
+/** Restores an archived invoice to the default list. Recalculates nothing — see archiveInvoice. */
+export async function unarchiveInvoice(companyId: string, userId: string, invoiceId: string): Promise<InvoiceWithItems> {
+  await withTransaction(async (client) => {
+    const invoice = await lockInvoiceForUpdate(client, companyId, invoiceId);
+    if (!invoice.archivedAt) {
+      throw badRequest('Validation failed', { archived: 'This invoice is not archived' });
+    }
+
+    await client.query('UPDATE invoices SET archived_at = NULL, archived_by = NULL WHERE id = $1 AND company_id = $2', [
+      invoiceId,
+      companyId,
+    ]);
+
+    await postAuditLog(client, {
+      companyId,
+      userId,
+      action: 'INVOICE_UNARCHIVED',
+      entityType: 'invoice',
+      entityId: invoiceId,
+      metadata: { invoiceNumber: invoice.invoiceNumber, customerId: invoice.customerId },
+    });
+  });
+  return getInvoice(companyId, invoiceId);
+}
+
+/**
+ * Permanently deletes an invoice, but only when doing so can never
+ * corrupt accounting history:
+ *
+ *  - status must be 'draft' — an issued (or cancelled) invoice is never
+ *    hard-deleted; archive it instead.
+ *  - this invoice's own FIFO-allocated paid amount (see
+ *    getInvoicePaidAmount) must be exactly zero — if any payment has
+ *    actually reached this invoice, deleting it would erase the record
+ *    of what that payment was for.
+ *
+ * When both hold, the invoice's own ledger debit (and only that entry —
+ * the DELETE below is scoped to type='INVOICE' AND reference_id, so a
+ * PAYMENT or ADJUSTMENT row is never touched even by accident) is
+ * removed in the same transaction as the invoice row itself;
+ * invoice_items cascades via its own foreign key. Archived-ness has no
+ * bearing on eligibility — an archived draft with no payments is just
+ * as safe to delete as an active one.
+ */
+export async function deleteInvoice(companyId: string, userId: string, invoiceId: string): Promise<void> {
+  await withTransaction(async (client) => {
+    const invoice = await lockInvoiceForUpdate(client, companyId, invoiceId);
+
+    if (invoice.status !== 'draft') {
+      throw badRequest('Validation failed', {
+        status: 'Only draft invoices can be permanently deleted. Cancel or archive an issued invoice instead.',
+      });
+    }
+
+    const paid = await getInvoicePaidAmount(client, companyId, invoice.customerId, invoiceId);
+    if (new Decimal(paid).greaterThan(0)) {
+      throw badRequest('Validation failed', {
+        payments:
+          'This invoice has a payment applied to it and cannot be permanently deleted — archive it instead to preserve accounting history.',
+      });
+    }
+
+    const totalRes = await client.query<{ total: string | null }>(
+      'SELECT SUM(calculated_total) AS total FROM invoice_items WHERE invoice_id = $1',
+      [invoiceId],
+    );
+    const totalAmount = roundMoney(new Decimal(totalRes.rows[0].total ?? 0));
+
+    await client.query(`DELETE FROM ledger_entries WHERE company_id = $1 AND reference_id = $2 AND type = 'INVOICE'`, [
+      companyId,
+      invoiceId,
+    ]);
+    await client.query('DELETE FROM invoices WHERE id = $1 AND company_id = $2', [invoiceId, companyId]);
+
+    await postAuditLog(client, {
+      companyId,
+      userId,
+      action: 'INVOICE_DELETED',
+      entityType: 'invoice',
+      entityId: invoiceId,
+      metadata: { invoiceNumber: invoice.invoiceNumber, customerId: invoice.customerId, totalAmount },
+    });
+  });
 }
