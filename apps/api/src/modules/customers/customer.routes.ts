@@ -61,5 +61,10 @@ customersRouter.patch('/:customerId', requirePermission('customer.edit'), async 
 
 customersRouter.post('/:customerId/archive', requirePermission('customer.edit'), async (req, res) => {
   const customerId = requireUuidParam(req.params.customerId, 'customerId');
-  res.json(await service.archiveCustomer(auth(req).companyId, customerId));
+  res.json(await service.archiveCustomer(auth(req).companyId, auth(req).userId, customerId));
+});
+
+customersRouter.post('/:customerId/unarchive', requirePermission('customer.edit'), async (req, res) => {
+  const customerId = requireUuidParam(req.params.customerId, 'customerId');
+  res.json(await service.unarchiveCustomer(auth(req).companyId, auth(req).userId, customerId));
 });

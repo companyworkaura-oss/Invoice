@@ -18,11 +18,13 @@ export const AUDIT_ACTIONS = [
   'FORMULA_CHANGED',
   'RATE_CHANGED',
   'COMPANY_SETTINGS_CHANGED',
+  'CUSTOMER_ARCHIVED',
+  'CUSTOMER_UNARCHIVED',
 ] as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 
-export const AUDIT_ENTITY_TYPES = ['invoice', 'payment', 'formula', 'company'] as const;
+export const AUDIT_ENTITY_TYPES = ['invoice', 'payment', 'formula', 'company', 'customer'] as const;
 
 export type AuditEntityType = (typeof AUDIT_ENTITY_TYPES)[number];
 

@@ -39,3 +39,6 @@ export const updateCustomer = (id: string, patch: CustomerPatch) => api<Customer
 });
 
 export const archiveCustomer = (id: string) => api<Customer>(`/customers/${id}/archive`, { method: 'POST' });
+
+/** Restores an archived customer to the active list. Never touches invoices/ledger/payments. */
+export const unarchiveCustomer = (id: string) => api<Customer>(`/customers/${id}/unarchive`, { method: 'POST' });

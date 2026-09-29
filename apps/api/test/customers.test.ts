@@ -137,3 +137,93 @@ test('customer routes require authentication', async () => {
   const res = await request(app).get('/api/customers');
   assert.equal(res.status, 401);
 });
+
+test('unarchive restores a customer to the active list and it reappears for new-invoice/payment selectors', async () => {
+  const agent = await registeredOwner('Unarchive Co');
+  const created = await agent.post('/api/customers').send({ name: 'Boomerang Customer' });
+
+  await agent.post(`/api/customers/${created.body.id}/archive`);
+  const activeAfterArchive = await agent.get('/api/customers').query({ status: 'active' });
+  assert.equal(activeAfterArchive.body.length, 0);
+
+  const restored = await agent.post(`/api/customers/${created.body.id}/unarchive`);
+  assert.equal(restored.status, 200);
+  assert.equal(restored.body.status, 'active');
+  assert.equal(restored.body.id, created.body.id);
+  assert.equal(restored.body.name, 'Boomerang Customer'); // same record, never duplicated
+
+  // Back on the default/active list — this is exactly the query the "new
+  // invoice"/"new payment" customer selectors issue, so reappearing here
+  // means they'll see it too.
+  const activeList = await agent.get('/api/customers');
+  assert.equal(activeList.body.length, 1);
+  assert.equal(activeList.body[0].id, created.body.id);
+
+  const archivedList = await agent.get('/api/customers').query({ status: 'archived' });
+  assert.equal(archivedList.body.length, 0);
+});
+
+test('archive and unarchive never touch opening balance, ledger, or create a duplicate customer', async () => {
+  const agent = await registeredOwner('Ledger Preserving Co');
+  const created = await agent.post('/api/customers').send({ name: 'Balance Keeper', openingBalance: '500.00' });
+
+  const ledgerBefore = await agent.get(`/api/customers/${created.body.id}/ledger`);
+  assert.equal(ledgerBefore.status, 200);
+  assert.equal(ledgerBefore.body.balance, '500.00');
+  const entriesBefore = ledgerBefore.body.entries.length;
+
+  await agent.post(`/api/customers/${created.body.id}/archive`);
+  await agent.post(`/api/customers/${created.body.id}/unarchive`);
+
+  const ledgerAfter = await agent.get(`/api/customers/${created.body.id}/ledger`);
+  assert.equal(ledgerAfter.body.balance, '500.00'); // unchanged
+  assert.equal(ledgerAfter.body.entries.length, entriesBefore); // no new/removed ledger rows
+
+  const stillOneCustomer = await agent.get('/api/customers').query({ status: 'all' });
+  assert.equal(stillOneCustomer.body.length, 1); // never duplicated
+
+  const details = await agent.get(`/api/customers/${created.body.id}`);
+  assert.equal(details.body.openingBalance, '500.00');
+});
+
+test('tenant isolation: unarchive is scoped to the acting company', async () => {
+  const alice = await registeredOwner('Alice Unarchive Co');
+  const bob = await registeredOwner('Bob Unarchive Co');
+
+  const aliceCustomer = await alice.post('/api/customers').send({ name: 'Alice-only archived customer' });
+  await alice.post(`/api/customers/${aliceCustomer.body.id}/archive`);
+
+  const bobUnarchiveAttempt = await bob.post(`/api/customers/${aliceCustomer.body.id}/unarchive`);
+  assert.equal(bobUnarchiveAttempt.status, 404);
+
+  const stillArchived = await alice.get(`/api/customers/${aliceCustomer.body.id}`);
+  assert.equal(stillArchived.body.status, 'archived'); // Bob's attempt had no effect
+});
+
+test('audit log: archive and unarchive each post their own entry', async () => {
+  const agent = await registeredOwner('Customer Audit Co');
+  const created = await agent.post('/api/customers').send({ name: 'Audited Customer' });
+
+  await agent.post(`/api/customers/${created.body.id}/archive`);
+  await agent.post(`/api/customers/${created.body.id}/unarchive`);
+
+  const logs = await agent.get('/api/audit-logs');
+  assert.equal(logs.status, 200);
+
+  const archived = logs.body.find(
+    (l: { action: string; entityId: string }) => l.action === 'CUSTOMER_ARCHIVED' && l.entityId === created.body.id,
+  );
+  const unarchived = logs.body.find(
+    (l: { action: string; entityId: string }) => l.action === 'CUSTOMER_UNARCHIVED' && l.entityId === created.body.id,
+  );
+
+  assert.ok(archived, 'expected a CUSTOMER_ARCHIVED entry');
+  assert.equal(archived.metadata.customerName, 'Audited Customer');
+  assert.ok(unarchived, 'expected a CUSTOMER_UNARCHIVED entry');
+  assert.equal(unarchived.metadata.customerName, 'Audited Customer');
+});
+
+test('unarchive requires authentication', async () => {
+  const res = await request(app).post('/api/customers/00000000-0000-0000-0000-000000000000/unarchive');
+  assert.equal(res.status, 401);
+});

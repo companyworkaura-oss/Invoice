@@ -26,10 +26,28 @@ export function CustomerDetails({ customer, onBack, onEdit, onArchived, onViewSt
   const [archiving, setArchiving] = useState(false);
 
   async function handleArchive() {
+    if (
+      !window.confirm('Archive this customer? Existing invoices, payments and ledger history will remain.')
+    ) {
+      return;
+    }
     setError(null);
     setArchiving(true);
     try {
       onArchived(await customersApi.archiveCustomer(customer.id));
+    } catch (err) {
+      setError(err instanceof ApiError ? err.body.error : 'Something went wrong');
+    } finally {
+      setArchiving(false);
+    }
+  }
+
+  async function handleUnarchive() {
+    if (!window.confirm('Restore this customer to the active customer list?')) return;
+    setError(null);
+    setArchiving(true);
+    try {
+      onArchived(await customersApi.unarchiveCustomer(customer.id));
     } catch (err) {
       setError(err instanceof ApiError ? err.body.error : 'Something went wrong');
     } finally {
@@ -61,13 +79,15 @@ export function CustomerDetails({ customer, onBack, onEdit, onArchived, onViewSt
       {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
 
       <div className="mt-4 flex gap-2">
-        <button
-          type="button"
-          onClick={onEdit}
-          className="rounded-md border border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50"
-        >
-          Edit
-        </button>
+        {customer.status === 'active' && (
+          <button
+            type="button"
+            onClick={onEdit}
+            className="rounded-md border border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50"
+          >
+            Edit
+          </button>
+        )}
         <button
           type="button"
           onClick={onViewStatement}
@@ -83,6 +103,16 @@ export function CustomerDetails({ customer, onBack, onEdit, onArchived, onViewSt
             className="rounded-md border border-slate-300 px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 disabled:opacity-50"
           >
             {archiving ? 'Archiving…' : 'Archive'}
+          </button>
+        )}
+        {customer.status === 'archived' && (
+          <button
+            type="button"
+            onClick={handleUnarchive}
+            disabled={archiving}
+            className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-blue-700 hover:bg-blue-50 disabled:opacity-50"
+          >
+            {archiving ? 'Restoring…' : 'Restore / Unarchive'}
           </button>
         )}
       </div>

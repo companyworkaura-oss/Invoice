@@ -1,5 +1,6 @@
 import { pool, withTransaction } from '../../db/pool.js';
 import { notFound } from '../../lib/http-error.js';
+import { postAuditLog } from '../audit/audit.service.js';
 import { postLedgerEntry } from '../ledger/ledger.service.js';
 
 export type CustomerStatus = 'active' | 'archived';
@@ -152,13 +153,59 @@ export async function updateCustomer(companyId: string, customerId: string, patc
   return rows[0];
 }
 
-export async function archiveCustomer(companyId: string, customerId: string): Promise<Customer> {
-  const { rows } = await pool.query<Customer>(
-    `UPDATE customers SET status = 'archived', updated_at = now()
-      WHERE id = $1 AND company_id = $2
-      RETURNING ${COLUMNS}`,
-    [customerId, companyId],
-  );
-  if (!rows[0]) throw notFound('Customer not found');
-  return rows[0];
+/**
+ * Archive/unarchive are visibility/lifecycle only — they flip
+ * `customers.status` and nothing else. Invoices, ledger entries,
+ * payments, and opening_balance never change here; the customer row
+ * itself is never duplicated or replaced, just toggled and re-read —
+ * so every historical record (statements, invoice snapshots, payment
+ * history) stays exactly as it was, archived or not.
+ */
+export async function archiveCustomer(companyId: string, userId: string, customerId: string): Promise<Customer> {
+  return withTransaction(async (client) => {
+    const { rows } = await client.query<Customer>(
+      `UPDATE customers SET status = 'archived', updated_at = now()
+        WHERE id = $1 AND company_id = $2
+        RETURNING ${COLUMNS}`,
+      [customerId, companyId],
+    );
+    const customer = rows[0];
+    if (!customer) throw notFound('Customer not found');
+
+    await postAuditLog(client, {
+      companyId,
+      userId,
+      action: 'CUSTOMER_ARCHIVED',
+      entityType: 'customer',
+      entityId: customerId,
+      metadata: { customerName: customer.name },
+    });
+
+    return customer;
+  });
+}
+
+/** Restores an archived customer to the active list. Never touches invoices/ledger/payments/opening_balance — see archiveCustomer. */
+export async function unarchiveCustomer(companyId: string, userId: string, customerId: string): Promise<Customer> {
+  return withTransaction(async (client) => {
+    const { rows } = await client.query<Customer>(
+      `UPDATE customers SET status = 'active', updated_at = now()
+        WHERE id = $1 AND company_id = $2
+        RETURNING ${COLUMNS}`,
+      [customerId, companyId],
+    );
+    const customer = rows[0];
+    if (!customer) throw notFound('Customer not found');
+
+    await postAuditLog(client, {
+      companyId,
+      userId,
+      action: 'CUSTOMER_UNARCHIVED',
+      entityType: 'customer',
+      entityId: customerId,
+      metadata: { customerName: customer.name },
+    });
+
+    return customer;
+  });
 }

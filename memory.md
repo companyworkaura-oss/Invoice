@@ -603,6 +603,65 @@ history.
   still has no frontend RBAC framework beyond "show a button only if
   the permission is present, let the backend be the real enforcer."
 
+## Customer Unarchive / Restore
+
+The customer module already had `status: 'active' | 'archived'` (a
+different pattern from the invoice module's `archived_at timestamptz`,
+kept as-is per module rather than unified) and a working `POST
+/:customerId/archive`, an `Archive` button, and a working Active/
+Archived/All list filter — but archiving a customer was a one-way door:
+nothing in the UI or API could bring one back.
+
+- **`unarchiveCustomer(companyId, userId, customerId)`**
+  (`customer.service.ts`) — the exact mirror of `archiveCustomer`: sets
+  `status = 'active'`, wrapped in `withTransaction` with a
+  `CUSTOMER_UNARCHIVED` audit entry in the same transaction. Same as
+  archive, this only ever flips `status`; `opening_balance`,
+  `ledger_entries`, invoices, and payments are never touched, and the
+  customer row itself is never duplicated or replaced.
+- **`POST /api/customers/:customerId/unarchive`** — same `POST` verb
+  and `customer.edit` permission gate as the existing `/archive` route
+  (kept consistent with this module's own convention rather than
+  switching to `PATCH`).
+- **New audit actions**: `CUSTOMER_ARCHIVED`, `CUSTOMER_UNARCHIVED` (the
+  first was added now too — archiving a customer had no audit entry
+  before this). Both need entries in `AuditLogPage.tsx`'s
+  `ACTION_LABEL`/`ENTITY_LABEL` maps (along with `'customer'` in
+  `ENTITY_LABEL`) since those are typed as exhaustive
+  `Record<AuditAction/AuditEntityType, string>` — this is the second
+  time in this repo's history that extending `AUDIT_ACTIONS`/
+  `AUDIT_ENTITY_TYPES` without touching this file broke the web
+  typecheck (`TS2739`/`TS2741`); check this file every time either const
+  array grows.
+- **Frontend**: `CustomerDetails.tsx` now branches on `customer.status`:
+  `Edit`+`Archive` show only when `active`; a new `Restore / Unarchive`
+  button shows only when `archived`; `View Statement` always shows
+  regardless of status, since statement/ledger/invoice history must stay
+  reachable for archived customers. Both actions are behind
+  `window.confirm(...)` with exact wording:
+  `"Archive this customer? Existing invoices, payments and ledger
+  history will remain."` and `"Restore this customer to the active
+  customer list?"`.
+- **No new work needed for dropdown reappearance**: `CreateInvoiceForm.tsx`
+  and `PaymentForm.tsx` already call `listCustomers({ status: 'active' })`
+  fresh on mount, so an unarchived customer reappearing there is an
+  emergent property of always querying live, not something that had to
+  be coded.
+- **`CustomerList.tsx`'s Active/Archived/All filter and the backend's
+  `GET /api/customers?status=...` already existed** exactly as needed —
+  neither required any change for this fix.
+
+## Windows Build Script
+
+`apps/api`'s build script used to be `tsc && cp -r src/migrations
+dist/`, which fails on Windows (`cp` isn't a recognized command there).
+Replaced with `tsc && node scripts/copy-migrations.mjs`, a small script
+using Node's builtin `fs.cpSync({ recursive: true })` — no new
+dependency, works identically on Windows/Linux/macOS. Avoid
+`cp`/`xcopy`/`robocopy` or any other OS-specific shell command in npm
+scripts going forward; use a small `.mjs` script with Node builtins
+instead.
+
 ## Known gotchas / things to check before starting work
 
 - **Postgres cluster is often stopped** when a session starts:
@@ -726,6 +785,11 @@ history.
     zero FIFO-allocated paid amount, new invoice.archive/invoice.delete
     permissions, three new audit actions, Active/Archived/All list tabs
     — see "Invoice Archive / Delete (Phase 21)" above
+22. Customer Unarchive/Restore: added the missing reverse of customer
+    archive — new `unarchiveCustomer` service function + `POST
+    /api/customers/:id/unarchive` route, a Restore/Unarchive button on
+    archived customers in `CustomerDetails.tsx`, two new audit actions
+    — see "Customer Unarchive / Restore" below
 
 Repo also went through a monorepo restructure (`server/` → `apps/api` +
 new `apps/web` + `packages/shared`) between Phase 1 and Phase 2.

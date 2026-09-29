@@ -15,6 +15,8 @@ const ACTION_LABEL: Record<AuditAction, string> = {
   FORMULA_CHANGED: 'Formula changed',
   RATE_CHANGED: 'Rate changed',
   COMPANY_SETTINGS_CHANGED: 'Company settings changed',
+  CUSTOMER_ARCHIVED: 'Customer archived',
+  CUSTOMER_UNARCHIVED: 'Customer restored',
 };
 
 const ENTITY_LABEL: Record<AuditEntityType, string> = {
@@ -22,6 +24,7 @@ const ENTITY_LABEL: Record<AuditEntityType, string> = {
   payment: 'Payment',
   formula: 'Formula',
   company: 'Company',
+  customer: 'Customer',
 };
 
 function formatMetadata(metadata: Record<string, unknown>): string {
