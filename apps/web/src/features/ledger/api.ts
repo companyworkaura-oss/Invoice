@@ -28,8 +28,11 @@ export const getStatement = (customerId: string, params: StatementParams = {}) =
  * in dev, same process when SERVE_FRONTEND=true) so the session cookie
  * rides along with fetch's default same-origin credentials.
  */
-export const statementPdfUrl = (customerId: string, params: StatementParams = {}) =>
-  `/api/customers/${customerId}/ledger/statement/pdf${statementQuery(params)}`;
+export const statementPdfUrl = (
+  customerId: string,
+  params: StatementParams = {},
+) =>
+  `http://localhost:4000/api/customers/${customerId}/ledger/statement/pdf${statementQuery(params)}`;
 
 // Payments are recorded through features/payments (POST /api/payments),
 // which creates the payment record and this same ledger credit in one
