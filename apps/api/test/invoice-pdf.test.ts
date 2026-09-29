@@ -63,6 +63,56 @@ test('downloads a real A4 PDF with the correct filename convention', async () =>
   assert.equal(Number(res.headers['content-length']), buffer.length);
 });
 
+test('generates a real, non-empty PDF for an invoice combining lot number, per-item quantity, and a discount', async () => {
+  const agent = await registeredOwner('PDF Full Featured Co');
+  const customer = await agent.post('/api/customers').send({ name: 'Full Featured Customer' });
+  const bazu = await agent
+    .post('/api/categories')
+    .send({ name: 'BAZU', defaultRate: '1.20', formulaConfig: { expression: 'stitches / 1000 * rate' } });
+  const front = await agent
+    .post('/api/categories')
+    .send({ name: 'FRONT', defaultRate: '1.20', formulaConfig: { expression: 'stitches / 1000 * rate' } });
+
+  const invoice = await agent.post('/api/invoices').send({
+    customerId: customer.body.id,
+    lotNumber: 'LOT-2026-145',
+    discountType: 'percentage',
+    discountValue: '10',
+    items: [
+      { categoryId: bazu.body.id, description: 'BAZU', stitches: 10000, quantity: '12' },
+      { categoryId: front.body.id, description: 'FRONT', stitches: 150000, quantity: '8' },
+    ],
+  });
+  assert.equal(invoice.status, 201);
+  assert.equal(invoice.body.lotNumber, 'LOT-2026-145');
+  assert.equal(invoice.body.discountType, 'percentage');
+
+  const res = await agent.get(`/api/invoices/${invoice.body.id}/pdf`);
+  assert.equal(res.status, 200);
+  assert.equal(res.headers['content-type'], 'application/pdf');
+  assert.ok(Number(res.headers['content-length']) > 0, 'Content-Length must be greater than zero');
+
+  const buffer = res.body as Buffer;
+  assert.ok(Buffer.isBuffer(buffer));
+  assert.ok(buffer.length > 0, 'the response body must not be empty');
+  assert.equal(buffer.subarray(0, 5).toString('ascii'), '%PDF-'); // real PDF magic bytes, not an empty/corrupt file
+  assert.equal(Number(res.headers['content-length']), buffer.length);
+});
+
+test('generateInvoicePdf (called directly) returns a non-empty buffer starting with the PDF magic bytes', async () => {
+  const agent = await registeredOwner('PDF Direct Call Co');
+  const invoice = await createInvoice(agent, 'Direct Call Customer');
+  const me = await agent.get('/api/auth/me');
+  const companyId = me.body.company.id as string;
+
+  const { generateInvoicePdf } = await import('../src/modules/invoices/pdf/pdf.service.js');
+  const { buffer, filename } = await generateInvoicePdf(companyId, invoice.id);
+
+  assert.ok(buffer.length > 0, 'buffer must not be empty');
+  assert.equal(buffer.subarray(0, 5).toString('ascii'), '%PDF-');
+  assert.match(filename, /\.pdf$/);
+});
+
 test('accepts a template override via query param without changing the company default', async () => {
   const agent = await registeredOwner('PDF Template Override Co');
   const invoice = await createInvoice(agent, 'Override Customer');

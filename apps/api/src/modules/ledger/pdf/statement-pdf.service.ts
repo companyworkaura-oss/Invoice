@@ -1,5 +1,4 @@
-import { chromium } from 'playwright-core';
-import { config } from '../../../config.js';
+import { renderHtmlToPdf } from '../../../lib/pdf/render-pdf.js';
 import * as companyService from '../../company/company.service.js';
 import { fetchLogoDataUri } from '../../invoices/pdf/logo.js';
 import { getCustomerStatement, type StatementFilter } from '../statement.service.js';
@@ -33,27 +32,6 @@ export async function generateStatementPdf(
   const logoDataUri = await fetchLogoDataUri(company.logoUrl);
   const html = renderStatementHtml(company, statement, logoDataUri);
 
-  const browser = await chromium.launch({
-    executablePath: config.chromiumExecutablePath,
-    args: ['--no-sandbox'],
-  });
-  try {
-    const page = await browser.newPage();
-    await page.setContent(html, { waitUntil: 'load' });
-    const pdfBytes = await page.pdf({
-      format: 'A4',
-      margin: { top: '0', bottom: '0', left: '0', right: '0' },
-      printBackground: true,
-    });
-    // Explicit conversion, not a no-op: page.pdf() is typed as
-    // Promise<Buffer> but that's not guaranteed across every Playwright
-    // build/transport — wrapping in Buffer.from() guarantees a real Node
-    // Buffer reaches the route, since sending anything else (a plain
-    // Uint8Array view, for instance) as the HTTP body is what produces a
-    // byte-for-byte-wrong, unopenable "PDF".
-    const buffer = Buffer.from(pdfBytes);
-    return { buffer, filename: statementFilename(statement.customerName) };
-  } finally {
-    await browser.close();
-  }
+  const buffer = await renderHtmlToPdf(html, { label: `statement for ${statement.customerName}` });
+  return { buffer, filename: statementFilename(statement.customerName) };
 }

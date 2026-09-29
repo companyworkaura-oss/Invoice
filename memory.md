@@ -869,6 +869,59 @@ often wrong and the PDF was never attached. Root causes and the fix:
   `"Invoice Total:"` to match the requested wording; Previous
   Balance/Paid Amount/Current Balance lines are unchanged.
 
+## PDF Generation Hardening
+
+A user hit "The generated PDF was empty — please try again." on both
+the Download PDF and Share via WhatsApp buttons. The frontend
+(`downloadPdf.ts`) was already correct — it already does
+`fetch` + `arrayBuffer()`, checks `byteLength > 0`, and checks the
+`%PDF-` magic bytes before ever handing anything to the browser, per
+this app's existing convention; that's exactly how it caught the
+problem in the first place. The bug was that the *backend* could
+respond `200 OK` with an empty body: `chromium.launch()`/`page.pdf()`
+can resolve "successfully" with 0 bytes (or truncated/corrupt output)
+instead of throwing, most commonly in a container where the default
+`/dev/shm` (64MB) is too small for Chromium's shared-memory needs —
+and nothing downstream ever checked the buffer before sending it.
+
+- **`apps/api/src/lib/pdf/render-pdf.ts`** (new) — the one place both
+  invoice PDFs (`invoices/pdf/pdf.service.ts`) and statement PDFs
+  (`ledger/pdf/statement-pdf.service.ts`) launch Chromium; previously
+  each had its own near-identical copy of this logic. Chromium now
+  launches with `--disable-dev-shm-usage` added alongside the existing
+  `--no-sandbox` (the standard fix for the failure mode above — tells
+  Chromium to spill to `/tmp` instead of the too-small `/dev/shm`).
+  After `Buffer.from(pdfBytes)`, it now **always** checks
+  `buffer.length > 0` and that the first 5 bytes are `%PDF-` before
+  returning — if either check fails, it throws a descriptive `Error`
+  instead of returning the bad buffer. That throw reaches the existing
+  error middleware (`middleware/errors.ts`), which already logs the
+  full message+stack via `getErrorReporter()` before returning a
+  generic 500 to the client — so this failure mode is now loud and
+  logged server-side instead of a silent "successful" empty download.
+- **Dev-only diagnostic logging** at every stage of invoice PDF
+  generation (`[pdf] generating invoice PDF: ...`, `rendered HTML is N
+  bytes`, `page.pdf() returned N bytes`, `final buffer is N bytes`,
+  and the existing pre-`res.end` `[invoice pdf] {filename}: N bytes`
+  in `invoice.routes.ts`) — gated on `config.nodeEnv === 'development'`
+  so none of this appears in production or test output, but running
+  locally now makes it obvious exactly which stage produced how many
+  bytes if this ever needs to be re-diagnosed.
+- **Tests**: `invoice-pdf.test.ts` gained a test combining lot number +
+  per-item quantity + discount through the full HTTP route (status,
+  content-type, Content-Length > 0, `%PDF-` magic bytes) and a test
+  calling `generateInvoicePdf` directly. `statement-pdf.test.ts` and
+  the rest of `invoice-pdf.test.ts` already covered the magic-bytes/
+  non-empty checks at the route level and continue to pass unchanged
+  through the shared helper.
+- If this resurfaces: check the dev logs first (which stage reports 0
+  bytes, or does an exception appear at all), then verify the
+  Chromium executable actually exists/runs at
+  `CHROMIUM_EXECUTABLE_PATH` in that environment — `render-pdf.ts`'s
+  guard turns a bad launch into a real, visible error either way, so a
+  recurrence now always means "look at the server log for this
+  request," never "guess why the download UI complained."
+
 ## Known gotchas / things to check before starting work
 
 - **Postgres cluster is often stopped** when a session starts:
@@ -1016,6 +1069,13 @@ often wrong and the PDF was never attached. Root causes and the fix:
     Cloud API integration (sends the PDF as a real document message)
     that click-to-chat falls back to when unconfigured — see "WhatsApp
     Sharing" below
+26. PDF Generation Hardened: both invoice and statement PDF generation
+    now share one `renderHtmlToPdf` helper (`lib/pdf/render-pdf.ts`)
+    with `--disable-dev-shm-usage` (the standard fix for Chromium
+    crashing/producing empty output under a container's small default
+    `/dev/shm`) and a hard non-empty-plus-`%PDF-`-magic check before
+    ever returning — a silent empty buffer now becomes a loud, logged
+    500 instead of a fake 200 — see "PDF Generation Hardening" below
 
 Repo also went through a monorepo restructure (`server/` → `apps/api` +
 new `apps/web` + `packages/shared`) between Phase 1 and Phase 2.
