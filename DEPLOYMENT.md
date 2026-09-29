@@ -40,9 +40,13 @@ variables via your platform/orchestrator — never commit `.env`, it's gitignore
 | `WEB_DIST_DIR` | no (default `../web/dist`) | Path to the built frontend, relative to the API's working directory, when `SERVE_FRONTEND=true`. |
 | `UPLOADS_DIR` | no (default `uploads`) | Where uploaded logo files are stored on disk. Mount a persistent volume here if you don't use object storage. |
 | `MAX_LOGO_BYTES` | no (default `2097152`) | Upload size limit. |
+| `PUBLIC_BASE_URL` | no | This API's real public HTTPS origin (e.g. `https://invoices.example.com`). Only used to include a PDF link in a WhatsApp share message — leave unset if not deployed publicly; a `localhost`/`127.0.0.1` value is ignored the same as unset (see whatsapp-share.service.ts). |
+| `WHATSAPP_PHONE_NUMBER_ID` | no | WhatsApp Business Cloud API phone number ID. Set together with `WHATSAPP_ACCESS_TOKEN` to send invoice PDFs as real WhatsApp document messages instead of the default click-to-chat link. |
+| `WHATSAPP_ACCESS_TOKEN` | no | WhatsApp Business Cloud API access token. **Secret** — set via your platform's secret manager, same as `DATABASE_URL`. |
+| `WHATSAPP_API_VERSION` | no (default `v21.0`) | Graph API version used for the WhatsApp Business Cloud API calls. |
 
-**Do not expose secrets**: `DATABASE_URL` contains credentials — set it via your platform's
-secret manager / environment injection, never commit it, and never log it (the app's
+**Do not expose secrets**: `DATABASE_URL` and `WHATSAPP_ACCESS_TOKEN` contain credentials — set them via your platform's
+secret manager / environment injection, never commit them, and never log them (the app's
 structured request logs only ever include method/path/status/duration, never headers or
 bodies).
 

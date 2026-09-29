@@ -35,6 +35,23 @@ export const config = {
   // tests, which build/clean apps/web/dist independently of the API).
   serveFrontend: process.env.SERVE_FRONTEND === 'true',
   webDistDir: process.env.WEB_DIST_DIR ?? '../web/dist',
+  // A real public HTTPS origin this API is reachable at (e.g.
+  // https://invoices.example.com) — used only to build a PDF link in a
+  // WhatsApp message (see invoices/whatsapp-share.service.ts). Left
+  // unset in local/dev, which is exactly what keeps a localhost link
+  // out of a customer-facing message: a phone can never open
+  // http://localhost:4000/..., so no link is included when this isn't set.
+  publicBaseUrl: process.env.PUBLIC_BASE_URL || undefined,
+  // Optional WhatsApp Business Cloud API integration (see
+  // lib/whatsapp/business-cloud-api-whatsapp-service.ts) — sends the
+  // invoice PDF as an actual WhatsApp document message instead of the
+  // free click-to-chat link. All three must be set to activate it;
+  // absent (the default), the app falls back to click-to-chat.
+  whatsappBusiness: {
+    phoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID || undefined,
+    accessToken: process.env.WHATSAPP_ACCESS_TOKEN || undefined,
+    apiVersion: process.env.WHATSAPP_API_VERSION || 'v21.0',
+  },
 };
 
 // A production process running with an insecure session cookie would

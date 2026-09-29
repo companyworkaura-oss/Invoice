@@ -31,8 +31,11 @@ export function InvoiceTemplateView({ invoice, onBack, initialAction }: Props) {
   const [templateId, setTemplateId] = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState<string | null>(null);
-  const [sharing, setSharing] = useState(false);
+  const [shareStage, setShareStage] = useState<'idle' | 'preparing-pdf' | 'opening-whatsapp'>('idle');
   const [shareError, setShareError] = useState<string | null>(null);
+  const [shareNotice, setShareNotice] = useState<string | null>(null);
+  /** Set only when the last share attempt failed specifically at the PDF-generation step — offers "send text only" as the explicit escape hatch the spec calls for, instead of silently degrading. */
+  const [offerTextOnlyShare, setOfferTextOnlyShare] = useState(false);
   const firedInitialAction = useRef(false);
 
   useEffect(() => {
@@ -72,21 +75,68 @@ export function InvoiceTemplateView({ invoice, onBack, initialAction }: Props) {
     }
   }
 
-  async function handleShare() {
+  /**
+   * A wa.me link can prefill the recipient and message text, but it can
+   * never attach a local/generated PDF — that's a hard platform
+   * limitation, not something to paper over. So by default this
+   * downloads the invoice PDF first (same mechanism as the Download PDF
+   * button), *then* opens WhatsApp to the exact customer with the
+   * message prefilled, and tells the user to attach the file they just
+   * downloaded. `textOnly` is the explicit opt-out the spec calls for:
+   * only set when the user has already seen a PDF-generation failure
+   * and chose to share the text anyway.
+   *
+   * If the server is configured with WhatsApp Business Cloud API
+   * credentials (see apps/api's lib/whatsapp), it may have already sent
+   * the PDF as a real document message server-side — share.status
+   * 'sent' means that succeeded and there's nothing left to do here;
+   * 'failed' (or the default click-to-chat mode) falls through to the
+   * same download-then-open flow, using share.url as the manual
+   * fallback either way.
+   */
+  async function handleShare(textOnly = false) {
     setShareError(null);
-    setSharing(true);
+    setShareNotice(null);
+    setOfferTextOnlyShare(false);
+    setShareStage('preparing-pdf');
     try {
-      // Server builds the message from the invoice's own ledger-derived
-      // stats and the customer's saved WhatsApp number, then hands back
-      // a wa.me link — see apps/api's whatsapp-share.service.ts.
+      // Server normalizes/validates the customer's WhatsApp number and
+      // builds the message from the invoice's own ledger-derived stats
+      // — see apps/api's whatsapp-share.service.ts. A missing/invalid
+      // number throws here, before anything opens.
       const share = await invoicesApi.getWhatsAppShare(invoice.id);
+
+      if (share.mode === 'business-api' && share.status === 'sent') {
+        setShareNotice('Invoice sent via WhatsApp.');
+        return;
+      }
+
+      if (!textOnly) {
+        try {
+          await downloadPdf(invoicesApi.invoicePdfUrl(invoice.id, template.id), filename);
+        } catch (err) {
+          setShareError(err instanceof ApiError ? err.body.error : 'Could not generate the PDF');
+          setOfferTextOnlyShare(true);
+          return; // never open WhatsApp on a failed PDF unless the user explicitly asks for text-only
+        }
+      }
+
+      setShareStage('opening-whatsapp');
       window.open(share.url, '_blank', 'noopener,noreferrer');
+      setShareNotice(
+        textOnly
+          ? 'WhatsApp opened with the invoice message. Attach the invoice PDF manually if needed.'
+          : 'Invoice PDF has been downloaded. Attach the downloaded PDF in WhatsApp before sending.',
+      );
+      if (share.mode === 'business-api' && share.status === 'failed') {
+        setShareError(share.error ?? 'Automatic WhatsApp sending failed — opened a manual chat instead.');
+      }
     } catch (err) {
       setShareError(
         err instanceof ApiError ? (err.body.details?.whatsapp ?? err.body.error) : 'Could not build the WhatsApp share link',
       );
     } finally {
-      setSharing(false);
+      setShareStage('idle');
     }
   }
 
@@ -146,16 +196,33 @@ export function InvoiceTemplateView({ invoice, onBack, initialAction }: Props) {
           </button>
           <button
             type="button"
-            onClick={handleShare}
-            disabled={sharing}
+            onClick={() => handleShare()}
+            disabled={shareStage !== 'idle'}
             className="rounded-md bg-green-600 px-3 py-1 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50"
           >
-            {sharing ? 'Preparing…' : 'Share via WhatsApp'}
+            {shareStage === 'preparing-pdf'
+              ? 'Preparing PDF…'
+              : shareStage === 'opening-whatsapp'
+                ? 'Opening WhatsApp…'
+                : 'Share via WhatsApp'}
           </button>
         </div>
       </div>
       {downloadError && <p className="mt-1 text-sm text-red-600 print:hidden">{downloadError}</p>}
-      {shareError && <p className="mt-1 text-sm text-red-600 print:hidden">{shareError}</p>}
+      {shareError && (
+        <p className="mt-1 text-sm text-red-600 print:hidden">
+          {shareError}
+          {offerTextOnlyShare && (
+            <>
+              {' '}
+              <button type="button" onClick={() => handleShare(true)} className="underline hover:text-red-800">
+                Send text only (without PDF)
+              </button>
+            </>
+          )}
+        </p>
+      )}
+      {shareNotice && <p className="mt-1 text-sm text-green-700 print:hidden">{shareNotice}</p>}
 
       {/*
         The gray surround is the on-screen "print preview" frame; the

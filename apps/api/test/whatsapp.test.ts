@@ -66,17 +66,47 @@ test('builds a WhatsApp click-to-chat share payload with all required fields', a
   const share = await agent.get(`/api/invoices/${invoice.id}/whatsapp-share`);
   assert.equal(share.status, 200);
   assert.equal(share.body.mode, 'click-to-chat');
-  assert.equal(share.body.toPhone, '+1 (415) 555-2671');
+  // toPhone is the normalized (digits-only, international) number, not the raw saved value.
+  assert.equal(share.body.toPhone, '14155552671');
   assert.ok(share.body.url.startsWith('https://wa.me/14155552671?text='));
 
   const message = decodeURIComponent(share.body.url.split('?text=')[1]);
   assert.match(message, /Jane Doe/);
   assert.match(message, new RegExp(invoice.invoiceNumber));
-  assert.match(message, /Invoice Amount: 144\.00/);
+  assert.match(message, /Invoice Total: 144\.00/);
   assert.match(message, /Previous Balance: 0\.00/);
   assert.match(message, /Paid Amount: 0\.00/);
   assert.match(message, /Current Balance: 144\.00/);
   assert.equal(share.body.message, message);
+});
+
+test('normalizes a Pakistani local WhatsApp number (leading 0) to international format', async () => {
+  const agent = await registeredOwner('WhatsApp Pakistan Co');
+  const customerId = await createCustomer(agent, { name: 'Local Number Customer', whatsapp: '03001234567' });
+  const categoryId = await createCategory(agent);
+  const invoice = await createInvoice(agent, customerId, categoryId);
+
+  const share = await agent.get(`/api/invoices/${invoice.id}/whatsapp-share`);
+  assert.equal(share.status, 200);
+  assert.equal(share.body.toPhone, '923001234567');
+  assert.ok(share.body.url.startsWith('https://wa.me/923001234567?text='));
+});
+
+test('an already-international Pakistani number (with or without +) normalizes to the same result', async () => {
+  const agent = await registeredOwner('WhatsApp Intl Co');
+  const categoryId = await createCategory(agent);
+
+  const withPlus = await createCustomer(agent, { name: 'With Plus', whatsapp: '+923001234567' });
+  const withoutPlus = await createCustomer(agent, { name: 'Without Plus', whatsapp: '923001234567' });
+
+  const invoiceWithPlus = await createInvoice(agent, withPlus, categoryId);
+  const invoiceWithoutPlus = await createInvoice(agent, withoutPlus, categoryId);
+
+  const shareWithPlus = await agent.get(`/api/invoices/${invoiceWithPlus.id}/whatsapp-share`);
+  const shareWithoutPlus = await agent.get(`/api/invoices/${invoiceWithoutPlus.id}/whatsapp-share`);
+
+  assert.equal(shareWithPlus.body.toPhone, '923001234567');
+  assert.equal(shareWithoutPlus.body.toPhone, '923001234567');
 });
 
 test('reflects previous balance and amount paid for a second invoice after a payment', async () => {
@@ -113,7 +143,31 @@ test('rejects sharing when the customer has no saved WhatsApp number', async () 
 
   const share = await agent.get(`/api/invoices/${invoice.id}/whatsapp-share`);
   assert.equal(share.status, 400);
-  assert.equal(share.body.details.whatsapp, 'Customer has no WhatsApp number saved');
+  assert.equal(share.body.details.whatsapp, 'Customer WhatsApp number is missing or invalid.');
+});
+
+test('rejects sharing when the customer\'s saved WhatsApp number is invalid (too short/junk)', async () => {
+  const agent = await registeredOwner('WhatsApp Invalid Co');
+  const customerId = await createCustomer(agent, { name: 'Bad Number Customer', whatsapp: '123' });
+  const categoryId = await createCategory(agent);
+  const invoice = await createInvoice(agent, customerId, categoryId);
+
+  const share = await agent.get(`/api/invoices/${invoice.id}/whatsapp-share`);
+  assert.equal(share.status, 400);
+  assert.equal(share.body.details.whatsapp, 'Customer WhatsApp number is missing or invalid.');
+});
+
+test('never puts a localhost PDF link in the WhatsApp message (no PUBLIC_BASE_URL configured in this env)', async () => {
+  const agent = await registeredOwner('WhatsApp No Public URL Co');
+  const customerId = await createCustomer(agent, { name: 'No Public URL Customer', whatsapp: '9876543210' });
+  const categoryId = await createCategory(agent);
+  const invoice = await createInvoice(agent, customerId, categoryId);
+
+  const share = await agent.get(`/api/invoices/${invoice.id}/whatsapp-share`);
+  assert.equal(share.status, 200);
+  const message = decodeURIComponent(share.body.url.split('?text=')[1]);
+  assert.ok(!message.includes('PDF invoice:'), 'no PDF link line when no public base URL is configured');
+  assert.ok(!message.includes('localhost'), 'never a localhost URL in a customer-facing message');
 });
 
 test('WhatsApp sharing is tenant isolated', async () => {

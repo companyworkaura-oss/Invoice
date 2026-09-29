@@ -803,6 +803,72 @@ ever regresses, check that the failure is really in one of the six
 layers listed above and not stale `apps/web/dist`/`apps/api/dist` build
 output — `npm run build` before checking again.
 
+## WhatsApp Sharing
+
+"Share via WhatsApp" opened WhatsApp but the recipient/message were
+often wrong and the PDF was never attached. Root causes and the fix:
+
+- **Phone normalization never converted a Pakistani local number.**
+  `normalizeWhatsAppPhone` (packages/shared/src/whatsapp.ts) only
+  stripped non-digit characters — a saved number like `"03001234567"`
+  stayed `"03001234567"` (still leading `0`, not a valid international
+  number), so the wa.me link resolved to the wrong (or no) recipient.
+  Fixed: after stripping to digits, a number matching `/^0\d{10}$/`
+  (exactly 11 digits, leading 0 — the shape of a Pakistani mobile
+  number) has that leading 0 swapped for the country code `92`. Any
+  other digit string (already-international, or some other country's
+  local format — e.g. the existing 10-digit-no-leading-zero test case)
+  passes through unchanged: there's no reliable way to guess a country
+  code otherwise, and guessing wrong silently messages the wrong person.
+  New `isValidWhatsAppPhone` (`/^\d{8,15}$/` on the normalized result)
+  is checked before ever building a link — a missing or junk number now
+  throws **exactly** `"Customer WhatsApp number is missing or
+  invalid."` (both the empty-string and the too-short/junk case use
+  this one message) instead of silently opening a blank/broken
+  WhatsApp window.
+- **The frontend never attached the PDF.** A wa.me/click-to-chat link
+  can prefill a recipient and message text but can never attach a
+  local/generated file — that's a hard platform limitation, not a bug
+  to work around. `InvoiceTemplateView.tsx`'s `handleShare` used to
+  just open the link with nothing else; it now downloads the invoice
+  PDF first (same `downloadPdf` helper the Download button uses), only
+  *then* opens WhatsApp, and shows: *"Invoice PDF has been downloaded.
+  Attach the downloaded PDF in WhatsApp before sending."* If the PDF
+  download itself fails, WhatsApp is **not** opened automatically — an
+  error shows with an explicit "Send text only (without PDF)" link,
+  the one escape hatch to text-only sharing, rather than the app
+  silently choosing that for the user.
+- **Optional WhatsApp Business Cloud API**, prepared but off by
+  default: `lib/whatsapp/business-cloud-api-whatsapp-service.ts`
+  uploads the PDF to Meta's Graph API media endpoint, then sends it as
+  a `document` message directly to the customer — filename = the
+  downloaded PDF's own `{invoiceNumber}-{customerName}.pdf` convention,
+  caption = the invoice number. Activates only when
+  `WHATSAPP_PHONE_NUMBER_ID` and `WHATSAPP_ACCESS_TOKEN` are both set
+  (`WHATSAPP_API_VERSION` defaults to `v21.0`) — see
+  `lib/whatsapp/index.ts`'s `getWhatsAppService()`. Never throws: a
+  failed send comes back as `{ mode: 'business-api', status: 'failed',
+  error }`, and **every** payload (both modes) always also carries a
+  click-to-chat `url` as a manual fallback, so the frontend has
+  something actionable even when the automatic send fails.
+- **`WhatsAppSharePayload.toPhone` is now the normalized number**, not
+  whatever raw string the customer's `whatsapp` field held — this
+  changed what the API returns (a customer test that asserted the raw
+  input echoed back needed updating).
+- **No localhost links in the message, ever.** A PDF link line
+  (`PDF invoice: <url>`) is only added to the WhatsApp message text
+  when `PUBLIC_BASE_URL` is configured *and* isn't a `localhost`/
+  `127.0.0.1` address (`buildPublicPdfUrl` in
+  whatsapp-share.service.ts, exported specifically so this can be unit
+  tested without touching real env vars) — otherwise the line is
+  omitted entirely, never rendered with a broken/unusable link. A
+  phone can never open `http://localhost:4000/...`.
+- **Message wording** changed to `"Assalam-o-Alaikum {customer},\nYour
+  invoice {number} from {company} is ready.\n\n..."` (was `"Hi
+  {customer}, Here is your invoice..."`) — `"Invoice Amount:"` became
+  `"Invoice Total:"` to match the requested wording; Previous
+  Balance/Paid Amount/Current Balance lines are unchanged.
+
 ## Known gotchas / things to check before starting work
 
 - **Postgres cluster is often stopped** when a session starts:
@@ -943,6 +1009,13 @@ output — `npm run build` before checking again.
     engine, never one invoice-wide value; `invoices.quantity` is now
     unused (column kept, defaulted, never read/written/displayed) — see
     "Per-Item Quantity" below
+25. WhatsApp Sharing Fixed: root cause was `normalizeWhatsAppPhone`
+    never converting a Pakistani local number ("03001234567") to
+    international format, and the frontend never downloading the PDF
+    before opening WhatsApp; also added an optional WhatsApp Business
+    Cloud API integration (sends the PDF as a real document message)
+    that click-to-chat falls back to when unconfigured — see "WhatsApp
+    Sharing" below
 
 Repo also went through a monorepo restructure (`server/` → `apps/api` +
 new `apps/web` + `packages/shared`) between Phase 1 and Phase 2.
