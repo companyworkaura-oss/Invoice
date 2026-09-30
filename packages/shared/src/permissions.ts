@@ -18,6 +18,7 @@ export const PERMISSIONS = [
   'customer.edit',
   'payment.view',
   'payment.create',
+  'payment.delete',
   'formula.view',
   'formula.manage',
   'company.manage',
@@ -57,7 +58,9 @@ export type Permission = (typeof PERMISSIONS)[number];
  * whichever future phase adds one) — invoice.archive/invoice.delete
  * (Phase 21) join that same owner/admin-only tier for the same reason:
  * hiding or permanently removing an invoice is a bigger call than
- * creating one.
+ * creating one. payment.delete joins it too: reversing a recorded
+ * payment (and the ledger credit/balances it affects) is a correction,
+ * not day-to-day data entry.
  */
 export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
   owner: PERMISSIONS,

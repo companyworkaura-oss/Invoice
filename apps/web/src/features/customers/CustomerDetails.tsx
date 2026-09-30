@@ -1,4 +1,4 @@
-import type { Customer } from '@invoice/shared';
+import type { Customer, Permission } from '@invoice/shared';
 import { useState } from 'react';
 import { ApiError } from '../../lib/api';
 import { CustomerLedgerPanel } from '../ledger/CustomerLedgerPanel';
@@ -10,6 +10,7 @@ interface Props {
   onEdit: () => void;
   onArchived: (customer: Customer) => void;
   onViewStatement: () => void;
+  permissions: Permission[];
 }
 
 const ROW: [string, keyof Customer][] = [
@@ -21,7 +22,7 @@ const ROW: [string, keyof Customer][] = [
   ['Notes', 'notes'],
 ];
 
-export function CustomerDetails({ customer, onBack, onEdit, onArchived, onViewStatement }: Props) {
+export function CustomerDetails({ customer, onBack, onEdit, onArchived, onViewStatement, permissions }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [archiving, setArchiving] = useState(false);
 
@@ -117,7 +118,7 @@ export function CustomerDetails({ customer, onBack, onEdit, onArchived, onViewSt
         )}
       </div>
 
-      <CustomerLedgerPanel customerId={customer.id} />
+      <CustomerLedgerPanel customerId={customer.id} permissions={permissions} />
     </div>
   );
 }

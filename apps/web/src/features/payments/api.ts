@@ -25,3 +25,6 @@ export const createPayment = (input: PaymentInput) => api<Payment>('/payments', 
   method: 'POST',
   body: JSON.stringify(input),
 });
+
+export const deletePayment = (id: string) =>
+  api<{ deleted: true; id: string }>(`/payments/${id}`, { method: 'DELETE' });

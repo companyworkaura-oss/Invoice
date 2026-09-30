@@ -922,6 +922,76 @@ and nothing downstream ever checked the buffer before sending it.
   recurrence now always means "look at the server log for this
   request," never "guess why the download UI complained."
 
+## Delete Payment Safely
+
+There was no way to remove a recorded payment — a data-entry mistake
+(wrong amount, wrong customer, duplicate) stuck permanently. Added a
+safe delete that reverses the payment's accounting effect, not just the
+row, in one transaction.
+
+- **`apps/api/src/modules/payments/payment.service.ts`** — new
+  `deletePayment(companyId, userId, paymentId)`. `FOR UPDATE` on the
+  `payments` row does triple duty: locks against a doubled click,
+  enforces tenant isolation, and doubles as the existence check (missing
+  or foreign id → `notFound`, i.e. a 404). Inside the same transaction:
+  deletes the payment's own `ledger_entries` row (scoped tightly by
+  `type = 'PAYMENT' AND reference_id = paymentId`, so an INVOICE or
+  ADJUSTMENT entry is never touched even by accident), deletes the
+  `payments` row, then posts a `PAYMENT_DELETED` audit entry with a
+  snapshot (customerId, amount, date, paymentMethod, reference, notes)
+  captured before the delete. This mirrors `invoice.service.ts`'s
+  `deleteInvoice` precedent exactly — a tightly-scoped hard delete, not
+  a reversal ledger entry, since that's this codebase's own established
+  pattern for lifecycle deletions (despite `ledger.service.ts`'s own
+  "insert-only" comment, which only describes its own exported
+  functions).
+- **Nothing else had to change to make invoice/customer figures
+  correct.** Payments have no `invoice_id` column — every invoice's
+  paid/balance/paymentStatus is always FIFO-derived live from the whole
+  ledger on read (Phase 15), and every customer balance is always
+  computed live too (Phase 8). Deleting the ledger credit is the entire
+  reversal; the next read of any affected invoice or statement
+  recalculates correctly with no separate recompute step.
+- **`DELETE /api/payments/:paymentId`** (`payment.routes.ts`), gated by
+  a new `payment.delete` permission — owner/admin only by omission from
+  `ROLE_PERMISSIONS.staff`, same tier as `invoice.archive`/
+  `invoice.delete` (reversing a recorded payment is a correction, not
+  day-to-day data entry). Returns `{ deleted: true, id }`, not a bare
+  204, matching `deleteInvoice`'s response shape.
+- **No locked/closed accounting period concept exists anywhere in this
+  schema** (confirmed by inspection) — so there's nothing to gate on
+  beyond tenant isolation + the permission check above.
+- **Frontend**: a permission-gated Delete action (`permissions.includes
+  ('payment.delete')`) in both the main Payments list
+  (`PaymentsPage.tsx`) and the customer-embedded ledger panel
+  (`CustomerLedgerPanel.tsx`, on PAYMENT-type rows only, keyed off
+  `entry.referenceId`), each with the exact confirm text: "Delete this
+  payment? The related ledger entry and balances will be updated. This
+  action cannot be undone." `permissions` is now threaded all the way
+  through `App.tsx` → `CustomersPage.tsx` → `CustomerDetails.tsx` →
+  `CustomerLedgerPanel.tsx` (previously none of these three received it,
+  unlike `InvoicesPage`) and `App.tsx` → `PaymentsPage.tsx` directly.
+- **Tests** (`apps/api/test/payment-delete.test.ts`): normal delete;
+  ledger-entry scoping (only the deleted payment's credit is removed,
+  siblings untouched); customer balance updates immediately; a payment
+  that fully paid an invoice reverting PAID → UNPAID; a partial-payment
+  case (deleting one of two payments keeps PARTIAL with the right
+  amountPaid/currentBalance, deleting the last one reaches UNPAID);
+  tenant isolation (cross-company delete → 404, no effect on the
+  victim's data); permissions (staff 403, admin 200); audit log
+  (PAYMENT_DELETED with full snapshot metadata); deleting a nonexistent
+  payment (404); auth required. `paymentStatus` isn't on the invoice
+  detail response (`GET /api/invoices/:id` returns `InvoiceWithItems`,
+  which has `amountPaid`/`currentBalance` but not `paymentStatus`) — the
+  tests read it from the list endpoint (`GET /api/invoices`) instead,
+  which does include it per invoice row (Phase 15).
+- Also updated `packages/shared/test/permissions.test.ts` and
+  `apps/api/test/permissions.test.ts`'s hardcoded exhaustive
+  permission-list/count assertions for the new `payment.delete` entry —
+  the same `TS2739`-style "extend the array, must also update every
+  place that assumes its exact contents" trap as `AUDIT_ACTIONS`, just
+  as a runtime assertion instead of a type error.
+
 ## Known gotchas / things to check before starting work
 
 - **Postgres cluster is often stopped** when a session starts:
@@ -1076,6 +1146,14 @@ and nothing downstream ever checked the buffer before sending it.
     `/dev/shm`) and a hard non-empty-plus-`%PDF-`-magic check before
     ever returning — a silent empty buffer now becomes a loud, logged
     500 instead of a fake 200 — see "PDF Generation Hardening" below
+27. Delete Payment Safely: new `DELETE /api/payments/:paymentId`,
+    `payment.delete` permission (owner/admin only), one transaction
+    that removes the payment's own `PAYMENT`-type ledger credit and the
+    payment row and posts a `PAYMENT_DELETED` audit entry — no separate
+    invoice/customer recompute needed since both are always FIFO/ledger
+    -derived live on read; permission-gated Delete action added to the
+    Payments list and the customer ledger panel — see "Delete Payment
+    Safely" below
 
 Repo also went through a monorepo restructure (`server/` → `apps/api` +
 new `apps/web` + `packages/shared`) between Phase 1 and Phase 2.

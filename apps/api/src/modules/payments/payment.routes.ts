@@ -49,3 +49,9 @@ paymentsRouter.get('/:paymentId', requirePermission('payment.view'), async (req,
   const paymentId = requireUuidParam(req.params.paymentId, 'paymentId');
   res.json(await service.getPayment(auth(req).companyId, paymentId));
 });
+
+paymentsRouter.delete('/:paymentId', requirePermission('payment.delete'), async (req, res) => {
+  const paymentId = requireUuidParam(req.params.paymentId, 'paymentId');
+  await service.deletePayment(auth(req).companyId, auth(req).userId, paymentId);
+  res.status(200).json({ deleted: true, id: paymentId });
+});

@@ -1,4 +1,4 @@
-import type { Customer } from '@invoice/shared';
+import type { Customer, Permission } from '@invoice/shared';
 import { useState } from 'react';
 import { CustomerStatementView } from '../ledger/CustomerStatementView';
 import { CustomerDetails } from './CustomerDetails';
@@ -11,7 +11,11 @@ type View =
   | { name: 'form'; customer?: Customer }
   | { name: 'statement'; customer: Customer };
 
-export function CustomersPage() {
+interface Props {
+  permissions: Permission[];
+}
+
+export function CustomersPage({ permissions }: Props) {
   const [view, setView] = useState<View>({ name: 'list' });
   const [refreshToken, setRefreshToken] = useState(0);
 
@@ -49,6 +53,7 @@ export function CustomersPage() {
             onEdit={() => setView({ name: 'form', customer: view.customer })}
             onArchived={(customer) => setView({ name: 'details', customer })}
             onViewStatement={() => setView({ name: 'statement', customer: view.customer })}
+            permissions={permissions}
           />
         )}
 

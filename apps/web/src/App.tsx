@@ -138,7 +138,7 @@ function App() {
 
         {tab === 'customers' && (
           <div className="mt-4 print:mt-0">
-            <CustomersPage key={me.company.id} />
+            <CustomersPage key={me.company.id} permissions={me.permissions} />
           </div>
         )}
 
@@ -156,7 +156,7 @@ function App() {
 
         {tab === 'payments' && (
           <div className="mt-4 print:mt-0">
-            <PaymentsPage key={me.company.id} />
+            <PaymentsPage key={me.company.id} permissions={me.permissions} />
           </div>
         )}
 

@@ -12,6 +12,7 @@ const ACTION_LABEL: Record<AuditAction, string> = {
   INVOICE_DELETED: 'Invoice deleted',
   PAYMENT_CREATED: 'Payment created',
   PAYMENT_EDITED: 'Payment edited',
+  PAYMENT_DELETED: 'Payment deleted',
   FORMULA_CHANGED: 'Formula changed',
   RATE_CHANGED: 'Rate changed',
   COMPANY_SETTINGS_CHANGED: 'Company settings changed',
