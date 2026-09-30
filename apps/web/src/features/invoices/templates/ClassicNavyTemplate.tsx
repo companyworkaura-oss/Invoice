@@ -36,6 +36,7 @@ export function ClassicNavyTemplate({ invoice }: { invoice: InvoiceViewModel }) 
             <th className="py-2">Description</th>
             <th className="py-2 text-right">Quantity</th>
             <th className="py-2 text-right">Stitches</th>
+            <th className="py-2 text-right">Unit Amount</th>
             <th className="py-2 text-right">Amount</th>
           </tr>
         </thead>
@@ -45,6 +46,7 @@ export function ClassicNavyTemplate({ invoice }: { invoice: InvoiceViewModel }) 
               <td className="py-2">{item.description}</td>
               <td className="py-2 text-right">{item.quantity}</td>
               <td className="py-2 text-right">{item.stitches}</td>
+              <td className="py-2 text-right">{item.unitAmount}</td>
               <td className="py-2 text-right">{item.amount}</td>
             </tr>
           ))}

@@ -992,6 +992,47 @@ row, in one transaction.
   place that assumes its exact contents" trap as `AUDIT_ACTIONS`, just
   as a runtime assertion instead of a type error.
 
+## Unit Amount Column
+
+Added a "Unit Amount" column (price of a single piece) to every
+customer-facing invoice table, between Stitches and Amount:
+Description | Quantity | Stitches | Unit Amount | Amount.
+
+- **`packages/shared/src/invoice-view-model.ts`** — `InvoiceViewModel`'s
+  `items[]` gained `unitAmount: string`. It's populated from the
+  already-saved `invoice_items.calculated_unit_amount` column — the
+  formula engine's raw per-unit result, computed and rounded *before*
+  being multiplied by quantity to produce `calculatedTotal` (see
+  `invoice.service.ts`'s `createInvoiceItem`). So this is not a new
+  calculation path: the formula engine, the saved `calculatedTotal`/
+  ledger debit, and every existing invoice total are all untouched.
+  `unitAmount(item)` just formats that existing value with `roundMoney`,
+  with a division (`total / quantity`, itself zero-guarded) as a
+  fallback only for a row where the saved value is somehow missing or
+  invalid — never the primary path, since dividing back out a value
+  that was already computed would just risk a rounding mismatch against
+  the saved figure.
+- This is still never the internal `rate` (a formula *input*, e.g.
+  per-1000-stitches) — `InvoiceViewModel` never carried `rate` before
+  this change and still doesn't; "don't show calculation internals on
+  the customer invoice" stays enforced by the data shape, same as
+  formula/factor/multiplier/divisor already were.
+- **All 5 templates** (`apps/web/src/features/invoices/templates/*.tsx`)
+  gained the column in the same position. These are what both the
+  on-screen invoice preview and the browser Print (`window.print()` on
+  the same DOM — there's no separate print-specific template) render.
+- **`apps/api/src/modules/invoices/pdf/render-html.ts`** — the one
+  shared HTML layout behind both Download PDF and the WhatsApp-shared
+  PDF (themed per template by `PDF_THEMES`, not five separate HTML
+  layouts) gained the same column, in the same position.
+- **Tests**: `packages/shared/test/invoice-view-model.test.ts` covers
+  reading the saved `calculatedUnitAmount` through unchanged, the
+  division fallback for a row missing it, and the zero-quantity safe
+  fallback to "0.00". `apps/api/test/invoice-pdf-html.test.ts` covers
+  the PDF HTML's column order and value. Verified live in a browser
+  across all 5 templates (preview + the template switcher) and all 5
+  themed PDF downloads (valid, non-empty, correct `%PDF-` output).
+
 ## Known gotchas / things to check before starting work
 
 - **Postgres cluster is often stopped** when a session starts:
@@ -1154,6 +1195,12 @@ row, in one transaction.
     -derived live on read; permission-gated Delete action added to the
     Payments list and the customer ledger panel — see "Delete Payment
     Safely" below
+28. Unit Amount Column: added a "Unit Amount" (price of one piece)
+    column to all 5 invoice templates, the PDF layout, and print —
+    sourced from the already-saved `calculatedUnitAmount` snapshot
+    (the formula engine's per-unit result, saved before multiplying by
+    quantity), not a new calculation; internal `rate` stays hidden —
+    see "Unit Amount Column" below
 
 Repo also went through a monorepo restructure (`server/` → `apps/api` +
 new `apps/web` + `packages/shared`) between Phase 1 and Phase 2.

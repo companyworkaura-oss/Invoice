@@ -42,6 +42,7 @@ export function PremiumModernTemplate({ invoice }: { invoice: InvoiceViewModel }
               <th className="pb-2 font-medium">Description</th>
               <th className="pb-2 text-right font-medium">Quantity</th>
               <th className="pb-2 text-right font-medium">Stitches</th>
+              <th className="pb-2 text-right font-medium">Unit Amount</th>
               <th className="pb-2 text-right font-medium">Amount</th>
             </tr>
           </thead>
@@ -51,6 +52,7 @@ export function PremiumModernTemplate({ invoice }: { invoice: InvoiceViewModel }
                 <td className="py-2.5">{item.description}</td>
                 <td className="py-2.5 text-right">{item.quantity}</td>
                 <td className="py-2.5 text-right">{item.stitches}</td>
+                <td className="py-2.5 text-right">{item.unitAmount}</td>
                 <td className="py-2.5 text-right">{item.amount}</td>
               </tr>
             ))}

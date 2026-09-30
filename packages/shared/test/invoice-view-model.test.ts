@@ -87,3 +87,59 @@ test('buildInvoiceViewModel maps a null lot number as null, not an empty string'
   const viewModel = buildInvoiceViewModel(baseInvoice({ lotNumber: null }), company, customer);
   assert.equal(viewModel.lotNumber, null);
 });
+
+test('buildInvoiceViewModel maps the saved calculatedUnitAmount as unitAmount, not a re-derived value', () => {
+  const viewModel = buildInvoiceViewModel(baseInvoice(), company, customer);
+  assert.equal(viewModel.items[0].unitAmount, '14.40'); // the item's saved calculatedUnitAmount
+  assert.equal(viewModel.items[0].amount, '144.00'); // unchanged: still the saved calculatedTotal
+});
+
+test('buildInvoiceViewModel falls back to total/quantity, safely, when calculatedUnitAmount is missing', () => {
+  const invoice = baseInvoice({
+    items: [
+      {
+        id: 'item-1',
+        invoiceId: 'invoice-1',
+        categoryId: 'category-1',
+        categoryName: 'HS/HP',
+        description: null,
+        stitches: 12000,
+        quantity: '10.00',
+        rate: '1.20',
+        formulaType: 'expression',
+        formulaConfig: { expression: 'stitches / 1000 * rate' },
+        calculationInputs: { stitches: 12000, rate: '1.20', quantity: '10.00' },
+        calculatedUnitAmount: '' as never, // simulate a legacy/invalid row
+        calculatedTotal: '144.00',
+        createdAt: '2026-01-15T00:00:00.000Z',
+      },
+    ],
+  });
+  const viewModel = buildInvoiceViewModel(invoice, company, customer);
+  assert.equal(viewModel.items[0].unitAmount, '14.40'); // 144.00 / 10 — same derived answer here
+});
+
+test('buildInvoiceViewModel never divides by zero — falls back to "0.00" for a zero/missing quantity with no saved unit amount', () => {
+  const invoice = baseInvoice({
+    items: [
+      {
+        id: 'item-1',
+        invoiceId: 'invoice-1',
+        categoryId: 'category-1',
+        categoryName: 'HS/HP',
+        description: null,
+        stitches: 12000,
+        quantity: '0',
+        rate: '1.20',
+        formulaType: 'expression',
+        formulaConfig: { expression: 'stitches / 1000 * rate' },
+        calculationInputs: { stitches: 12000, rate: '1.20', quantity: '0' },
+        calculatedUnitAmount: '' as never,
+        calculatedTotal: '0.00',
+        createdAt: '2026-01-15T00:00:00.000Z',
+      },
+    ],
+  });
+  const viewModel = buildInvoiceViewModel(invoice, company, customer);
+  assert.equal(viewModel.items[0].unitAmount, '0.00');
+});

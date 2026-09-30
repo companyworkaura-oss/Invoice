@@ -30,7 +30,14 @@ const viewModel: InvoiceViewModel = {
   invoiceDate: '2026-01-15',
   lotNumber: 'LOT-001',
   items: [
-    { id: 'item-1', description: 'HS/HP embroidery', quantity: '10.00', stitches: 12000, amount: '144.00' },
+    {
+      id: 'item-1',
+      description: 'HS/HP embroidery',
+      quantity: '10.00',
+      stitches: 12000,
+      unitAmount: '14.40',
+      amount: '144.00',
+    },
   ],
   subtotal: '144.00',
   discountType: null,
@@ -91,6 +98,19 @@ test('renders each item row with its own quantity, next to Description', () => {
   const stitchesIdx = html.indexOf('<th class="num">Stitches</th>');
   assert.ok(quantityIdx > 0 && quantityIdx < stitchesIdx, 'Quantity column must precede Stitches');
   assert.match(html, /<td class="num">10\.00<\/td>/); // this item's own quantity
+});
+
+test('renders a Unit Amount column between Stitches and Amount, with the per-piece price', () => {
+  const html = renderInvoiceHtml(getPdfTheme('classic-navy'), viewModel, null);
+  assert.match(html, /<th class="num">Unit Amount<\/th>/);
+  const stitchesIdx = html.indexOf('<th class="num">Stitches</th>');
+  const unitAmountIdx = html.indexOf('<th class="num">Unit Amount</th>');
+  const amountIdx = html.indexOf('<th class="num">Amount</th>');
+  assert.ok(
+    stitchesIdx > 0 && stitchesIdx < unitAmountIdx && unitAmountIdx < amountIdx,
+    'column order must be Description, Quantity, Stitches, Unit Amount, Amount',
+  );
+  assert.match(html, /<td class="num">14\.40<\/td>/); // this item's per-piece unit amount
 });
 
 test('shows a discount row only when a discount applies, and hides it entirely when zero', () => {

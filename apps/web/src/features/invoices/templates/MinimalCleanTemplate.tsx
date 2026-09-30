@@ -39,6 +39,7 @@ export function MinimalCleanTemplate({ invoice }: { invoice: InvoiceViewModel })
             <th className="pb-2 font-normal">Description</th>
             <th className="pb-2 text-right font-normal">Quantity</th>
             <th className="pb-2 text-right font-normal">Stitches</th>
+            <th className="pb-2 text-right font-normal">Unit Amount</th>
             <th className="pb-2 text-right font-normal">Amount</th>
           </tr>
         </thead>
@@ -48,6 +49,7 @@ export function MinimalCleanTemplate({ invoice }: { invoice: InvoiceViewModel })
               <td className="py-2">{item.description}</td>
               <td className="py-2 text-right font-mono">{item.quantity}</td>
               <td className="py-2 text-right font-mono">{item.stitches}</td>
+              <td className="py-2 text-right font-mono">{item.unitAmount}</td>
               <td className="py-2 text-right font-mono">{item.amount}</td>
             </tr>
           ))}

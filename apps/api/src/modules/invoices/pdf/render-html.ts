@@ -34,6 +34,7 @@ export function renderInvoiceHtml(theme: PdfTheme, invoice: InvoiceViewModel, lo
         <td>${escapeHtml(item.description)}</td>
         <td class="num">${escapeHtml(item.quantity)}</td>
         <td class="num">${item.stitches}</td>
+        <td class="num">${escapeHtml(item.unitAmount)}</td>
         <td class="num">${escapeHtml(item.amount)}</td>
       </tr>`,
     )
@@ -126,6 +127,7 @@ export function renderInvoiceHtml(theme: PdfTheme, invoice: InvoiceViewModel, lo
             <th>Description</th>
             <th class="num">Quantity</th>
             <th class="num">Stitches</th>
+            <th class="num">Unit Amount</th>
             <th class="num">Amount</th>
           </tr>
         </thead>
