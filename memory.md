@@ -1033,6 +1033,60 @@ Description | Quantity | Stitches | Unit Amount | Amount.
   across all 5 templates (preview + the template switcher) and all 5
   themed PDF downloads (valid, non-empty, correct `%PDF-` output).
 
+## Quick Invoice
+
+A second, faster entry point for creating an invoice — never a second
+invoice system. "+ Quick Invoice" now sits next to the unchanged "+ New
+invoice" button on the Invoices page; both end up calling the exact
+same `POST /api/invoices`.
+
+- **`apps/web/src/features/invoices/QuickInvoiceForm.tsx`** (new) — a
+  condensed, mobile-first form: Customer, Lot Number, Paid/Unpaid +
+  Payment Method (cash/bank), a card per item (Category, Quantity,
+  Stitches + an "Avg" stitch-count helper, live Unit Amount/Line
+  Amount), Discount, Notes, then Subtotal/Discount/Grand Total. On
+  submit it calls `invoicesApi.createInvoice(...)` — the identical call
+  `CreateInvoiceForm` makes, same formula engine, same ledger debit,
+  same invoice numbering, no rate override (always the category's
+  default rate, since Quick Invoice deliberately has no Rate field).
+  If "Paid" is checked, it then calls `paymentsApi.createPayment(...)`
+  for the invoice's own grand total — the exact same call the Payments
+  page and customer ledger panel make, never a separate "quick invoice
+  payment" path. There is no new backend code, no new table, no new
+  calculation: this file is UI-only, orchestrating two existing API
+  calls.
+- **Avg Stitch helper**: a from-scratch small addition, not a restore of
+  an existing feature — a repo-wide search turned up no prior "average
+  stitch" UI, formula variable, or memory.md entry despite it being
+  listed among things to preserve in several task specs. Implemented as
+  a small inline per-row panel (Total Stitches, Total Pieces → Apply)
+  that only ever writes `Math.round(total / pieces)` into that row's
+  existing Stitches field — never a separate calculated value, never
+  sent to the server on its own.
+- **Stale-data fix**: `invoicesApi.createInvoice`'s response has
+  `amountPaid`/`currentBalance` computed *before* the "Paid" follow-up
+  payment exists. After posting that payment, `QuickInvoiceForm`
+  refetches the invoice (`invoicesApi.getInvoice`) so the template view
+  that opens next — and anything printed/downloaded from it — shows the
+  real, ledger-derived figures instead of a stale "Amount Paid: 0.00".
+- **After save**: `InvoicesPage.tsx` routes straight into the existing
+  `{ name: 'template' }` view (the same `InvoiceTemplateView` a normal
+  invoice's row actions open) — Print/Download PDF/Share via WhatsApp
+  are the same three buttons/actions already built there, not
+  reimplemented. "Back" returns to the invoice list with the usual
+  refresh, where the new invoice appears like any other.
+- **`apps/web/src/features/invoices/preview.ts`** — `ItemPreview` gained
+  a `unitAmount` field (the formula's per-unit result, before quantity)
+  alongside the existing `amount`, since Quick Invoice's cards need to
+  show both; `CreateInvoiceForm` ignores the new field and is otherwise
+  untouched.
+- **`apps/web/src/features/invoices/InvoicesPage.tsx`** — added the
+  `'quick-form'` view branch and the new button; every existing view
+  branch (list/details/template/form/edit) is unchanged.
+- No backend files changed at all for this feature — every accounting
+  rule (formula engine, ledger, FIFO payment allocation, discount,
+  invoice numbering) is exercised exactly as it already was.
+
 ## Known gotchas / things to check before starting work
 
 - **Postgres cluster is often stopped** when a session starts:
@@ -1201,6 +1255,14 @@ Description | Quantity | Stitches | Unit Amount | Amount.
     (the formula engine's per-unit result, saved before multiplying by
     quantity), not a new calculation; internal `rate` stays hidden —
     see "Unit Amount Column" below
+29. Quick Invoice: a second, faster "+ Quick Invoice" entry point next
+    to the unchanged "+ New invoice" button — a condensed frontend-only
+    form (`QuickInvoiceForm.tsx`) that calls the exact same
+    createInvoice/createPayment APIs as the normal flow, no new backend
+    code; includes a from-scratch "Avg Stitch" per-item helper (no
+    prior version of this existed in the codebase despite being listed
+    as something to preserve) that only fills the existing Stitches
+    field — see "Quick Invoice" below
 
 Repo also went through a monorepo restructure (`server/` → `apps/api` +
 new `apps/web` + `packages/shared`) between Phase 1 and Phase 2.

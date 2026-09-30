@@ -2,6 +2,8 @@ import type { EmbroideryCategory } from '@invoice/shared';
 import { Decimal, FormulaError, evaluateFormula, roundMoney } from '@invoice/shared';
 
 export interface ItemPreview {
+  /** The formula's raw per-unit result, before quantity — same value the server saves as calculatedUnitAmount. Null while it can't be computed yet. */
+  unitAmount: string | null;
   /** The line's total (per-unit amount × quantity), or null while it can't be computed yet. */
   amount: string | null;
   /** Only set for a real problem (e.g. a badly configured formula) — never for fields simply not filled in yet. */
@@ -21,17 +23,17 @@ export function previewItemAmount(
   rateOverride: string,
   quantity: string,
 ): ItemPreview {
-  if (!category) return { amount: null, error: null };
+  if (!category) return { unitAmount: null, amount: null, error: null };
 
   const expression = category.formulaConfig.expression;
   if (typeof expression !== 'string' || !expression.trim()) {
-    return { amount: null, error: 'This category has no formula set up yet' };
+    return { unitAmount: null, amount: null, error: 'This category has no formula set up yet' };
   }
 
   const stitchesNum = Number(stitches);
   const quantityNum = Number(quantity);
-  if (!stitches || !Number.isFinite(stitchesNum) || stitchesNum <= 0) return { amount: null, error: null };
-  if (!quantity || !Number.isFinite(quantityNum) || quantityNum <= 0) return { amount: null, error: null };
+  if (!stitches || !Number.isFinite(stitchesNum) || stitchesNum <= 0) return { unitAmount: null, amount: null, error: null };
+  if (!quantity || !Number.isFinite(quantityNum) || quantityNum <= 0) return { unitAmount: null, amount: null, error: null };
 
   const rate = rateOverride || category.defaultRate;
 
@@ -46,9 +48,9 @@ export function previewItemAmount(
 
   try {
     const unit = roundMoney(evaluateFormula(expression, { ...baseInputs, stitches: stitchesNum, rate, quantity }));
-    return { amount: roundMoney(new Decimal(unit).times(quantityNum)), error: null };
+    return { unitAmount: unit, amount: roundMoney(new Decimal(unit).times(quantityNum)), error: null };
   } catch (err) {
-    return { amount: null, error: err instanceof FormulaError ? err.message : 'Could not calculate' };
+    return { unitAmount: null, amount: null, error: err instanceof FormulaError ? err.message : 'Could not calculate' };
   }
 }
 

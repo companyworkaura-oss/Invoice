@@ -4,6 +4,7 @@ import { ApiError } from '../../lib/api';
 import { CreateInvoiceForm } from './CreateInvoiceForm';
 import { InvoiceDetails } from './InvoiceDetails';
 import { InvoiceList, type InvoiceRowAction } from './InvoiceList';
+import { QuickInvoiceForm } from './QuickInvoiceForm';
 import { InvoiceTemplateView } from './templates/InvoiceTemplateView';
 import * as invoicesApi from './api';
 
@@ -14,6 +15,7 @@ type View =
   | { name: 'details'; invoice: InvoiceWithItems }
   | { name: 'template'; invoice: InvoiceWithItems; initialAction?: TemplateInitialAction; returnTo: 'list' | 'details' }
   | { name: 'form' }
+  | { name: 'quick-form' }
   | { name: 'edit'; invoice: InvoiceWithItems };
 
 const ROW_ACTION_TO_INITIAL_ACTION: Record<InvoiceRowAction, TemplateInitialAction | undefined> = {
@@ -62,13 +64,22 @@ export function InvoicesPage({ permissions }: Props) {
       <div className="flex items-center justify-between print:hidden">
         <h2 className="text-sm font-semibold text-slate-900">Invoices</h2>
         {view.name === 'list' && (
-          <button
-            type="button"
-            onClick={() => setView({ name: 'form' })}
-            className="rounded-md border border-slate-300 px-3 py-1 text-sm text-slate-600 hover:bg-slate-50"
-          >
-            New invoice
-          </button>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => setView({ name: 'quick-form' })}
+              className="rounded-md border border-slate-300 px-3 py-1 text-sm text-slate-600 hover:bg-slate-50"
+            >
+              + Quick Invoice
+            </button>
+            <button
+              type="button"
+              onClick={() => setView({ name: 'form' })}
+              className="rounded-md border border-slate-300 px-3 py-1 text-sm text-slate-600 hover:bg-slate-50"
+            >
+              + New invoice
+            </button>
+          </div>
         )}
       </div>
 
@@ -118,6 +129,18 @@ export function InvoicesPage({ permissions }: Props) {
             onSaved={(invoice) => {
               setRefreshToken((t) => t + 1);
               setView({ name: 'details', invoice });
+            }}
+            onCancel={() => setView({ name: 'list' })}
+          />
+        )}
+
+        {view.name === 'quick-form' && (
+          <QuickInvoiceForm
+            onSaved={(invoice) => {
+              // Straight into the printable template — Print/Download
+              // PDF/Share via WhatsApp right away, the same component
+              // and actions a normal invoice's row buttons use.
+              setView({ name: 'template', invoice, returnTo: 'list' });
             }}
             onCancel={() => setView({ name: 'list' })}
           />
