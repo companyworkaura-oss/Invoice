@@ -5,6 +5,7 @@ import * as authApi from './features/auth/api';
 import { LoginForm } from './features/auth/LoginForm';
 import { RegisterForm } from './features/auth/RegisterForm';
 import { CompanySwitcher } from './features/companies/CompanySwitcher';
+import { CompanyDangerZone } from './features/company/CompanyDangerZone';
 import { CompanyProfilePanel } from './features/company/CompanyProfilePanel';
 import { CustomersPage } from './features/customers/CustomersPage';
 import { DashboardPage } from './features/dashboard/DashboardPage';
@@ -131,6 +132,13 @@ function App() {
               {showProfile ? 'Hide company profile' : 'Company profile'}
             </button>
             {showProfile && <CompanyProfilePanel key={me.company.id} permissions={me.permissions} />}
+
+            <CompanyDangerZone
+              key={me.company.id}
+              companyName={me.company.name}
+              permissions={me.permissions}
+              onCompanyChanged={refreshMe}
+            />
 
             <CompanySwitcher activeCompanyId={me.company.id} onSwitched={refreshMe} />
           </div>

@@ -3,9 +3,10 @@ import multer from 'multer';
 import { config } from '../../config.js';
 import { badRequest } from '../../lib/http-error.js';
 import { getLogoStorage } from '../../lib/storage/index.js';
-import { asBody, optionalEmail, optionalString } from '../../lib/validate.js';
+import { asBody, optionalEmail, optionalString, requireString } from '../../lib/validate.js';
 import { auth, requireAuth } from '../../middleware/auth.js';
 import { requirePermission } from '../../middleware/permissions.js';
+import * as lifecycle from './company-lifecycle.service.js';
 import * as service from './company.service.js';
 
 export const companyRouter = Router();
@@ -69,4 +70,18 @@ companyRouter.post('/logo', requirePermission('company.manage'), upload.single('
   if (previousUrl) await storage.delete(previousUrl).catch(() => undefined);
 
   res.status(201).json(company);
+});
+
+// Danger Zone — both act on the session's own active company, same
+// "no :companyId in the URL" convention as every other route above.
+companyRouter.patch('/deactivate', requirePermission('company.deactivate'), async (req, res) => {
+  const { companyId, userId, sessionId } = auth(req);
+  res.json(await lifecycle.deactivateCompany(companyId, userId, sessionId));
+});
+
+companyRouter.delete('/', requirePermission('company.delete'), async (req, res) => {
+  const body = asBody(req.body);
+  const confirmName = requireString(body, 'confirmName');
+  const { companyId, userId, sessionId } = auth(req);
+  res.json(await lifecycle.deleteCompanyPermanently(companyId, userId, sessionId, confirmName));
 });

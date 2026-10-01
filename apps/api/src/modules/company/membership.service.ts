@@ -1,5 +1,5 @@
 import { pool, withTransaction } from '../../db/pool.js';
-import { forbidden } from '../../lib/http-error.js';
+import { badRequest, forbidden } from '../../lib/http-error.js';
 import type { Role } from '../../middleware/auth.js';
 
 // Lightweight shape for cross-company listing/switching — the full profile
@@ -12,12 +12,19 @@ export interface CompanyMembership {
   role: Role;
 }
 
-const COLUMNS = 'c.id, c.name, c.default_currency AS "defaultCurrency", m.role';
+/** listMyCompanies also needs status (to show/offer-reactivate a deactivated company) — the active-tenant shapes above don't, since a session can never be pointing at a deactivated one. */
+export interface CompanyMembershipWithStatus extends CompanyMembership {
+  status: 'active' | 'deactivated';
+  deactivatedAt: string | null;
+}
 
-/** Every company the user belongs to, with their role in each. */
-export async function listMyCompanies(userId: string): Promise<CompanyMembership[]> {
-  const { rows } = await pool.query<CompanyMembership>(
-    `SELECT ${COLUMNS}
+const COLUMNS = 'c.id, c.name, c.default_currency AS "defaultCurrency", m.role';
+const COLUMNS_WITH_STATUS = `${COLUMNS}, c.status, c.deactivated_at AS "deactivatedAt"`;
+
+/** Every company the user belongs to, with their role in each — active and deactivated alike, so the switcher can still offer "Reactivate" on one it's hiding from the normal switch list. */
+export async function listMyCompanies(userId: string): Promise<CompanyMembershipWithStatus[]> {
+  const { rows } = await pool.query<CompanyMembershipWithStatus>(
+    `SELECT ${COLUMNS_WITH_STATUS}
        FROM company_members m
        JOIN companies c ON c.id = m.company_id
       WHERE m.user_id = $1
@@ -61,16 +68,20 @@ export async function switchCompany(
   sessionId: string,
   companyId: string,
 ): Promise<CompanyMembership> {
-  const { rows } = await pool.query<CompanyMembership>(
-    `SELECT ${COLUMNS}
+  const { rows } = await pool.query<CompanyMembershipWithStatus>(
+    `SELECT ${COLUMNS_WITH_STATUS}
        FROM company_members m
        JOIN companies c ON c.id = m.company_id
       WHERE m.user_id = $1 AND m.company_id = $2`,
     [userId, companyId],
   );
   if (!rows[0]) throw forbidden('Not a member of this company');
+  if (rows[0].status === 'deactivated') {
+    throw badRequest('Validation failed', { company: 'This company is deactivated. Reactivate it first.' });
+  }
   await setActiveCompany(pool, sessionId, userId, companyId);
-  return rows[0];
+  const { status: _status, deactivatedAt: _deactivatedAt, ...membership } = rows[0];
+  return membership;
 }
 
 async function setActiveCompany(

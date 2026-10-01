@@ -22,6 +22,8 @@ export const PERMISSIONS = [
   'formula.view',
   'formula.manage',
   'company.manage',
+  'company.deactivate',
+  'company.delete',
   'users.manage',
   'audit.view',
 ] as const;
@@ -61,10 +63,19 @@ export type Permission = (typeof PERMISSIONS)[number];
  * creating one. payment.delete joins it too: reversing a recorded
  * payment (and the ledger credit/balances it affects) is a correction,
  * not day-to-day data entry.
+ *
+ * company.deactivate (Phase 27) sits with ADMIN, same tier as
+ * company.manage — a reversible, data-preserving hide. company.delete
+ * does not: it is the one permission besides users.manage that ADMIN
+ * is explicitly filtered out of below, since permanently destroying a
+ * company's entire accounting history (every invoice, customer,
+ * ledger entry, and payment it owns) is irreversible in a way nothing
+ * else in this list is — reserved for OWNER alone, the same reasoning
+ * that keeps users.manage owner-only.
  */
 export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
   owner: PERMISSIONS,
-  admin: PERMISSIONS.filter((p) => p !== 'users.manage'),
+  admin: PERMISSIONS.filter((p) => p !== 'users.manage' && p !== 'company.delete'),
   staff: [
     'invoice.view',
     'invoice.create',

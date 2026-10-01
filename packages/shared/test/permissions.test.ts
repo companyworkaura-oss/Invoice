@@ -18,11 +18,13 @@ const EXPECTED_PERMISSIONS = [
   'formula.view',
   'formula.manage',
   'company.manage',
+  'company.deactivate',
+  'company.delete',
   'users.manage',
   'audit.view',
 ];
 
-test("PERMISSIONS contains exactly the Phase 17/18/21/22 permission list", () => {
+test("PERMISSIONS contains exactly the Phase 17/18/21/22/27 permission list", () => {
   assert.deepEqual([...PERMISSIONS].sort(), [...EXPECTED_PERMISSIONS].sort());
 });
 
@@ -33,9 +35,9 @@ test('owner has every defined permission', () => {
   assert.equal(ROLE_PERMISSIONS.owner.length, PERMISSIONS.length);
 });
 
-test('admin has every permission except users.manage', () => {
+test('admin has every permission except users.manage and company.delete', () => {
   for (const permission of PERMISSIONS) {
-    if (permission === 'users.manage') {
+    if (permission === 'users.manage' || permission === 'company.delete') {
       assert.equal(roleHasPermission('admin', permission), false);
     } else {
       assert.ok(roleHasPermission('admin', permission), `admin should have ${permission}`);
@@ -43,7 +45,7 @@ test('admin has every permission except users.manage', () => {
   }
 });
 
-test('staff has operational permissions only — no company.manage, users.manage, invoice.edit/cancel/archive/delete, payment.delete', () => {
+test('staff has operational permissions only — no company.manage, users.manage, invoice.edit/cancel/archive/delete, payment.delete, company.deactivate/delete', () => {
   const staffPermissions = new Set(ROLE_PERMISSIONS.staff);
   assert.ok(staffPermissions.has('invoice.view'));
   assert.ok(staffPermissions.has('invoice.create'));
@@ -61,6 +63,8 @@ test('staff has operational permissions only — no company.manage, users.manage
   assert.equal(staffPermissions.has('invoice.delete'), false);
   assert.equal(staffPermissions.has('payment.delete'), false);
   assert.equal(staffPermissions.has('company.manage'), false);
+  assert.equal(staffPermissions.has('company.deactivate'), false);
+  assert.equal(staffPermissions.has('company.delete'), false);
   assert.equal(staffPermissions.has('users.manage'), false);
   assert.equal(staffPermissions.has('audit.view'), false);
 });

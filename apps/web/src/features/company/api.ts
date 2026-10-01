@@ -17,3 +17,14 @@ export const uploadLogo = (file: File) => {
   form.append('logo', file);
   return api<CompanyProfile>('/company/logo', { method: 'POST', body: form });
 };
+
+export interface LifecycleResult {
+  newActiveCompanyId: string | null;
+}
+
+/** Deactivates the session's own active company — see apps/api's company-lifecycle.service.ts for what this preserves. */
+export const deactivateCompany = () => api<LifecycleResult>('/company/deactivate', { method: 'PATCH' });
+
+/** Permanently deletes the session's own active company; `confirmName` must match the company's name exactly. */
+export const deleteCompanyPermanently = (confirmName: string) =>
+  api<LifecycleResult>('/company', { method: 'DELETE', body: JSON.stringify({ confirmName }) });

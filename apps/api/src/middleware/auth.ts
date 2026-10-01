@@ -26,11 +26,16 @@ export async function requireAuth(req: Request, _res: Response, next: NextFuncti
   const token = readCookie(req, SESSION_COOKIE);
   if (!token) throw unauthorized();
 
-  // Joining company_members means a revoked membership kills the session immediately.
+  // Joining company_members means a revoked membership kills the session
+  // immediately; joining companies on status = 'active' does the same
+  // for a company deactivated (or deleted — its sessions are gone too,
+  // via ON DELETE CASCADE) out from under an open session, including by
+  // someone other than the session's own owner.
   const { rows } = await pool.query<AuthContext>(
     `SELECT s.id AS "sessionId", s.user_id AS "userId", s.company_id AS "companyId", m.role
        FROM sessions s
        JOIN company_members m ON m.company_id = s.company_id AND m.user_id = s.user_id
+       JOIN companies c ON c.id = s.company_id AND c.status = 'active'
       WHERE s.token_hash = $1 AND s.expires_at > now()`,
     [hashToken(token)],
   );

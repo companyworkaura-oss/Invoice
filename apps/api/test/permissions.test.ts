@@ -63,10 +63,12 @@ test('owner sees every defined permission on GET /api/auth/me', async () => {
   assert.ok(me.body.permissions.includes('invoice.archive'));
   assert.ok(me.body.permissions.includes('invoice.delete'));
   assert.ok(me.body.permissions.includes('payment.delete'));
-  assert.equal(me.body.permissions.length, 17);
+  assert.ok(me.body.permissions.includes('company.deactivate'));
+  assert.ok(me.body.permissions.includes('company.delete'));
+  assert.equal(me.body.permissions.length, 19);
 });
 
-test('admin sees every permission except users.manage', async () => {
+test('admin sees every permission except users.manage and company.delete', async () => {
   const owner = await registeredOwner('Permissions Admin Co');
   const ownerMe = await owner.get('/api/auth/me');
   const companyId: string = ownerMe.body.company.id;
@@ -82,7 +84,9 @@ test('admin sees every permission except users.manage', async () => {
   assert.ok(me.body.permissions.includes('invoice.archive'));
   assert.ok(me.body.permissions.includes('invoice.delete'));
   assert.ok(me.body.permissions.includes('payment.delete'));
-  assert.equal(me.body.permissions.length, 16);
+  assert.ok(me.body.permissions.includes('company.deactivate'));
+  assert.equal(me.body.permissions.includes('company.delete'), false);
+  assert.equal(me.body.permissions.length, 17);
 });
 
 test('staff sees the operational permission set — no company.manage, users.manage, invoice.edit, or invoice.cancel', async () => {
@@ -105,6 +109,8 @@ test('staff sees the operational permission set — no company.manage, users.man
   assert.equal(permissions.includes('invoice.delete'), false);
   assert.equal(permissions.includes('company.manage'), false);
   assert.equal(permissions.includes('users.manage'), false);
+  assert.equal(permissions.includes('company.deactivate'), false);
+  assert.equal(permissions.includes('company.delete'), false);
 });
 
 test('staff can still perform every operational action their permissions grant', async () => {

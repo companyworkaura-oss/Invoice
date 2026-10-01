@@ -10,11 +10,19 @@ export type Money = string;
 
 export type Role = 'owner' | 'admin' | 'staff';
 
+export type CompanyStatus = 'active' | 'deactivated';
+
 /** Minimal company identity, as returned by GET /api/auth/me and GET/POST /api/companies. */
 export interface Company {
   id: string;
   name: string;
   defaultCurrency: string;
+}
+
+/** Only GET/POST /api/companies (the cross-company list/switch endpoints) carries this — a single active tenant (GET /api/auth/me, GET /api/company) is always 'active' by construction, since requireAuth never resolves a session pointing at a deactivated company. */
+export interface CompanyWithStatus extends Company {
+  status: CompanyStatus;
+  deactivatedAt: string | null;
 }
 
 /**

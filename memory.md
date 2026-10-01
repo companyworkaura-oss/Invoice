@@ -1205,6 +1205,89 @@ since `@page`/pagination rules only apply under `@media print`).
   spans 3 pages at Large, unchanged — long invoices still paginate
   normally, nothing is forced onto one page.
 
+## Company Delete / Deactivate
+
+Two levels, both company-settings "Danger Zone" actions, both gated by
+their own permission:
+
+- **Deactivate** (`company.deactivate`, owner+admin): reversible,
+  data-preserving hide. `companies` gained a `status` column
+  (`'active' | 'deactivated'`) and `deactivated_at` — nothing else
+  changes. A deactivated company is simply excluded wherever "my
+  active company" is resolved: `requireAuth` now joins `companies` on
+  `status = 'active'` (so an open session pointing at a company
+  deactivated out from under it 401s on its very next request, the
+  same way a revoked membership already does), `login` picks the
+  oldest *active* membership, and `switchCompany` rejects switching
+  into a deactivated one. Every invoice, customer, ledger entry,
+  payment, and audit row the company owns is completely untouched.
+  **Reactivate** (same permission) is the exact reverse, and is the one
+  action that must work while a *different* company is the session's
+  active one (a deactivated company can never itself be that), so it
+  looks up the caller's role in the *target* company directly from
+  `company_members` rather than trusting the session's current role —
+  `requirePermission` can't be used here for that reason.
+- **Permanent delete** (`company.delete`, **owner only** — the one
+  permission besides `users.manage` explicitly excluded from ADMIN):
+  requires typing the company's name exactly
+  (`DELETE /api/company` body `{confirmName}`, compared verbatim
+  server-side too, never trusted from the UI alone). Both levels also
+  refuse to act on the caller's *only* company — there's no
+  "onboarding while logged out with zero companies" flow in this app
+  (confirmed by inspection before building this), so stranding someone
+  there is prevented rather than half-handled.
+- **Deletion mechanics**: every company-owned table already had
+  `ON DELETE CASCADE` back to `companies.id` from its own original
+  migration (`company_members`, `sessions`, `customers`,
+  `embroidery_categories`, `invoice_counters`, `invoices` →
+  `invoice_items`, `ledger_entries`, `payments`, `audit_logs` — all
+  confirmed against every migration file before writing any delete
+  code) — so `deleteCompanyPermanently` is one
+  `DELETE FROM companies WHERE id = $1` inside a transaction, not a
+  hand-maintained list of per-table deletes that could drift from the
+  schema. **The one thing that cascade cannot be allowed to delete is
+  its own deletion record** — audit_logs itself cascades away with the
+  company, so a `COMPANY_DELETED` row written there would vanish in
+  the same statement that created the need for it. Migration 012 adds
+  `company_deletion_log`, a small table with a plain `company_id uuid`
+  column and **no foreign key** back to `companies` at all, specifically
+  so it survives. (Deactivate/reactivate don't have this problem —
+  the company and its audit_logs both survive those, so
+  `COMPANY_DEACTIVATED`/`COMPANY_REACTIVATED` are ordinary audit rows.)
+- **Session continuity**: deleting (or deactivating) the company whose
+  session is currently acting re-points that *one* session to another
+  active company the same user belongs to, inside the same
+  transaction, *before* the cascade/status-flip — so the row the
+  request is running on survives and the very next `GET /api/auth/me`
+  already resolves to the new company, no re-login needed. Every
+  *other* member's session still pointing at the company is left alone
+  and simply 401s on their next request (cascade-deleted for permanent
+  delete, status-filtered by `requireAuth` for deactivate) — the same
+  "a vanished tenant logs its members out" behavior a revoked
+  membership already causes, not a new failure mode this introduces.
+- **Frontend**: `CompanyDangerZone.tsx` (new, rendered in the Overview
+  tab next to the existing company profile panel) — Deactivate is a
+  single `window.confirm`; Delete is `window.confirm('Delete this
+  company permanently?')` first, then an inline "type the name to
+  confirm" input that keeps the actual delete button disabled until it
+  matches exactly. `CompanySwitcher.tsx` now splits the list into
+  Active (clickable, as before) and a "Deactivated" section with its
+  own Reactivate button per company. Both deactivate/delete success
+  handlers just call the existing `refreshMe` — since the backend
+  already re-pointed the session, `App.tsx`'s normal `me.company.id`
+  -keyed remount picks up the new company with no new routing/redirect
+  logic needed; if a user is somehow left with zero companies
+  (shouldn't happen given the "only company" guard), the existing
+  `refreshMe().catch(() => setMe(null))` already falls through to the
+  login/register screen, which doubles as onboarding.
+- No backend route trusts a client-supplied company id for Deactivate/
+  Delete — both always act on `auth(req).companyId` (the session's own
+  active tenant), same "no `:companyId` in the URL" convention as the
+  existing `GET/PATCH /api/company`. Reactivate is the only one of the
+  three that takes a path param, and its permission check is the
+  manual target-company lookup described above specifically because of
+  that.
+
 ## Known gotchas / things to check before starting work
 
 - **Postgres cluster is often stopped** when a session starts:
@@ -1395,6 +1478,16 @@ since `@page`/pagination rules only apply under `@media print`).
     verified with real print-to-PDF page counts, not screenshots; a
     genuinely long invoice still correctly spans multiple pages — see
     "Large-Text A5 Page-Split Fix" below
+32. Company Delete / Deactivate: a reversible Deactivate (status
+    column, hides from the active switcher, data untouched) and an
+    owner-only Permanent Delete (typed-name confirmation, relies on
+    every company-owned table's existing ON DELETE CASCADE in one
+    `DELETE FROM companies`, a durable `company_deletion_log` row
+    survives the cascade that takes audit_logs with it); both re-point
+    the caller's own session to another company first so the same
+    request's session row survives and `GET /api/auth/me` already
+    resolves to the new company with no re-login — see "Company
+    Delete / Deactivate" below
 
 Repo also went through a monorepo restructure (`server/` → `apps/api` +
 new `apps/web` + `packages/shared`) between Phase 1 and Phase 2.

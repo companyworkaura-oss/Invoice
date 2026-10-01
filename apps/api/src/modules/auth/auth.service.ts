@@ -81,9 +81,13 @@ export async function login(email: string, password: string): Promise<NewSession
   const ok = await verifyPassword(password, user?.password_hash ?? DUMMY_HASH);
   if (!user || !ok) throw unauthorized('Invalid email or password');
 
-  // Default to the oldest membership; company switching can come later.
+  // Default to the oldest *active* membership — a deactivated company
+  // can never be a session's active tenant (see requireAuth), so
+  // logging a user straight into one would just 401 their very next
+  // request.
   const membership = await pool.query<{ company_id: string }>(
-    'SELECT company_id FROM company_members WHERE user_id = $1 ORDER BY created_at LIMIT 1',
+    `SELECT m.company_id FROM company_members m JOIN companies c ON c.id = m.company_id
+      WHERE m.user_id = $1 AND c.status = 'active' ORDER BY m.created_at LIMIT 1`,
     [user.id],
   );
   if (!membership.rows[0]) throw unauthorized('Account has no company access');
