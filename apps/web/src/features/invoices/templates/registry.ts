@@ -8,7 +8,8 @@ import type { InvoiceViewModel } from '@invoice/shared';
 export interface InvoiceTemplate {
   id: string;
   label: string;
-  Component: (props: { invoice: InvoiceViewModel }) => React.JSX.Element;
+  /** `compact` is Large-mode's print-only spacing fix (see compact.ts) — never affects data or font size. */
+  Component: (props: { invoice: InvoiceViewModel; compact?: boolean }) => React.JSX.Element;
 }
 
 /**

@@ -263,7 +263,7 @@ export function InvoiceTemplateView({ invoice, onBack, initialAction }: Props) {
       */}
       <div className="relative left-1/2 right-1/2 -mx-[50vw] mt-4 w-screen overflow-x-auto bg-slate-200 px-6 py-6 print:static print:left-auto print:right-auto print:m-0 print:w-auto print:overflow-visible print:bg-white print:p-0">
         <div className="mx-auto w-fit" style={{ '--inv-scale': TEXT_SIZE_SCALE[textSize] } as React.CSSProperties}>
-          <template.Component invoice={viewModel} />
+          <template.Component invoice={viewModel} compact={textSize === 'large'} />
         </div>
       </div>
     </div>

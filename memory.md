@@ -1145,6 +1145,66 @@ files touched, zero changes to any calculation.
   — nothing about how it fetches the invoice, builds the view model, or
   calls Print/Download/Share changed.
 
+## Large-Text A5 Page-Split Fix
+
+Bug: at Text Size = Large, a normal short invoice (5-6 rows) that
+should fit on one A5 page was splitting into 2 — the item table stayed
+on page 1, totals moved to page 2. Root cause: Large's 1.15x font
+scale (textSize.ts) grows every row's line-height, but vertical
+padding/margins were fixed in px regardless of text size, so a normal
+invoice's total content height crept past one physical A5 page
+(confirmed by actually measuring real print-to-PDF page counts — see
+below — not just eyeballing a screenshot, which can't see this at all
+since `@page`/pagination rules only apply under `@media print`).
+
+- **`apps/web/src/features/invoices/templates/compact.ts`** (new) — a
+  tiny `vs(compact, normal, tight)` helper that swaps a Tailwind
+  spacing class for a tighter one only when `compact` is true. No CSS
+  calc/variable here (unlike text size): how much a design can
+  compress without looking cramped varies per element (a table row vs.
+  a page margin), so each spot picks its own tight value rather than
+  one blanket multiplier.
+- **`registry.ts`** / **`InvoiceTemplateView.tsx`** — `InvoiceTemplate
+  .Component` gained an optional `compact?: boolean` prop, set by
+  `InvoiceTemplateView` as `textSize === 'large'`. Font size is
+  untouched by this — `--inv-scale` still does exactly what it did
+  before; `compact` only ever touches padding/margin/space-y classes.
+- **All 5 templates** got every *vertical* padding/margin/gap
+  (header, bill-to block, table row padding, totals section, terms
+  block) wired through `vs(compact, ...)` — roughly halved when
+  compact. Horizontal padding/margins are untouched (that's what the
+  previous phase's overflow fix tuned; touching it again here would
+  risk reopening that bug for no reason, since the bug being fixed now
+  is strictly a *vertical* fit problem).
+- **`index.css`** — added `.print-page-invoice .totals-section` and
+  `table/tbody/tr/td/th { break-inside: avoid }` print rules (the
+  task's own suggested CSS, added as belt-and-braces alongside each
+  template's existing inline `break-inside-avoid` Tailwind class on
+  the same elements) so the totals block can never itself be split by
+  a page break once it's part of what's left on page 1.
+- **No `max-height` + `overflow:hidden` trick.** The task's example
+  CSS included `max-height: 210mm` on the page box; that was
+  deliberately left out — combined with overflow:hidden it would
+  silently clip a genuinely long invoice's content (the exact
+  "ModernCurve's Amount column got clipped by `overflow-hidden`" bug
+  fixed in the previous phase), and without overflow:hidden it does
+  nothing useful (content still overflows past the box's declared
+  height, it just looks more broken on screen). `min-height` only
+  (already in place) plus smaller spacing at Large is what actually
+  fixes short invoices without breaking long ones.
+- **How this was actually verified**: real `page.pdf()` captures
+  (Playwright, `preferCSSPageSize: true`, Chromium — the exact engine a
+  user's own browser print uses) with real `/Type /Page` object
+  counting, not screenshots or `scrollHeight` (which can't see
+  print-only `@page`/break rules at all — confirmed by trying
+  `scrollHeight` first and getting flat, uninformative numbers before
+  switching to real PDF page counts). Before the fix: `modern-curve`
+  split to 2 pages with just 5 rows at Large; `minimal-clean` split at
+  6 rows. After: both hold at 1 page through 6 rows, plus a lot
+  number + discount + terms. A genuine 20-row invoice still correctly
+  spans 3 pages at Large, unchanged — long invoices still paginate
+  normally, nothing is forced onto one page.
+
 ## Known gotchas / things to check before starting work
 
 - **Postgres cluster is often stopped** when a session starts:
@@ -1327,6 +1387,14 @@ files touched, zero changes to any calculation.
     (`--inv-scale` CSS variable, localStorage-persisted); zero backend
     files changed — Download PDF/WhatsApp PDF are a separate,
     unaffected A4 layout — see "A5 Print Text Size" below
+31. Large-Text A5 Page-Split Fix: a normal short invoice (5-6 rows)
+    was splitting onto 2 A5 pages at Text Size = Large because fixed
+    -px vertical spacing didn't shrink to compensate for Large's taller
+    line-height; fixed by halving vertical padding/margins (never
+    horizontal, never font size) specifically when Large is selected,
+    verified with real print-to-PDF page counts, not screenshots; a
+    genuinely long invoice still correctly spans multiple pages — see
+    "Large-Text A5 Page-Split Fix" below
 
 Repo also went through a monorepo restructure (`server/` → `apps/api` +
 new `apps/web` + `packages/shared`) between Phase 1 and Phase 2.

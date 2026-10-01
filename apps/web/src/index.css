@@ -78,4 +78,24 @@
     page-break-inside: avoid;
     break-inside: avoid;
   }
+
+  /*
+   * Large-mode print fix: keep the totals block together as one unit
+   * (never split Subtotal from Current Balance across a page break) —
+   * belt-and-braces alongside each template's own break-inside-avoid
+   * Tailwind class on that same element.
+   */
+  .print-page-invoice .totals-section {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  .print-page-invoice table,
+  .print-page-invoice tbody,
+  .print-page-invoice tr,
+  .print-page-invoice td,
+  .print-page-invoice th {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
 }
