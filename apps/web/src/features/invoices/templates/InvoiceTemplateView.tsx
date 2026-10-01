@@ -7,6 +7,7 @@ import * as companyApi from '../../company/api';
 import * as customersApi from '../../customers/api';
 import * as invoicesApi from '../api';
 import { INVOICE_TEMPLATES, getTemplate } from './registry';
+import { INVOICE_TEXT_SIZES, TEXT_SIZE_LABEL, TEXT_SIZE_SCALE, type InvoiceTextSize, loadTextSize, saveTextSize } from './textSize';
 
 type InitialAction = 'print' | 'download' | 'whatsapp';
 
@@ -29,6 +30,7 @@ export function InvoiceTemplateView({ invoice, onBack, initialAction }: Props) {
   const [company, setCompany] = useState<CompanyProfile | null>(null);
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [templateId, setTemplateId] = useState<string | null>(null);
+  const [textSize, setTextSize] = useState<InvoiceTextSize>(() => loadTextSize());
   const [downloading, setDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState<string | null>(null);
   const [shareStage, setShareStage] = useState<'idle' | 'preparing-pdf' | 'opening-whatsapp'>('idle');
@@ -49,6 +51,11 @@ export function InvoiceTemplateView({ invoice, onBack, initialAction }: Props) {
   const template = getTemplate(templateId);
   const viewModel = company && customer ? buildInvoiceViewModel(invoice, company, customer) : null;
   const filename = customer ? invoicePdfFilename(invoice.invoiceNumber, customer.name) : '';
+
+  function handleTextSizeChange(size: InvoiceTextSize) {
+    setTextSize(size);
+    saveTextSize(size);
+  }
 
   function handlePrint() {
     // Chrome/Edge suggest document.title as the default filename when
@@ -179,6 +186,21 @@ export function InvoiceTemplateView({ invoice, onBack, initialAction }: Props) {
               </option>
             ))}
           </select>
+          <div className="flex overflow-hidden rounded-md border border-slate-300" role="group" aria-label="Text size">
+            {INVOICE_TEXT_SIZES.map((size) => (
+              <button
+                key={size}
+                type="button"
+                onClick={() => handleTextSizeChange(size)}
+                aria-pressed={textSize === size}
+                className={`px-2 py-1 text-sm ${
+                  textSize === size ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                {TEXT_SIZE_LABEL[size]}
+              </button>
+            ))}
+          </div>
           <button
             type="button"
             onClick={handlePrint}
@@ -226,8 +248,12 @@ export function InvoiceTemplateView({ invoice, onBack, initialAction }: Props) {
 
       {/*
         The gray surround is the on-screen "print preview" frame; the
-        A4-sized (210mm) white page inside it is what actually prints or
-        gets exported. It's deliberately wider than the dashboard card
+        A5-sized (148mm) white page inside it is what actually prints
+        from here (window.print(), via the print-page-invoice/
+        invoice-a5 rules in index.css — the Download PDF button is a
+        separate, A4 server-rendered document and unaffected by either
+        this page size or the text-size control above). The preview
+        frame is deliberately wider than the dashboard card
         that contains it, so on screen it breaks out to the viewport
         edges (the relative/left-1/2/-mx-[50vw] trick below) rather than
         forcing a horizontal scrollbar inside a narrow card — a "preview"
@@ -236,7 +262,7 @@ export function InvoiceTemplateView({ invoice, onBack, initialAction }: Props) {
         resets it back to normal document flow for the real page.
       */}
       <div className="relative left-1/2 right-1/2 -mx-[50vw] mt-4 w-screen overflow-x-auto bg-slate-200 px-6 py-6 print:static print:left-auto print:right-auto print:m-0 print:w-auto print:overflow-visible print:bg-white print:p-0">
-        <div className="mx-auto w-fit">
+        <div className="mx-auto w-fit" style={{ '--inv-scale': TEXT_SIZE_SCALE[textSize] } as React.CSSProperties}>
           <template.Component invoice={viewModel} />
         </div>
       </div>

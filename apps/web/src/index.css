@@ -51,4 +51,31 @@
     page-break-inside: avoid;
     break-inside: avoid;
   }
+
+  /*
+   * A5 portrait print output for the 5 invoice templates only (the A4
+   * rules above are untouched and still cover the customer statement
+   * document, which keeps printing at A4). A *named* page
+   * (`@page invoice-a5` + `page: invoice-a5` below) is what scopes the
+   * A5 paper size to just these elements' print job instead of
+   * overriding the page default everything else still relies on.
+   */
+  @page invoice-a5 {
+    size: A5 portrait;
+    margin: 0;
+  }
+
+  .print-page-invoice {
+    page: invoice-a5;
+    width: 148mm;
+    min-height: 210mm;
+    box-sizing: border-box;
+    page-break-after: avoid;
+    break-after: avoid;
+  }
+
+  .print-page-invoice table tr {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
 }

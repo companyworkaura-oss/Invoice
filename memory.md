@@ -1087,6 +1087,64 @@ same `POST /api/invoices`.
   rule (formula engine, ledger, FIFO payment allocation, discount,
   invoice numbering) is exercised exactly as it already was.
 
+## A5 Print Text Size
+
+A5-portrait print/preview for the 5 invoice templates, plus a Small/
+Medium/Large text-size control — strictly presentational, zero backend
+files touched, zero changes to any calculation.
+
+- **Page size**: each of the 5 templates' root `<div>` changed from
+  `print-page w-[210mm] min-h-[297mm]` (A4) to a new
+  `print-page-invoice w-[148mm] min-h-[210mm]` (A5 portrait) class/size.
+  `index.css` gained a *named* `@page invoice-a5 { size: A5 portrait; }`
+  + `.print-page-invoice { page: invoice-a5; ... }` block, additive
+  alongside the existing `.print-page`/default `@page` A4 rules — those
+  are untouched and still apply to `StatementPrintDocument.tsx` (the
+  customer statement), which keeps printing at A4. Named pages are what
+  let two different print jobs on the same site use two different paper
+  sizes without one's CSS overriding the other's.
+- **Text size**: a new `--inv-scale` CSS custom property (0.85 / 1 /
+  1.15 for small/medium/large — see
+  `templates/textSize.ts`), set once via inline style on the wrapper
+  `InvoiceTemplateView.tsx` already renders `<template.Component>`
+  inside. Every Tailwind `text-xs`/`sm`/`base`/`lg`/`xl`/`2xl`/`3xl`
+  utility across all 5 templates was mechanically replaced with the
+  arbitrary-value equivalent, e.g. `text-sm` →
+  `text-[length:calc(0.875rem*var(--inv-scale,1))]` — same rem base,
+  just multiplied by the single inherited scale variable, so it can't
+  compound unexpectedly through nesting the way `em` would. A
+  Small/Medium/Large button group next to the template `<select>`
+  persists the choice to `localStorage` (`invoiceTextSize`) via
+  `loadTextSize`/`saveTextSize`; defaults to Medium when nothing's
+  saved or storage is unavailable.
+- **Deliberately does not touch the PDF/WhatsApp PDF.** apps/api's
+  `render-html.ts`/`themes.ts` are a completely separate HTML/CSS layer
+  from these React templates (confirmed before touching anything) — the
+  text-size control and A5 page size only affect the on-screen preview
+  and browser Print (`window.print()` on the same DOM). Download
+  PDF/WhatsApp stay exactly as they were: A4, server-rendered, their
+  own fixed styling.
+- **Overflow fixes found and fixed by testing, not guessed in advance**:
+  at Large text size on the now-narrower A5 width, two templates
+  genuinely overflowed under realistic data (a long description, a long
+  category name, large stitch/quantity numbers) — `ModernCurveTemplate`
+  (wrapped in `overflow-hidden`, so the Amount column was silently
+  clipped) and `IndustrialBlueTemplate` (no `overflow-hidden`, so it
+  visibly spilled past its border). Fixed by trimming each table's
+  horizontal cell padding (`px-4`→`px-2`/`px-3`, `px-6`→`px-4`) — a
+  presentation-only change, verified by comparing
+  `el.clientWidth`/`el.scrollWidth` (equal = no overflow) across all 5
+  templates × all 3 sizes with stress-test data, not just eyeballing
+  one screenshot.
+- Also added `break-words` to each template's Description `<td>` so a
+  long unbroken description wraps instead of threatening overflow on
+  the narrower page.
+- `apps/web/src/features/invoices/templates/textSize.ts` (new) is the
+  only new file; `InvoiceTemplateView.tsx` gained the button group,
+  the `textSize` state, and the `style={{ '--inv-scale': ... }}` wrapper
+  — nothing about how it fetches the invoice, builds the view model, or
+  calls Print/Download/Share changed.
+
 ## Known gotchas / things to check before starting work
 
 - **Postgres cluster is often stopped** when a session starts:
@@ -1263,6 +1321,12 @@ same `POST /api/invoices`.
     prior version of this existed in the codebase despite being listed
     as something to preserve) that only fills the existing Stitches
     field — see "Quick Invoice" below
+30. A5 Print Text Size: the 5 invoice templates now print/preview at A5
+    portrait (via a named `@page`, so the customer statement's A4 stays
+    untouched) with a Small/Medium/Large text-size control
+    (`--inv-scale` CSS variable, localStorage-persisted); zero backend
+    files changed — Download PDF/WhatsApp PDF are a separate,
+    unaffected A4 layout — see "A5 Print Text Size" below
 
 Repo also went through a monorepo restructure (`server/` → `apps/api` +
 new `apps/web` + `packages/shared`) between Phase 1 and Phase 2.
