@@ -1087,6 +1087,81 @@ same `POST /api/invoices`.
   rule (formula engine, ledger, FIFO payment allocation, discount,
   invoice numbering) is exercised exactly as it already was.
 
+## Quick Invoice Simplified Item Row (Phase 28)
+
+Quick Invoice's item row was judged "too complicated" (Category /
+Quantity / Stitches / Avg button / Unit Amount / Line Amount) and was
+simplified to exactly 4 fields: **Item/Description, Quantity, Unit
+Price, Amount (read-only)**. Normal Invoice's `CreateInvoiceForm` —
+Category, Category formulas, Stitches, Avg Stitch, Rate, Unit
+Amount — is completely untouched; this phase only edited
+`QuickInvoiceForm.tsx` on the frontend, plus the smallest possible
+backend/schema extension to let an item skip the embroidery formula
+engine entirely.
+
+- **The "smallest clean solution" (additive-only)**: `invoice_items`
+  already had `category_id` nullable (`ON DELETE SET NULL`, migration
+  005). The one blocking constraint was `stitches NOT NULL` —
+  migration `013_manual_invoice_items.sql` just does
+  `ALTER TABLE invoice_items ALTER COLUMN stitches DROP NOT NULL;`
+  (Postgres's existing `CHECK (stitches > 0)` already tolerates NULL —
+  three-valued SQL logic, no CHECK rewrite needed). Zero new columns:
+  a manual item reuses `category_name`/`rate`/`formula_type` (`'manual'`)
+  /`formula_config` (`{}`)/`calculation_inputs`/`calculated_unit_amount`
+  /`calculated_total` with sensible values, so every existing template,
+  PDF, view-model helper (`unitAmount()` already reads
+  `calculatedUnitAmount`) works with no further changes.
+- **`invoice.service.ts`**: `createInvoiceItem` branches at the top —
+  `if (!input.categoryId) return createManualInvoiceItem(...)` — before
+  any of the existing category/formula-engine code, which is otherwise
+  byte-for-byte unchanged. `createManualInvoiceItem` is new: requires
+  `description` + `unitPrice`, and **always computes
+  `total = quantity * unitPrice` itself** from the server-validated
+  `unitPrice` — a client-supplied `calculatedTotal`/`lineAmount`/`amount`
+  is never read, matching the task's explicit "do not trust a
+  client-supplied total." `InvoiceItemInput`/`InvoiceItem.stitches`
+  widened to optional/nullable; `duplicateInvoice`'s pre-existing
+  "deleted category" guard (blocks duplicating an item with no
+  `categoryId`) turned out to already block duplicating a manual-item
+  invoice too, so `duplicateInvoice` itself needed no change.
+- **`invoice.routes.ts`**: `parseItems()` branches on whether
+  `categoryId` is present in the request body — absent means the manual
+  (`description`/`unitPrice`/`quantity`) shape, present means the
+  existing category/stitches/rate shape (unchanged validation).
+- **`render-html.ts`** (PDF): one defensive fix, `${item.stitches}` →
+  `${item.stitches ?? ''}`, since a raw template literal (unlike JSX)
+  prints the literal text "null" for a null value — this is the only
+  PDF/template file touched; all 5 React invoice templates needed zero
+  changes since `{item.stitches}` already renders nothing for null.
+- **`QuickInvoiceForm.tsx`**: Category select, Stitches input, and the
+  entire Avg Stitch helper (added only 2 phases ago, see "Quick
+  Invoice" above) are removed from this form only — `CreateInvoiceForm`
+  keeps its own Avg Stitch helper untouched. New per-row fields:
+  Item/Description, Quantity, Unit Price, read-only Amount
+  (`quantity × unitPrice`, computed client-side for live preview via
+  `Decimal`/`roundMoney` from `@invoice/shared` — the server
+  recalculates and is authoritative). Customer, Lot Number,
+  Payment Status/Method, Discount Type/Discount, Notes,
+  Subtotal/Grand Total, Save Invoice are all unchanged.
+- **Verified live** (Playwright, dev DB): registered a company, created
+  a customer, filled two Quick Invoice rows with the task's own example
+  data (HEAD SKIP 504×375.41, DUPATTA 504×131.03) — live amounts showed
+  189206.64 / 66039.12, Subtotal/Grand Total 255245.76, both matching
+  the spec exactly; saved invoice opened as `INV-000001` in the normal
+  template view (STITCHES column correctly blank) with Print/Download
+  PDF/WhatsApp all present; separately opened "+ New invoice"
+  (`CreateInvoiceForm`) and confirmed Category/Stitches/Rate/Amount
+  fields are all still there, unchanged. Dev DB reset
+  (`TRUNCATE TABLE companies CASCADE`) after verification.
+- New test file `apps/api/test/manual-invoice-items.test.ts` (10 tests):
+  manual-item math, client-total-not-trusted, missing
+  description/unitPrice 400s, mixed category+manual invoice, list
+  /ledger/statement visibility, payment + Payments list, audit log,
+  category items still require stitches (schema relaxation didn't
+  loosen Normal Invoice validation), discount on a manual-item invoice.
+  Full suite: 235/235 API tests + 41/41 shared tests passing;
+  `npm run typecheck` and `npm run build` clean across all 3 workspaces.
+
 ## A5 Print Text Size
 
 A5-portrait print/preview for the 5 invoice templates, plus a Small/
@@ -1488,6 +1563,17 @@ their own permission:
     request's session row survives and `GET /api/auth/me` already
     resolves to the new company with no re-login — see "Company
     Delete / Deactivate" below
+33. Quick Invoice Simplified Item Row: Quick Invoice's item row cut
+    down to exactly Item/Description, Quantity, Unit Price, read-only
+    Amount — Category, Stitches, and the Avg Stitch helper removed from
+    Quick Invoice only (Normal Invoice's `CreateInvoiceForm` is
+    byte-for-byte unchanged); backend extension is additive-only — one
+    migration (`stitches` nullable, already-nullable `category_id`
+    reused), one new `createManualInvoiceItem` branch in
+    `createInvoiceItem` that always recalculates
+    `total = quantity * unitPrice` server-side and never trusts a
+    client-supplied total — see "Quick Invoice Simplified Item Row
+    (Phase 28)" below
 
 Repo also went through a monorepo restructure (`server/` → `apps/api` +
 new `apps/web` + `packages/shared`) between Phase 1 and Phase 2.

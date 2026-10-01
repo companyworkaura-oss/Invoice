@@ -39,7 +39,8 @@ export interface InvoiceViewModel {
     description: string;
     /** This line's own quantity — each category/line has its own (e.g. BAZU=12, FRONT=8), not one invoice-wide value. */
     quantity: string;
-    stitches: number;
+    /** Null for a manual (Quick Invoice) item — it has no stitch count. */
+    stitches: number | null;
     /** Price of a single unit/piece, after the formula calculation — never the internal rate. See unitAmount() below. */
     unitAmount: string;
     amount: string;

@@ -110,7 +110,8 @@ export interface InvoiceItem {
   categoryId: string | null;
   categoryName: string;
   description: string | null;
-  stitches: number;
+  /** Null for a manual (Quick Invoice) item — it has no category or stitch count, see unitPrice-driven calculatedUnitAmount/calculatedTotal instead. */
+  stitches: number | null;
   /** This item's own quantity — each category/line has its own (e.g. BAZU=12, FRONT=8), never one invoice-wide value. */
   quantity: string;
   rate: Money;

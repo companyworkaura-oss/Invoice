@@ -1,0 +1,15 @@
+-- Phase 28: Quick Invoice items (manual description/quantity/unit price,
+-- no embroidery category or formula). Normal Invoice items are completely
+-- unaffected — category_id was already nullable (ON DELETE SET NULL,
+-- migration 005), and every other invoice_items column a manual item
+-- needs (category_name, rate, formula_type, formula_config,
+-- calculation_inputs, calculated_unit_amount, calculated_total) already
+-- accepts a sensible value without a schema change (see
+-- invoice.service.ts's createInvoiceItem). stitches is the one column
+-- that was NOT NULL purely because every item used to go through the
+-- embroidery formula engine, which needs a stitch count — a manual item
+-- has no stitch count at all, so this just drops that constraint.
+-- Postgres's existing `stitches > 0` CHECK already tolerates NULL
+-- (a CHECK only fails on an explicit FALSE, never on NULL/UNKNOWN), so
+-- nothing else about the column needs to change.
+ALTER TABLE invoice_items ALTER COLUMN stitches DROP NOT NULL;

@@ -10,13 +10,17 @@ import type {
 import { api } from '../../lib/api';
 
 export interface InvoiceItemInput {
-  categoryId: string;
+  /** Omit for a manual (Quick Invoice) item — see unitPrice below. Normal Invoice always sends this. */
+  categoryId?: string;
   description?: string;
-  stitches: number;
-  /** Overrides the category's default rate for this item, if given. */
+  /** Required with categoryId; omit for a manual item. */
+  stitches?: number;
+  /** Overrides the category's default rate for this item, if given. Only meaningful with categoryId. */
   rate?: string;
   /** This item's own quantity — each category/line has its own, e.g. BAZU=12, FRONT=8. Defaults to "1" when omitted. */
   quantity?: string;
+  /** Manual (Quick Invoice) item only: a fixed price for one unit. lineAmount = quantity * unitPrice is recalculated server-side. Requires categoryId to be omitted and description to be given. */
+  unitPrice?: string;
 }
 
 export interface InvoiceInput {

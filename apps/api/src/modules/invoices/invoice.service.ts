@@ -16,13 +16,23 @@ import { getBalanceBefore, getCustomerBalance, postLedgerEntry } from '../ledger
 export type InvoiceStatus = 'draft' | 'issued' | 'cancelled';
 
 export interface InvoiceItemInput {
-  categoryId: string;
+  /** Omit for a manual (Quick Invoice) item — see unitPrice below. A category item still always requires this. */
+  categoryId?: string;
   description?: string;
-  stitches: number;
-  /** Overrides the category's default_rate for this item, if given. */
+  /** Required with categoryId; ignored for a manual item (no stitch count — see unitPrice). */
+  stitches?: number;
+  /** Overrides the category's default_rate for this item, if given. Only meaningful with categoryId. */
   rate?: string;
   /** This item's own quantity — each category/line has its own, e.g. BAZU=12, FRONT=8. Defaults to "1" when omitted. */
   quantity?: string;
+  /**
+   * Manual (Quick Invoice) item only: a fixed price for one unit,
+   * entered directly rather than computed by the formula engine.
+   * lineAmount = quantity * unitPrice is always recalculated
+   * server-side from this — never trusted as a total from the request.
+   * Requires categoryId to be omitted and description to be given.
+   */
+  unitPrice?: string;
 }
 
 export interface InvoiceInput {
@@ -113,7 +123,8 @@ export interface InvoiceItem {
   categoryId: string | null;
   categoryName: string;
   description: string | null;
-  stitches: number;
+  /** Null for a manual (Quick Invoice) item — it has no stitch count. */
+  stitches: number | null;
   /** This item's own quantity — see InvoiceItemInput.quantity. */
   quantity: string;
   rate: string;
@@ -270,6 +281,11 @@ async function createInvoiceItem(
   if (new Decimal(quantity).lessThanOrEqualTo(0)) {
     throw badRequest('Validation failed', { quantity: 'Must be a decimal greater than zero' });
   }
+
+  if (!input.categoryId) {
+    return createManualInvoiceItem(client, invoiceId, input, quantity);
+  }
+
   const categoryRes = await client.query<{
     id: string;
     name: string;
@@ -286,6 +302,12 @@ async function createInvoiceItem(
   const category = categoryRes.rows[0];
   if (!category) throw notFound('Category not found');
   if (!category.active) throw badRequest('Validation failed', { categoryId: `Category "${category.name}" is disabled` });
+  // The route always sends stitches for a category item (requirePositiveInt) —
+  // this just narrows the type, since InvoiceItemInput.stitches is optional
+  // now that a manual item never has one.
+  if (input.stitches === undefined) {
+    throw badRequest('Validation failed', { stitches: 'Required for a category item' });
+  }
 
   // Convention (Phase 5 left formula_config free-form on purpose): the
   // formula text lives at formula_config.expression, evaluated by the
@@ -343,6 +365,56 @@ async function createInvoiceItem(
       unitAmount,
       total,
     ],
+  );
+  return rows[0];
+}
+
+/**
+ * A Quick Invoice item: a plain description, quantity, and a manually
+ * entered unit price — never a category, never the formula engine.
+ * lineAmount is always recalculated here from quantity * unitPrice,
+ * exactly like the formula path above never trusts a client-supplied
+ * calculatedTotal; the request's own unitPrice is the only number taken
+ * from the caller, same as a category item's `rate` is the only formula
+ * input taken from the caller there.
+ *
+ * Reuses the item snapshot columns a category item already fills
+ * (category_name, rate, formula_type, formula_config,
+ * calculation_inputs, calculated_unit_amount, calculated_total) rather
+ * than adding new ones: category_id and stitches are simply left NULL
+ * (both already nullable — category_id since migration 005,
+ * stitches since migration 013), category_name gets this item's own
+ * description (it only ever shows up as a Description fallback, and a
+ * manual item's description is required so that fallback never actually
+ * triggers), rate and calculated_unit_amount both get unitPrice itself
+ * (there is no separate formula input/output distinction for a manual
+ * item), and formula_type records 'manual' so these rows are easy to
+ * tell apart from a category item's 'expression' if ever needed.
+ */
+async function createManualInvoiceItem(
+  client: Queryable,
+  invoiceId: string,
+  input: InvoiceItemInput,
+  quantity: string,
+): Promise<InvoiceItem> {
+  const description = input.description?.trim();
+  if (!description) {
+    throw badRequest('Validation failed', { description: 'Required for an item with no category' });
+  }
+  if (!input.unitPrice) {
+    throw badRequest('Validation failed', { unitPrice: 'Required for an item with no category' });
+  }
+  const unitAmount = roundMoney(new Decimal(input.unitPrice));
+  const total = roundMoney(new Decimal(unitAmount).times(quantity));
+  const calculationInputs = { quantity, unitPrice: unitAmount };
+
+  const { rows } = await client.query<InvoiceItem>(
+    `INSERT INTO invoice_items
+       (invoice_id, category_id, category_name, description, stitches, quantity, rate,
+        formula_type, formula_config, calculation_inputs, calculated_unit_amount, calculated_total)
+     VALUES ($1, NULL, $2, $3, NULL, $4, $5, 'manual', '{}'::jsonb, $6, $7, $8)
+     RETURNING ${ITEM_COLUMNS}`,
+    [invoiceId, description, description, quantity, unitAmount, JSON.stringify(calculationInputs), unitAmount, total],
   );
   return rows[0];
 }
@@ -643,7 +715,10 @@ export async function duplicateInvoice(companyId: string, userId: string, invoic
       items: original.items.map((item) => ({
         categoryId: item.categoryId as string,
         description: item.description ?? undefined,
-        stitches: item.stitches,
+        // A category item (guaranteed by the guard above — a manual
+        // item has categoryId null and is already blocked) always has
+        // a stitch count too; they're set together in createInvoiceItem.
+        stitches: item.stitches as number,
         // Each line's own quantity is copied — a duplicate is "the same
         // order again", so BAZU=12/FRONT=8 stays BAZU=12/FRONT=8.
         quantity: item.quantity,

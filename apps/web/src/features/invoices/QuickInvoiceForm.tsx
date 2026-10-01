@@ -1,22 +1,29 @@
-import type { Customer, DiscountType, EmbroideryCategory, InvoiceWithItems, PaymentMethod } from '@invoice/shared';
-import { useEffect, useMemo, useState } from 'react';
+import type { Customer, DiscountType, InvoiceWithItems, PaymentMethod } from '@invoice/shared';
+import { Decimal, roundMoney } from '@invoice/shared';
+import { useMemo, useState, useEffect } from 'react';
 import { ApiError } from '../../lib/api';
 import * as customersApi from '../customers/api';
-import * as categoriesApi from '../formulas/api';
 import * as paymentsApi from '../payments/api';
 import * as invoicesApi from './api';
-import { previewDiscount, previewItemAmount, sumAmounts } from './preview';
+import { previewDiscount, sumAmounts } from './preview';
 
 /**
  * A faster, single-purpose UI for the common case (one customer, a
  * handful of items, done). It is a thin frontend layer only — every
  * calculation, save, and the resulting invoice record go through the
  * exact same apis/services as CreateInvoiceForm: createInvoice (same
- * formula engine, same ledger debit), and createPayment (same ledger
+ * ledger debit, same invoice numbering), and createPayment (same ledger
  * credit) when "Paid" is checked. Nothing here has its own accounting
  * logic, its own totals math, or its own storage — a saved Quick
  * Invoice is a normal invoice row from the moment it's created, and
  * shows up everywhere a normal invoice does (list, ledger, PDF, audit).
+ *
+ * Unlike CreateInvoiceForm, a Quick Invoice item never goes through a
+ * category or the formula engine — each row is just
+ * description/quantity/unit price, with lineAmount = quantity *
+ * unitPrice. The server (createManualInvoiceItem in
+ * apps/api's invoice.service.ts) recalculates that multiplication
+ * itself from the saved unitPrice; this preview is never what gets saved.
  */
 
 interface Props {
@@ -26,29 +33,23 @@ interface Props {
 
 interface QuickItemRow {
   key: number;
-  categoryId: string;
+  description: string;
   quantity: string;
-  stitches: string;
-  avgOpen: boolean;
-  avgTotalStitches: string;
-  avgPieces: string;
+  unitPrice: string;
 }
 
 interface FieldErrors {
   customerId?: string;
   discountValue?: string;
-  items?: Record<number, { categoryId?: string; quantity?: string; stitches?: string }>;
+  items?: Record<number, { description?: string; quantity?: string; unitPrice?: string }>;
 }
 
 let nextRowKey = 0;
 const newRow = (): QuickItemRow => ({
   key: nextRowKey++,
-  categoryId: '',
+  description: '',
   quantity: '1',
-  stitches: '',
-  avgOpen: false,
-  avgTotalStitches: '',
-  avgPieces: '',
+  unitPrice: '',
 });
 
 function todayLocal(): string {
@@ -56,9 +57,17 @@ function todayLocal(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
+/** quantity * unitPrice, or null while either field isn't a valid positive number yet — never a separate calculation path from what the server redoes on save. */
+function previewLineAmount(quantity: string, unitPrice: string): string | null {
+  const qty = Number(quantity);
+  const price = Number(unitPrice);
+  if (!quantity || !Number.isFinite(qty) || qty <= 0) return null;
+  if (!unitPrice || !Number.isFinite(price) || price < 0) return null;
+  return roundMoney(new Decimal(quantity).times(unitPrice));
+}
+
 export function QuickInvoiceForm({ onSaved, onCancel }: Props) {
   const [customers, setCustomers] = useState<Customer[]>([]);
-  const [categories, setCategories] = useState<EmbroideryCategory[]>([]);
   const [customerId, setCustomerId] = useState('');
   const [lotNumber, setLotNumber] = useState('');
   const [paid, setPaid] = useState(false);
@@ -73,18 +82,10 @@ export function QuickInvoiceForm({ onSaved, onCancel }: Props) {
 
   useEffect(() => {
     customersApi.listCustomers({ status: 'active' }).then(setCustomers).catch(() => setCustomers([]));
-    categoriesApi.listCategories('active').then(setCategories).catch(() => setCategories([]));
   }, []);
 
-  const categoryById = useMemo(() => new Map(categories.map((c) => [c.id, c])), [categories]);
-
-  // Same formula engine, same preview helper CreateInvoiceForm uses —
-  // live feedback only. The server recalculates from scratch on save.
-  const previews = useMemo(
-    () => items.map((row) => previewItemAmount(categoryById.get(row.categoryId), row.stitches, '', row.quantity)),
-    [items, categoryById],
-  );
-  const subtotal = useMemo(() => sumAmounts(previews.map((p) => p.amount)), [previews]);
+  const lineAmounts = useMemo(() => items.map((row) => previewLineAmount(row.quantity, row.unitPrice)), [items]);
+  const subtotal = useMemo(() => sumAmounts(lineAmounts), [lineAmounts]);
   const discountPreview = useMemo(
     () => previewDiscount(subtotal, discountType, discountValue),
     [subtotal, discountType, discountValue],
@@ -99,8 +100,8 @@ export function QuickInvoiceForm({ onSaved, onCancel }: Props) {
     setItems((rows) => [...rows, newRow()]);
     if (focusAfter) {
       requestAnimationFrame(() => {
-        const selects = document.querySelectorAll<HTMLSelectElement>('[data-quick-item-category]');
-        selects[selects.length - 1]?.focus();
+        const inputs = document.querySelectorAll<HTMLInputElement>('[data-quick-item-description]');
+        inputs[inputs.length - 1]?.focus();
       });
     }
   }
@@ -109,25 +110,11 @@ export function QuickInvoiceForm({ onSaved, onCancel }: Props) {
     setItems((rows) => (rows.length > 1 ? rows.filter((_, i) => i !== index) : rows));
   }
 
-  function handleStitchesKeyDown(e: React.KeyboardEvent<HTMLInputElement>, index: number) {
+  function handleUnitPriceKeyDown(e: React.KeyboardEvent<HTMLInputElement>, index: number) {
     if (e.key === 'Enter' && index === items.length - 1) {
       e.preventDefault();
       addItem(true);
     }
-  }
-
-  function toggleAvg(index: number) {
-    updateItem(index, { avgOpen: !items[index].avgOpen });
-  }
-
-  function applyAvg(index: number) {
-    const row = items[index];
-    const total = Number(row.avgTotalStitches);
-    const pieces = Number(row.avgPieces);
-    if (!Number.isFinite(total) || total <= 0 || !Number.isFinite(pieces) || pieces <= 0) return;
-    // Only ever fills the existing Stitches field — never a separate
-    // calculation path or saved value of its own.
-    updateItem(index, { stitches: String(Math.round(total / pieces)), avgOpen: false, avgTotalStitches: '', avgPieces: '' });
   }
 
   function validate(): FieldErrors {
@@ -135,15 +122,12 @@ export function QuickInvoiceForm({ onSaved, onCancel }: Props) {
     if (!customerId) next.customerId = 'Choose a customer';
     if (discountPreview.error) next.discountValue = discountPreview.error;
 
-    const itemErrors: Record<number, { categoryId?: string; quantity?: string; stitches?: string }> = {};
+    const itemErrors: Record<number, { description?: string; quantity?: string; unitPrice?: string }> = {};
     items.forEach((row, index) => {
-      const rowErrors: { categoryId?: string; quantity?: string; stitches?: string } = {};
-      if (!row.categoryId) rowErrors.categoryId = 'Pick a category';
+      const rowErrors: { description?: string; quantity?: string; unitPrice?: string } = {};
+      if (!row.description.trim()) rowErrors.description = 'Enter an item description';
       if (!row.quantity || Number(row.quantity) <= 0) rowErrors.quantity = 'Enter a quantity greater than zero';
-      const stitches = Number(row.stitches);
-      if (!row.stitches || !Number.isInteger(stitches) || stitches <= 0) {
-        rowErrors.stitches = 'Whole number greater than zero';
-      }
+      if (!row.unitPrice || Number(row.unitPrice) < 0) rowErrors.unitPrice = 'Enter a unit price';
       if (Object.keys(rowErrors).length > 0) itemErrors[index] = rowErrors;
     });
     if (Object.keys(itemErrors).length > 0) next.items = itemErrors;
@@ -160,10 +144,11 @@ export function QuickInvoiceForm({ onSaved, onCancel }: Props) {
 
     setSaving(true);
     try {
-      // Exactly the same createInvoice call CreateInvoiceForm makes —
-      // same formula engine, same ledger debit, same invoice numbering.
-      // No rate override: Quick Invoice always uses the category's own
-      // default rate.
+      // Same createInvoice call CreateInvoiceForm makes — same ledger
+      // debit, same invoice numbering — just with manual
+      // (no-category) items: the server recalculates lineAmount =
+      // quantity * unitPrice itself (createManualInvoiceItem) rather
+      // than trusting any total from here.
       const saved = await invoicesApi.createInvoice({
         customerId,
         invoiceDate: todayLocal(),
@@ -172,9 +157,9 @@ export function QuickInvoiceForm({ onSaved, onCancel }: Props) {
         discountType: discountType || undefined,
         discountValue: discountType ? discountValue || '0' : undefined,
         items: items.map((row) => ({
-          categoryId: row.categoryId,
+          description: row.description.trim(),
           quantity: row.quantity || undefined,
-          stitches: Number(row.stitches),
+          unitPrice: row.unitPrice,
         })),
       });
 
@@ -262,25 +247,19 @@ export function QuickInvoiceForm({ onSaved, onCancel }: Props) {
       {/* Items — each its own card on mobile, a table on wider screens */}
       <div className="mt-6 space-y-3">
         {items.map((row, index) => {
-          const preview = previews[index];
+          const amount = lineAmounts[index];
           const rowErrors = errors.items?.[index];
           return (
             <div key={row.key} className="rounded-md border border-slate-200 p-3">
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-[2fr_1fr_1fr]">
-                <Field label="Category" error={rowErrors?.categoryId}>
-                  <select
-                    data-quick-item-category
-                    value={row.categoryId}
-                    onChange={(e) => updateItem(index, { categoryId: e.target.value })}
-                    className={inputClass(Boolean(rowErrors?.categoryId))}
-                  >
-                    <option value="">Select…</option>
-                    {categories.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name}
-                      </option>
-                    ))}
-                  </select>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-[2fr_1fr_1fr_1fr]">
+                <Field label="Item / Description" error={rowErrors?.description}>
+                  <input
+                    data-quick-item-description
+                    type="text"
+                    value={row.description}
+                    onChange={(e) => updateItem(index, { description: e.target.value })}
+                    className={inputClass(Boolean(rowErrors?.description))}
+                  />
                 </Field>
 
                 <Field label="Quantity" error={rowErrors?.quantity}>
@@ -292,91 +271,40 @@ export function QuickInvoiceForm({ onSaved, onCancel }: Props) {
                   />
                 </Field>
 
-                <Field label="Stitches" error={rowErrors?.stitches}>
-                  <div className="flex gap-1">
-                    <input
-                      data-quick-item-stitches
-                      inputMode="numeric"
-                      value={row.stitches}
-                      onChange={(e) => updateItem(index, { stitches: e.target.value })}
-                      onKeyDown={(e) => handleStitchesKeyDown(e, index)}
-                      className={`${inputClass(Boolean(rowErrors?.stitches))} text-right`}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => toggleAvg(index)}
-                      className="shrink-0 rounded-md border border-slate-300 px-2 text-xs text-slate-600 hover:bg-slate-50"
-                      title="Calculate average stitches per piece"
-                    >
-                      Avg
-                    </button>
-                  </div>
+                <Field label="Unit Price" error={rowErrors?.unitPrice}>
+                  <input
+                    inputMode="decimal"
+                    placeholder="0.00"
+                    value={row.unitPrice}
+                    onChange={(e) => updateItem(index, { unitPrice: e.target.value })}
+                    onKeyDown={(e) => handleUnitPriceKeyDown(e, index)}
+                    className={`${inputClass(Boolean(rowErrors?.unitPrice))} text-right`}
+                  />
+                </Field>
+
+                <Field label="Amount">
+                  <input
+                    type="text"
+                    readOnly
+                    tabIndex={-1}
+                    value={amount ?? ''}
+                    placeholder="0.00"
+                    className="w-full rounded-md border border-slate-200 bg-slate-50 px-2 py-2 text-right text-sm text-slate-700"
+                  />
                 </Field>
               </div>
 
-              {row.avgOpen && (
-                <div className="mt-2 flex flex-wrap items-end gap-2 rounded-md bg-slate-50 p-2">
-                  <Field label="Total Stitches">
-                    <input
-                      data-quick-avg-total-stitches
-                      inputMode="numeric"
-                      value={row.avgTotalStitches}
-                      onChange={(e) => updateItem(index, { avgTotalStitches: e.target.value })}
-                      className={`${inputClass(false)} w-28`}
-                    />
-                  </Field>
-                  <Field label="Total Pieces">
-                    <input
-                      data-quick-avg-pieces
-                      inputMode="numeric"
-                      value={row.avgPieces}
-                      onChange={(e) => updateItem(index, { avgPieces: e.target.value })}
-                      className={`${inputClass(false)} w-24`}
-                    />
-                  </Field>
-                  <button
-                    type="button"
-                    onClick={() => applyAvg(index)}
-                    className="rounded-md bg-slate-900 px-3 py-1.5 text-sm text-white hover:bg-slate-700"
-                  >
-                    Apply
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => updateItem(index, { avgOpen: false })}
-                    className="text-xs text-slate-500 underline"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              )}
-
-              <div className="mt-2 flex items-center justify-between text-sm">
-                <div className="flex gap-4 text-slate-600">
-                  <span>
-                    Unit Amount:{' '}
-                    <span className="tabular-nums font-medium text-slate-900">
-                      {preview.unitAmount ?? (preview.error ? <span className="text-red-600">—</span> : '—')}
-                    </span>
-                  </span>
-                  <span>
-                    Line Amount:{' '}
-                    <span className="tabular-nums font-medium text-slate-900">
-                      {preview.amount ?? (preview.error ? <span className="text-red-600">—</span> : '—')}
-                    </span>
-                  </span>
-                </div>
+              <div className="mt-2 flex justify-end">
                 <button
                   type="button"
                   onClick={() => removeItem(index)}
                   disabled={items.length === 1}
                   aria-label="Remove item"
-                  className="text-slate-400 hover:text-red-600 disabled:opacity-30"
+                  className="text-xs text-slate-400 hover:text-red-600 disabled:opacity-30"
                 >
                   Remove
                 </button>
               </div>
-              {preview.error && <p className="mt-1 text-xs text-red-600">{preview.error}</p>}
             </div>
           );
         })}

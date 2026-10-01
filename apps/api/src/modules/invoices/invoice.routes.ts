@@ -7,6 +7,7 @@ import {
   optionalString,
   requirePositiveDecimal,
   requirePositiveInt,
+  requireString,
   requireUuid,
   requireUuidParam,
 } from '../../lib/validate.js';
@@ -35,15 +36,27 @@ function parseItems(body: Record<string, unknown>): service.InvoiceItemInput[] {
       throw badRequest('Validation failed', { [`items[${index}]`]: 'Expected an object' });
     }
     const itemBody = entry as Record<string, unknown>;
+    // This item's own quantity — each category/line carries its own
+    // (e.g. BAZU=12, FRONT=8), never one invoice-wide value. Optional;
+    // defaults to "1" server-side (see createInvoiceItem) when omitted.
+    const quantity = itemBody.quantity === undefined ? undefined : requirePositiveDecimal(itemBody, 'quantity');
+
+    // A manual (Quick Invoice) item has no categoryId — presence of that
+    // field is what selects the embroidery-formula path below versus
+    // the plain description/quantity/unitPrice path.
+    if (itemBody.categoryId === undefined) {
+      return {
+        description: requireString(itemBody, 'description', { max: 500 }),
+        unitPrice: requirePositiveDecimal(itemBody, 'unitPrice'),
+        quantity,
+      };
+    }
     return {
       categoryId: requireUuid(itemBody, 'categoryId'),
       description: optionalString(itemBody, 'description', { max: 500 }),
       stitches: requirePositiveInt(itemBody, 'stitches', { max: 10_000_000 }),
       rate: optionalMoney(itemBody, 'rate'),
-      // This item's own quantity — each category/line carries its own
-      // (e.g. BAZU=12, FRONT=8), never one invoice-wide value. Optional;
-      // defaults to "1" server-side (see createInvoiceItem) when omitted.
-      quantity: itemBody.quantity === undefined ? undefined : requirePositiveDecimal(itemBody, 'quantity'),
+      quantity,
     };
   });
 }
