@@ -31,6 +31,12 @@ function App() {
 
   useEffect(refreshMe, []);
 
+  // Collapse the profile panel whenever the active company changes, so
+  // switching companies never leaves a previous company's profile open.
+  useEffect(() => {
+    setShowProfile(false);
+  }, [me?.company.id]);
+
   async function handleLogout() {
     await authApi.logout().catch(() => undefined);
     setMe(null);
@@ -131,10 +137,10 @@ function App() {
             >
               {showProfile ? 'Hide company profile' : 'Company profile'}
             </button>
-            {showProfile && <CompanyProfilePanel key={me.company.id} permissions={me.permissions} />}
+            {showProfile && <CompanyProfilePanel key={`profile-${me.company.id}`} permissions={me.permissions} />}
 
             <CompanyDangerZone
-              key={me.company.id}
+              key={`danger-${me.company.id}`}
               companyName={me.company.name}
               permissions={me.permissions}
               onCompanyChanged={refreshMe}
