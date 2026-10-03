@@ -164,7 +164,7 @@ export function InvoiceList({ onSelect, onAction, permissions, refreshToken }: P
           type="text"
           value={searchInput}
           onChange={(e) => setSearchInput(e.target.value)}
-          placeholder="Search invoice #, customer, or lot #…"
+          placeholder="Search invoice #, customer, internal lot #, or customer lot #…"
           className="min-w-[200px] flex-1 rounded-md border border-slate-300 px-2 py-1 text-sm"
         />
         <select
@@ -222,12 +222,13 @@ export function InvoiceList({ onSelect, onAction, permissions, refreshToken }: P
         <p className="mt-3 text-sm text-slate-400">No invoices match these filters.</p>
       ) : (
         <div className="mt-3 overflow-x-auto">
-          <table className="w-full min-w-[820px] text-sm">
+          <table className="w-full min-w-[960px] text-sm">
             <thead>
               <tr className="border-b border-slate-200 text-left text-xs text-slate-500">
                 <th className="py-1.5 pr-2 font-medium">Invoice No</th>
                 <th className="py-1.5 pr-2 font-medium">Date</th>
-                <th className="py-1.5 pr-2 font-medium">Lot #</th>
+                <th className="py-1.5 pr-2 font-medium">Internal Lot #</th>
+                <th className="py-1.5 pr-2 font-medium">Customer Lot #</th>
                 <th className="py-1.5 pr-2 font-medium">Customer</th>
                 <th className="py-1.5 pr-2 text-right font-medium">Grand Total</th>
                 <th className="py-1.5 pr-2 text-right font-medium">Paid</th>
@@ -252,6 +253,7 @@ export function InvoiceList({ onSelect, onAction, permissions, refreshToken }: P
                     </td>
                     <td className="py-1.5 pr-2 text-slate-500">{inv.invoiceDate}</td>
                     <td className="py-1.5 pr-2 text-slate-500">{inv.lotNumber ?? '—'}</td>
+                    <td className="py-1.5 pr-2 text-slate-500">{inv.customerLotNumber ?? '—'}</td>
                     <td className="py-1.5 pr-2 text-slate-600">{inv.customerName}</td>
                     <td className="py-1.5 pr-2 text-right tabular-nums">{inv.grandTotal}</td>
                     <td className="py-1.5 pr-2 text-right tabular-nums">{inv.paid}</td>

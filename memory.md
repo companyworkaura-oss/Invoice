@@ -1363,6 +1363,66 @@ their own permission:
   manual target-company lookup described above specifically because of
   that.
 
+## Internal Lot Number + Customer Lot Number (Phase 29)
+
+Split the single `lot_number` field into two independent, optional
+free-text fields: the existing column stays exactly as-is (same name,
+same data, same meaning) and becomes the **internal** lot number
+(factory/business-internal, visible in-app only); a new
+`customer_lot_number` column holds the **customer's own** lot number,
+the only one ever shown on a customer-facing output.
+
+- **Migration `014_customer_lot_number.sql`**: `ALTER TABLE invoices
+  ADD COLUMN customer_lot_number text NULL;` — the only schema change.
+  No historical data touched: every existing `lot_number` value keeps
+  its exact meaning (internal), nothing was renamed or backfilled.
+- **The enforcement mechanism is structural, not a per-template
+  check**: `InvoiceViewModel` (packages/shared's invoice-view-model.ts)
+  — the single shape every customer-facing output (all 5 React
+  templates, the server-side PDF HTML in render-html.ts, and WhatsApp,
+  which shares the same `generateInvoicePdf` → `buildInvoiceViewModel`
+  path) is built from — has a `customerLotNumber` field and **no field
+  at all** for the internal one. `buildInvoiceViewModel` maps
+  `invoice.customerLotNumber` into it and nothing else; there is no
+  fallback to `invoice.lotNumber` anywhere in that function. This is
+  the same pattern already used to keep the internal `rate`/formula
+  fields off the customer invoice (Phase 6) — "can't show it" by data
+  shape, not by convention a future edit could accidentally undo.
+- **Backend** (`invoice.service.ts`/`invoice.routes.ts`): `lotNumber`
+  and `customerLotNumber` are two independent optional fields on
+  `InvoiceInput`/`InvoiceUpdateInput`/`Invoice`, saved and read
+  together but never derived from each other. Search (`listInvoices`)
+  matches invoice number, customer name, internal lot number, OR
+  customer lot number. `duplicateInvoice` already didn't carry the
+  (internal) lot number to a new draft — extended to also never carry
+  the customer lot number, same reasoning ("each new batch/job gets
+  its own lot numbers").
+- **Frontend**: `CreateInvoiceForm.tsx` and `QuickInvoiceForm.tsx` both
+  gained a second "Customer Lot Number" field next to the renamed
+  "Internal Lot Number" (was just "Lot Number") — independently
+  editable, both optional, no other field or calculation touched.
+  `InvoiceDetails.tsx`'s header line shows both when set: "Internal Lot
+  #: 79 · Customer Lot #: CUST-458". `InvoiceList.tsx` gained a second
+  "Customer Lot #" column next to "Internal Lot #" and its search box
+  placeholder mentions both.
+- **Verified live** (Playwright, dev DB): created a Normal Invoice with
+  Internal Lot Number "79" and Customer Lot Number "CUST-458" — saved
+  correctly as two independent fields; Invoice Details showed both;
+  all 5 templates (cycled via the template selector) showed only `Lot
+  #: CUST-458`, confirmed via page text content that the internal value
+  never appears in any of them; invoice list search matched on both
+  values independently. Dev DB reset after verification.
+- Tests: `apps/api/test/invoice-discount-lot.test.ts` gained coverage
+  for saving/returning/independently-editing/searching the customer
+  lot number and for duplicate never copying either lot number;
+  `apps/api/test/invoice-pdf-html.test.ts` (the fast, no-Chromium HTML
+  unit tests) updated its fixture to `customerLotNumber` and gained a
+  test proving the internal lot number can never render; `packages/
+  shared/test/invoice-view-model.test.ts` gained a test asserting
+  `InvoiceViewModel` has no `lotNumber` key at all and that its JSON
+  serialization never contains an internal lot number value, even when
+  one is set on the source invoice.
+
 ## Known gotchas / things to check before starting work
 
 - **Postgres cluster is often stopped** when a session starts:
@@ -1574,6 +1634,17 @@ their own permission:
     `total = quantity * unitPrice` server-side and never trusts a
     client-supplied total — see "Quick Invoice Simplified Item Row
     (Phase 28)" below
+34. Internal Lot Number + Customer Lot Number: split the single lot
+    number field into two independent optional fields — the existing
+    `lot_number` column stays exactly as-is and becomes internal
+    (in-app only), a new `customer_lot_number` column is the only one
+    ever shown on customer-facing print/PDF/WhatsApp. Enforced
+    structurally: `InvoiceViewModel` has a `customerLotNumber` field
+    and no field at all for the internal one, so there's nothing for
+    any template or the PDF HTML to accidentally read — same pattern
+    already used to keep the internal rate/formula off customer
+    invoices. See "Internal Lot Number + Customer Lot Number (Phase
+    29)" below
 
 Repo also went through a monorepo restructure (`server/` → `apps/api` +
 new `apps/web` + `packages/shared`) between Phase 1 and Phase 2.

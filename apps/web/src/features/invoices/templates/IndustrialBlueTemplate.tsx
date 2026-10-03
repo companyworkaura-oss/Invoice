@@ -14,10 +14,10 @@ export function IndustrialBlueTemplate({ invoice, compact }: { invoice: InvoiceV
         <p className="text-[length:calc(1.25rem*var(--inv-scale,1))] font-black uppercase tracking-widest">Invoice</p>
       </div>
 
-      <div className={`grid divide-x-2 divide-blue-800 border-b-2 border-blue-800 text-[length:calc(0.875rem*var(--inv-scale,1))] ${invoice.lotNumber ? 'grid-cols-3' : 'grid-cols-2'}`}>
+      <div className={`grid divide-x-2 divide-blue-800 border-b-2 border-blue-800 text-[length:calc(0.875rem*var(--inv-scale,1))] ${invoice.customerLotNumber ? 'grid-cols-3' : 'grid-cols-2'}`}>
         <InfoCell label="Invoice No." value={invoice.invoiceNumber} compact={compact} />
         <InfoCell label="Date" value={invoice.invoiceDate} compact={compact} />
-        {invoice.lotNumber && <InfoCell label="Lot #" value={invoice.lotNumber} compact={compact} />}
+        {invoice.customerLotNumber && <InfoCell label="Lot #" value={invoice.customerLotNumber} compact={compact} />}
       </div>
 
       <div className={`border-b-2 border-blue-800 px-6 ${vs(compact, 'py-3', 'py-1.5')} text-[length:calc(0.875rem*var(--inv-scale,1))]`}>

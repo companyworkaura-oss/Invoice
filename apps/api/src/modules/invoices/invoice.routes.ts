@@ -61,14 +61,17 @@ function parseItems(body: Record<string, unknown>): service.InvoiceItemInput[] {
   });
 }
 
-/** discountType/discountValue/lotNumber — shared by create (POST /) and edit (PATCH /:id). */
+/** discountType/discountValue/lotNumber/customerLotNumber — shared by create (POST /) and edit (PATCH /:id). */
 function parseDiscountAndLot(body: Record<string, unknown>) {
   const discountType = optionalString(body, 'discountType', { max: 20 });
   if (discountType && !(DISCOUNT_TYPES as readonly string[]).includes(discountType)) {
     throw badRequest('Validation failed', { discountType: `Must be one of: ${DISCOUNT_TYPES.join(', ')}` });
   }
   return {
+    // Internal lot number — never shown on customer-facing print/PDF/WhatsApp.
     lotNumber: optionalString(body, 'lotNumber', { max: 100 }),
+    // The customer's own lot number — the only one shown on customer-facing print/PDF/WhatsApp.
+    customerLotNumber: optionalString(body, 'customerLotNumber', { max: 100 }),
     discountType: discountType as service.InvoiceInput['discountType'],
     discountValue: optionalMoney(body, 'discountValue'),
   };

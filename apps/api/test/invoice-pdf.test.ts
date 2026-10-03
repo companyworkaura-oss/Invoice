@@ -76,6 +76,7 @@ test('generates a real, non-empty PDF for an invoice combining lot number, per-i
   const invoice = await agent.post('/api/invoices').send({
     customerId: customer.body.id,
     lotNumber: 'LOT-2026-145',
+    customerLotNumber: 'CUST-458',
     discountType: 'percentage',
     discountValue: '10',
     items: [
@@ -85,6 +86,7 @@ test('generates a real, non-empty PDF for an invoice combining lot number, per-i
   });
   assert.equal(invoice.status, 201);
   assert.equal(invoice.body.lotNumber, 'LOT-2026-145');
+  assert.equal(invoice.body.customerLotNumber, 'CUST-458');
   assert.equal(invoice.body.discountType, 'percentage');
 
   const res = await agent.get(`/api/invoices/${invoice.body.id}/pdf`);

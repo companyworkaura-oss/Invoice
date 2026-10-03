@@ -16,7 +16,7 @@ export function MinimalCleanTemplate({ invoice, compact }: { invoice: InvoiceVie
         <h1 className="text-[length:calc(1.875rem*var(--inv-scale,1))] font-light tracking-tight">Invoice</h1>
         <div className="text-right">
           <p className="font-mono text-[length:calc(0.875rem*var(--inv-scale,1))] text-slate-500">{invoice.invoiceNumber}</p>
-          {invoice.lotNumber && <p className="font-mono text-[length:calc(0.75rem*var(--inv-scale,1))] text-slate-400">Lot #: {invoice.lotNumber}</p>}
+          {invoice.customerLotNumber && <p className="font-mono text-[length:calc(0.75rem*var(--inv-scale,1))] text-slate-400">Lot #: {invoice.customerLotNumber}</p>}
         </div>
       </div>
 

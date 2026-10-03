@@ -27,7 +27,8 @@ export function InvoiceDetails({ invoice, permissions, onBack, onViewTemplate, o
           <h3 className="text-sm font-semibold text-slate-900">{invoice.invoiceNumber}</h3>
           <p className="text-xs text-slate-500">
             {invoice.customerName} · {invoice.invoiceDate} · {invoice.status}
-            {invoice.lotNumber && <> · Lot #: {invoice.lotNumber}</>}
+            {invoice.lotNumber && <> · Internal Lot #: {invoice.lotNumber}</>}
+            {invoice.customerLotNumber && <> · Customer Lot #: {invoice.customerLotNumber}</>}
           </p>
         </div>
         <div className="flex items-center gap-3">

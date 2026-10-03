@@ -46,6 +46,7 @@ function baseInvoice(overrides: Partial<InvoiceWithItems> = {}): InvoiceWithItem
     status: 'draft',
     createdAt: '2026-01-15T00:00:00.000Z',
     lotNumber: null,
+    customerLotNumber: null,
     discountType: null,
     discountValue: '0.00',
     discountAmount: '0.00',
@@ -78,14 +79,25 @@ function baseInvoice(overrides: Partial<InvoiceWithItems> = {}): InvoiceWithItem
   };
 }
 
-test('buildInvoiceViewModel maps a saved lot number through to the view model', () => {
-  const viewModel = buildInvoiceViewModel(baseInvoice({ lotNumber: 'LOT-2026-145' }), company, customer);
-  assert.equal(viewModel.lotNumber, 'LOT-2026-145');
+test('buildInvoiceViewModel maps a saved customer lot number through to the view model', () => {
+  const viewModel = buildInvoiceViewModel(baseInvoice({ customerLotNumber: 'CUST-458' }), company, customer);
+  assert.equal(viewModel.customerLotNumber, 'CUST-458');
 });
 
-test('buildInvoiceViewModel maps a null lot number as null, not an empty string', () => {
-  const viewModel = buildInvoiceViewModel(baseInvoice({ lotNumber: null }), company, customer);
-  assert.equal(viewModel.lotNumber, null);
+test('buildInvoiceViewModel maps a null customer lot number as null, not an empty string', () => {
+  const viewModel = buildInvoiceViewModel(baseInvoice({ customerLotNumber: null }), company, customer);
+  assert.equal(viewModel.customerLotNumber, null);
+});
+
+test('buildInvoiceViewModel never leaks the internal lot number — the view model has no field for it at all', () => {
+  const viewModel = buildInvoiceViewModel(
+    baseInvoice({ lotNumber: 'INTERNAL-999', customerLotNumber: null }),
+    company,
+    customer,
+  );
+  assert.ok(!('lotNumber' in viewModel), 'InvoiceViewModel must not carry the internal lot number under any key');
+  assert.equal(viewModel.customerLotNumber, null, 'must not fall back to the internal lot number when customer lot number is empty');
+  assert.ok(!JSON.stringify(viewModel).includes('INTERNAL-999'), 'the internal lot number value must never appear anywhere in the view model');
 });
 
 test('buildInvoiceViewModel maps the saved calculatedUnitAmount as unitAmount, not a re-derived value', () => {

@@ -110,7 +110,7 @@ export function renderInvoiceHtml(theme: PdfTheme, invoice: InvoiceViewModel, lo
         <p class="invoice-title">Invoice</p>
         <p class="invoice-number">${escapeHtml(invoice.invoiceNumber)}</p>
         <p class="invoice-date">${escapeHtml(invoice.invoiceDate)}</p>
-        ${invoice.lotNumber ? `<p class="invoice-date">Lot #: ${escapeHtml(invoice.lotNumber)}</p>` : ''}
+        ${invoice.customerLotNumber ? `<p class="invoice-date">Lot #: ${escapeHtml(invoice.customerLotNumber)}</p>` : ''}
       </div>
     </div>
 

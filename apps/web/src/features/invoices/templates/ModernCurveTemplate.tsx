@@ -22,7 +22,7 @@ export function ModernCurveTemplate({ invoice, compact }: { invoice: InvoiceView
             <p className="text-[length:calc(0.75rem*var(--inv-scale,1))] uppercase tracking-widest text-violet-100">Invoice</p>
             <p className="font-semibold">{invoice.invoiceNumber}</p>
             <p className="text-[length:calc(0.75rem*var(--inv-scale,1))] text-violet-100">{invoice.invoiceDate}</p>
-            {invoice.lotNumber && <p className="text-[length:calc(0.75rem*var(--inv-scale,1))] text-violet-100">Lot #: {invoice.lotNumber}</p>}
+            {invoice.customerLotNumber && <p className="text-[length:calc(0.75rem*var(--inv-scale,1))] text-violet-100">Lot #: {invoice.customerLotNumber}</p>}
           </div>
         </div>
       </div>

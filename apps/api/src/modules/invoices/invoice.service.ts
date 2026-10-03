@@ -40,8 +40,21 @@ export interface InvoiceInput {
   invoiceDate?: string;
   notes?: string;
   status?: InvoiceStatus;
-  /** Batch/material/job identifier, e.g. "LOT-001" — free text, optional, never required to be unique. */
+  /**
+   * Internal lot/batch/job identifier, e.g. "LOT-001" — free text,
+   * optional, never required to be unique. Used by the factory/business
+   * internally; never shown on customer-facing print/PDF/WhatsApp — see
+   * InvoiceViewModel, which deliberately does not carry this field.
+   */
   lotNumber?: string;
+  /**
+   * The lot number as provided by the customer — a separate, optional
+   * free-text field from the internal lotNumber above. This is the only
+   * one of the two shown on customer-facing print/PDF/WhatsApp (see
+   * invoice-view-model.ts's buildInvoiceViewModel); the row is hidden
+   * entirely there when this is empty, never falling back to lotNumber.
+   */
+  customerLotNumber?: string;
   /** Omitted/undefined means no discount — same as passing 'percentage'/'fixed' with a value of "0.00". */
   discountType?: DiscountType;
   discountValue?: string;
@@ -147,7 +160,10 @@ export interface Invoice {
   status: InvoiceStatus;
   createdAt: string;
   archivedAt: string | null;
+  /** Internal lot number — never shown on customer-facing print/PDF/WhatsApp. */
   lotNumber: string | null;
+  /** The customer's own lot number — the only one shown on customer-facing print/PDF/WhatsApp. */
+  customerLotNumber: string | null;
   discountType: DiscountType | null;
   discountValue: string;
   discountAmount: string;
@@ -207,7 +223,7 @@ const INVOICE_HEADER_COLUMNS = `
   i.id, i.company_id AS "companyId", i.customer_id AS "customerId", c.name AS "customerName",
   i.invoice_number AS "invoiceNumber", i.invoice_date AS "invoiceDate", i.notes, i.status,
   i.created_at AS "createdAt", i.archived_at AS "archivedAt",
-  i.lot_number AS "lotNumber", i.discount_type AS "discountType",
+  i.lot_number AS "lotNumber", i.customer_lot_number AS "customerLotNumber", i.discount_type AS "discountType",
   i.discount_value AS "discountValue", i.discount_amount AS "discountAmount"
 `;
 
@@ -452,8 +468,8 @@ export async function createInvoice(
     // NOT NULL, but the app never reads, writes, or displays it anymore;
     // its DEFAULT 1 (migration 011) is all that satisfies the column now.
     const invoiceRes = await client.query<{ id: string; invoiceDate: string; createdAt: string }>(
-      `INSERT INTO invoices (company_id, customer_id, invoice_number, invoice_date, notes, status, lot_number)
-       VALUES ($1, $2, $3, COALESCE($4::date, CURRENT_DATE), $5, COALESCE($6, 'draft'), $7)
+      `INSERT INTO invoices (company_id, customer_id, invoice_number, invoice_date, notes, status, lot_number, customer_lot_number)
+       VALUES ($1, $2, $3, COALESCE($4::date, CURRENT_DATE), $5, COALESCE($6, 'draft'), $7, $8)
        RETURNING id, invoice_date AS "invoiceDate", created_at AS "createdAt"`,
       [
         companyId,
@@ -463,6 +479,7 @@ export async function createInvoice(
         input.notes ?? null,
         input.status ?? null,
         input.lotNumber ?? null,
+        input.customerLotNumber ?? null,
       ],
     );
     const { id: invoiceId, invoiceDate, createdAt } = invoiceRes.rows[0];
@@ -524,6 +541,7 @@ export async function createInvoice(
       createdAt,
       archivedAt: null,
       lotNumber: input.lotNumber ?? null,
+      customerLotNumber: input.customerLotNumber ?? null,
       discountType: discount.discountType,
       discountValue: discount.discountValue,
       discountAmount: discount.discountAmount,
@@ -578,7 +596,9 @@ export async function listInvoices(companyId: string, filter: InvoiceListFilter)
   }
   if (filter.search) {
     params.push(`%${filter.search}%`);
-    conditions.push(`("invoiceNumber" ILIKE $${params.length} OR "customerName" ILIKE $${params.length} OR "lotNumber" ILIKE $${params.length})`);
+    conditions.push(
+      `("invoiceNumber" ILIKE $${params.length} OR "customerName" ILIKE $${params.length} OR "lotNumber" ILIKE $${params.length} OR "customerLotNumber" ILIKE $${params.length})`,
+    );
   }
   // Default 'active': archived invoices are hidden unless explicitly
   // asked for — see InvoiceArchivedFilter. Archiving never deletes or
@@ -621,7 +641,7 @@ export async function listInvoices(companyId: string, filter: InvoiceListFilter)
          i.id, i.company_id AS "companyId", i.customer_id AS "customerId", c.name AS "customerName",
          i.invoice_number AS "invoiceNumber", i.invoice_date AS "invoiceDate", i.notes,
          i.status, i.created_at AS "createdAt", i.archived_at AS "archivedAt",
-         i.lot_number AS "lotNumber", i.discount_type AS "discountType",
+         i.lot_number AS "lotNumber", i.customer_lot_number AS "customerLotNumber", i.discount_type AS "discountType",
          i.discount_value AS "discountValue", i.discount_amount AS "discountAmount",
          COALESCE(items.total, 0) AS "totalAmount",
          COALESCE(items.total, 0) - i.discount_amount AS "grandTotal",
@@ -690,9 +710,9 @@ export async function getInvoice(companyId: string, invoiceId: string): Promise<
  * with a clear reason instead of silently dropping the item.
  *
  * The discount type/value carry over (a duplicate is usually "the same
- * order again"), but the lot number deliberately does not — each new
- * batch/job is expected to get its own lot number, so leaving the field
- * blank is safer than silently reusing the original's.
+ * order again"), but neither lot number (internal or customer's) does —
+ * each new batch/job is expected to get its own lot numbers, so leaving
+ * both fields blank is safer than silently reusing the original's.
  */
 export async function duplicateInvoice(companyId: string, userId: string, invoiceId: string): Promise<InvoiceWithItems> {
   const original = await getInvoice(companyId, invoiceId);
@@ -769,10 +789,18 @@ export async function updateInvoice(
           SET invoice_date = COALESCE($3::date, invoice_date),
               notes = $4,
               lot_number = $5,
+              customer_lot_number = $6,
               updated_at = now()
         WHERE id = $1 AND company_id = $2
         RETURNING invoice_date AS "invoiceDate"`,
-      [invoiceId, companyId, input.invoiceDate ?? null, input.notes ?? null, input.lotNumber ?? null],
+      [
+        invoiceId,
+        companyId,
+        input.invoiceDate ?? null,
+        input.notes ?? null,
+        input.lotNumber ?? null,
+        input.customerLotNumber ?? null,
+      ],
     );
     const { invoiceDate } = invoiceRes.rows[0];
 

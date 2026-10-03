@@ -28,8 +28,10 @@ export interface InvoiceInput {
   invoiceDate?: string;
   notes?: string;
   status?: InvoiceStatus;
-  /** Batch/material/job identifier, e.g. "LOT-001" — optional, not required to be unique. */
+  /** Internal lot/batch/job identifier, e.g. "LOT-001" — never shown on customer-facing print/PDF. */
   lotNumber?: string;
+  /** The customer's own lot number — the only one shown on customer-facing print/PDF. */
+  customerLotNumber?: string;
   discountType?: DiscountType;
   discountValue?: string;
   items: InvoiceItemInput[];

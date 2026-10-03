@@ -32,8 +32,15 @@ export interface InvoiceViewModel {
   };
   invoiceNumber: string;
   invoiceDate: string;
-  /** Batch/material/job identifier, e.g. "LOT-001" — null when not set. */
-  lotNumber: string | null;
+  /**
+   * The customer's own lot number — null when not set, in which case a
+   * template must hide the Lot # row entirely. This is deliberately
+   * `Invoice.customerLotNumber`, never `Invoice.lotNumber` (the internal
+   * one): the internal lot number is factory/business-internal and must
+   * never appear on a customer-facing invoice, and there is no fallback
+   * to it here even when this is empty.
+   */
+  customerLotNumber: string | null;
   items: {
     id: string;
     description: string;
@@ -123,7 +130,7 @@ export function buildInvoiceViewModel(
     },
     invoiceNumber: invoice.invoiceNumber,
     invoiceDate: invoice.invoiceDate,
-    lotNumber: invoice.lotNumber,
+    customerLotNumber: invoice.customerLotNumber,
     items: invoice.items.map((item) => ({
       id: item.id,
       description: itemDescription(item),

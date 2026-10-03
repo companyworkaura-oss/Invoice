@@ -53,6 +53,7 @@ interface InvoiceBody {
   customerId?: string;
   status?: 'draft' | 'issued';
   lotNumber?: string;
+  customerLotNumber?: string;
   discountType?: 'percentage' | 'fixed';
   discountValue?: string;
   items?: { categoryId: string; stitches: number }[];
@@ -217,6 +218,95 @@ test('lot number is saved, returned in invoice detail, and searchable', async ()
   assert.equal(byOtherSearch.body.length, 0);
 });
 
+test('customer lot number is saved and returned independently of the internal lot number', async () => {
+  const agent = await registeredOwner('Customer Lot Number Co');
+  const customerId = await createCustomer(agent, 'Customer Lot Customer');
+  const categoryId = await createCategory(agent);
+
+  const created = await createInvoice(agent, customerId, categoryId, {
+    lotNumber: 'INTERNAL-79',
+    customerLotNumber: 'CUST-458',
+  });
+  assert.equal(created.status, 201);
+  assert.equal(created.body.lotNumber, 'INTERNAL-79');
+  assert.equal(created.body.customerLotNumber, 'CUST-458');
+});
+
+test('invoice detail returns both the internal and customer lot numbers', async () => {
+  const agent = await registeredOwner('Both Lot Numbers Co');
+  const customerId = await createCustomer(agent, 'Both Lot Customer');
+  const categoryId = await createCategory(agent);
+
+  const created = await createInvoice(agent, customerId, categoryId, {
+    lotNumber: 'INTERNAL-79',
+    customerLotNumber: 'CUST-458',
+  });
+  assert.equal(created.status, 201);
+
+  const details = await agent.get(`/api/invoices/${created.body.id}`);
+  assert.equal(details.status, 200);
+  assert.equal(details.body.lotNumber, 'INTERNAL-79');
+  assert.equal(details.body.customerLotNumber, 'CUST-458');
+});
+
+test('customer lot number is independently editable from the internal lot number', async () => {
+  const agent = await registeredOwner('Independent Lot Edit Co');
+  const customerId = await createCustomer(agent, 'Independent Lot Customer');
+  const categoryId = await createCategory(agent);
+
+  const created = await createInvoice(agent, customerId, categoryId, {
+    lotNumber: 'INTERNAL-79',
+    customerLotNumber: 'CUST-458',
+  });
+  assert.equal(created.status, 201);
+
+  const edited = await agent.patch(`/api/invoices/${created.body.id}`).send({
+    lotNumber: 'INTERNAL-79', // unchanged
+    customerLotNumber: 'CUST-999', // changed
+    items: [{ categoryId, stitches: 12000, quantity: '10' }],
+  });
+  assert.equal(edited.status, 200);
+  assert.equal(edited.body.lotNumber, 'INTERNAL-79');
+  assert.equal(edited.body.customerLotNumber, 'CUST-999');
+});
+
+test('search finds an invoice by its customer lot number', async () => {
+  const agent = await registeredOwner('Customer Lot Search Co');
+  const customerId = await createCustomer(agent, 'Lot Search Customer');
+  const categoryId = await createCategory(agent);
+
+  const created = await createInvoice(agent, customerId, categoryId, { customerLotNumber: 'CUST-SEARCHABLE-458' });
+  assert.equal(created.status, 201);
+
+  const bySearch = await agent.get('/api/invoices').query({ search: 'searchable-458' });
+  assert.equal(bySearch.status, 200);
+  assert.equal(bySearch.body.length, 1);
+  assert.equal(bySearch.body[0].id, created.body.id);
+
+  const byOtherSearch = await agent.get('/api/invoices').query({ search: 'nonexistent-customer-lot' });
+  assert.equal(byOtherSearch.body.length, 0);
+});
+
+test('search finds an invoice by either lot number independently — one does not match the other\'s value', async () => {
+  const agent = await registeredOwner('Dual Lot Search Co');
+  const customerId = await createCustomer(agent, 'Dual Lot Customer');
+  const categoryId = await createCategory(agent);
+
+  const created = await createInvoice(agent, customerId, categoryId, {
+    lotNumber: 'INTERNAL-ONLY-79',
+    customerLotNumber: 'CUSTOMER-ONLY-458',
+  });
+  assert.equal(created.status, 201);
+
+  const byInternal = await agent.get('/api/invoices').query({ search: 'internal-only-79' });
+  assert.equal(byInternal.body.length, 1);
+  assert.equal(byInternal.body[0].id, created.body.id);
+
+  const byCustomer = await agent.get('/api/invoices').query({ search: 'customer-only-458' });
+  assert.equal(byCustomer.body.length, 1);
+  assert.equal(byCustomer.body[0].id, created.body.id);
+});
+
 test('lot number is optional and not required to be unique', async () => {
   const agent = await registeredOwner('Duplicate Lot Co');
   const customerId = await createCustomer(agent, 'Dup Lot Customer');
@@ -239,6 +329,7 @@ test('PDF/print data (the invoice view model) includes lot number and the discou
 
   const invoice = await createInvoice(agent, customerId, categoryId, {
     lotNumber: 'LOT-777',
+    customerLotNumber: 'CUST-777',
     discountType: 'fixed',
     discountValue: '20.00',
   });
@@ -296,6 +387,7 @@ test('duplicating an invoice does not reuse its lot number, but does copy the di
 
   const original = await createInvoice(agent, customerId, categoryId, {
     lotNumber: 'LOT-ORIGINAL',
+    customerLotNumber: 'CUST-ORIGINAL',
     discountType: 'percentage',
     discountValue: '10',
   });
@@ -303,7 +395,8 @@ test('duplicating an invoice does not reuse its lot number, but does copy the di
 
   const duplicate = await agent.post(`/api/invoices/${original.body.id}/duplicate`);
   assert.equal(duplicate.status, 201);
-  assert.equal(duplicate.body.lotNumber, null, 'a duplicate must never inherit the original lot number');
+  assert.equal(duplicate.body.lotNumber, null, 'a duplicate must never inherit the original internal lot number');
+  assert.equal(duplicate.body.customerLotNumber, null, 'a duplicate must never inherit the original customer lot number');
   assert.equal(duplicate.body.discountType, 'percentage');
   assert.equal(duplicate.body.discountValue, '10.00');
   assert.equal(duplicate.body.grandTotal, '129.60');

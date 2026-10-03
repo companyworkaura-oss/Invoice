@@ -55,6 +55,7 @@ export function CreateInvoiceForm({ invoice, onSaved, onCancel }: Props) {
   const [customerId, setCustomerId] = useState(invoice?.customerId ?? '');
   const [invoiceDate, setInvoiceDate] = useState(invoice?.invoiceDate ?? todayLocal());
   const [lotNumber, setLotNumber] = useState(invoice?.lotNumber ?? '');
+  const [customerLotNumber, setCustomerLotNumber] = useState(invoice?.customerLotNumber ?? '');
   const [discountType, setDiscountType] = useState<DiscountType | ''>(invoice?.discountType ?? '');
   const [discountValue, setDiscountValue] = useState(invoice?.discountType ? invoice.discountValue : '');
   const [items, setItems] = useState<ItemRow[]>(() => (invoice ? invoice.items.map(itemRowFromInvoice) : [newRow()]));
@@ -176,6 +177,7 @@ export function CreateInvoiceForm({ invoice, onSaved, onCancel }: Props) {
       const payload = {
         invoiceDate,
         lotNumber: lotNumber || undefined,
+        customerLotNumber: customerLotNumber || undefined,
         discountType: discountType || undefined,
         discountValue: discountType ? discountValue || '0' : undefined,
         items: items.map((row) => ({
@@ -199,8 +201,8 @@ export function CreateInvoiceForm({ invoice, onSaved, onCancel }: Props) {
 
   return (
     <form onSubmit={handleSubmit} className="rounded-md border border-slate-200 p-4 md:p-6">
-      {/* Header: customer / date / number / lot */}
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+      {/* Header: customer / date / number / internal lot / customer lot */}
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-5">
         <Field label="Customer" error={errors.customerId}>
           {editing ? (
             <input
@@ -242,12 +244,22 @@ export function CreateInvoiceForm({ invoice, onSaved, onCancel }: Props) {
           />
         </Field>
 
-        <Field label="Lot Number">
+        <Field label="Internal Lot Number">
           <input
             type="text"
             value={lotNumber}
             onChange={(e) => setLotNumber(e.target.value)}
-            placeholder="e.g. LOT-001"
+            placeholder="e.g. 79"
+            className={inputClass(false)}
+          />
+        </Field>
+
+        <Field label="Customer Lot Number">
+          <input
+            type="text"
+            value={customerLotNumber}
+            onChange={(e) => setCustomerLotNumber(e.target.value)}
+            placeholder="e.g. CUST-458"
             className={inputClass(false)}
           />
         </Field>

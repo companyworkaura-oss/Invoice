@@ -70,6 +70,7 @@ export function QuickInvoiceForm({ onSaved, onCancel }: Props) {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [customerId, setCustomerId] = useState('');
   const [lotNumber, setLotNumber] = useState('');
+  const [customerLotNumber, setCustomerLotNumber] = useState('');
   const [paid, setPaid] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cash');
   const [items, setItems] = useState<QuickItemRow[]>(() => [newRow()]);
@@ -153,6 +154,7 @@ export function QuickInvoiceForm({ onSaved, onCancel }: Props) {
         customerId,
         invoiceDate: todayLocal(),
         lotNumber: lotNumber || undefined,
+        customerLotNumber: customerLotNumber || undefined,
         notes: notes || undefined,
         discountType: discountType || undefined,
         discountValue: discountType ? discountValue || '0' : undefined,
@@ -209,12 +211,22 @@ export function QuickInvoiceForm({ onSaved, onCancel }: Props) {
           </select>
         </Field>
 
-        <Field label="Lot Number">
+        <Field label="Internal Lot Number">
           <input
             type="text"
             value={lotNumber}
             onChange={(e) => setLotNumber(e.target.value)}
-            placeholder="e.g. LOT-001"
+            placeholder="e.g. 79"
+            className={inputClass(false)}
+          />
+        </Field>
+
+        <Field label="Customer Lot Number">
+          <input
+            type="text"
+            value={customerLotNumber}
+            onChange={(e) => setCustomerLotNumber(e.target.value)}
+            placeholder="e.g. CUST-458"
             className={inputClass(false)}
           />
         </Field>

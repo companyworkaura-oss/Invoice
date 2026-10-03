@@ -31,7 +31,7 @@ export function PremiumModernTemplate({ invoice, compact }: { invoice: InvoiceVi
           </div>
           <div className="text-right text-slate-500">
             <p>{invoice.invoiceDate}</p>
-            {invoice.lotNumber && <p>Lot #: {invoice.lotNumber}</p>}
+            {invoice.customerLotNumber && <p>Lot #: {invoice.customerLotNumber}</p>}
           </div>
         </div>
       </div>

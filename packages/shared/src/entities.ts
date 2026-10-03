@@ -133,8 +133,21 @@ export interface Invoice {
   notes: string | null;
   status: InvoiceStatus;
   createdAt: string;
-  /** Batch/material/job identifier, e.g. "LOT-001" — free text, not required to be unique. */
+  /**
+   * Internal lot/batch/job identifier, e.g. "LOT-001" — free text, not
+   * required to be unique. Factory/business-internal only; never shown
+   * on customer-facing print/PDF/WhatsApp — see InvoiceViewModel, which
+   * deliberately does not carry this field (customerLotNumber below is
+   * the one that does).
+   */
   lotNumber: string | null;
+  /**
+   * The lot number as provided by the customer — independent of the
+   * internal lotNumber above. This is the only one of the two shown on
+   * customer-facing print/PDF/WhatsApp; the Lot # row is hidden there
+   * entirely when this is null, never falling back to lotNumber.
+   */
+  customerLotNumber: string | null;
   /**
    * Invoice-level discount (never per-item). `discountType` null means no
    * discount at all — `discountValue`/`discountAmount` are then always

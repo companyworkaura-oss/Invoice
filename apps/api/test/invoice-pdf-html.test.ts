@@ -28,7 +28,7 @@ const viewModel: InvoiceViewModel = {
   },
   invoiceNumber: 'INV-000042',
   invoiceDate: '2026-01-15',
-  lotNumber: 'LOT-001',
+  customerLotNumber: 'CUST-458',
   items: [
     {
       id: 'item-1',
@@ -66,7 +66,7 @@ test('renders the invoice data the customer should see', () => {
   assert.match(html, /HS\/HP embroidery/);
   assert.match(html, /144\.00/);
   assert.match(html, /Payment due within 30 days\./);
-  assert.match(html, /Lot #: LOT-001/);
+  assert.match(html, /Lot #: CUST-458/);
   // The spec'd summary fields, by label.
   assert.match(html, /Subtotal/);
   assert.match(html, /Grand Total/);
@@ -75,18 +75,29 @@ test('renders the invoice data the customer should see', () => {
   assert.match(html, /Current Balance/);
 });
 
-test('hides the Lot # row entirely when lotNumber is null, across every theme', () => {
-  const noLot = { ...viewModel, lotNumber: null };
+test('hides the Lot # row entirely when customerLotNumber is null, across every theme', () => {
+  const noLot = { ...viewModel, customerLotNumber: null };
   for (const id of Object.keys(PDF_THEMES)) {
     const html = renderInvoiceHtml(getPdfTheme(id), noLot, null);
-    assert.ok(!html.includes('Lot #'), `${id} theme must not show a Lot # row when lotNumber is null`);
+    assert.ok(!html.includes('Lot #'), `${id} theme must not show a Lot # row when customerLotNumber is null`);
   }
 });
 
-test('shows the Lot # row for every theme when a lot number is set', () => {
+test('shows the Lot # row for every theme when a customer lot number is set', () => {
   for (const id of Object.keys(PDF_THEMES)) {
     const html = renderInvoiceHtml(getPdfTheme(id), viewModel, null);
-    assert.match(html, /Lot #: LOT-001/, `${id} theme must show the lot number`);
+    assert.match(html, /Lot #: CUST-458/, `${id} theme must show the customer lot number`);
+  }
+});
+
+test('never shows the internal lot number on print/PDF, even disguised as the customer lot number value', () => {
+  // The view model type has no field for the internal lot number at
+  // all (see InvoiceViewModel in invoice-view-model.ts), so this proves
+  // the HTML layer never has the chance to render it — there's nothing
+  // named "lotNumber" to accidentally read.
+  for (const id of Object.keys(PDF_THEMES)) {
+    const html = renderInvoiceHtml(getPdfTheme(id), viewModel, null);
+    assert.ok(!html.includes('INTERNAL-'), `${id} theme must never render anything that looks like an internal lot number`);
   }
 });
 
