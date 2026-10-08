@@ -19,6 +19,7 @@ export function PremiumModernTemplate({ invoice, compact }: { invoice: InvoiceVi
         <div className="text-right">
           <p className="text-[length:calc(0.75rem*var(--inv-scale,1))] font-semibold uppercase tracking-[0.3em] text-amber-400">Invoice</p>
           <p className="text-[length:calc(1.125rem*var(--inv-scale,1))] font-light text-white">{invoice.invoiceNumber}</p>
+          {invoice.billNumber && <p className="text-[length:calc(0.75rem*var(--inv-scale,1))] text-amber-200">Bill #: {invoice.billNumber}</p>}
         </div>
       </div>
 
@@ -32,6 +33,8 @@ export function PremiumModernTemplate({ invoice, compact }: { invoice: InvoiceVi
           <div className="text-right text-slate-500">
             <p>{invoice.invoiceDate}</p>
             {invoice.customerLotNumber && <p>Lot #: {invoice.customerLotNumber}</p>}
+            {invoice.generalQuantity && <p>Quantity: {invoice.generalQuantity} Suits</p>}
+            {invoice.sets && <p>Sets: {invoice.sets}</p>}
           </div>
         </div>
       </div>
@@ -41,9 +44,9 @@ export function PremiumModernTemplate({ invoice, compact }: { invoice: InvoiceVi
           <thead>
             <tr className="border-b border-amber-400 text-left text-[length:calc(0.75rem*var(--inv-scale,1))] uppercase tracking-widest text-slate-500">
               <th className={`${vs(compact, 'pb-2', 'pb-1')} font-medium`}>Description</th>
-              <th className={`${vs(compact, 'pb-2', 'pb-1')} text-right font-medium`}>Quantity</th>
+              {invoice.showItemQuantity && <th className={`${vs(compact, 'pb-2', 'pb-1')} text-right font-medium`}>Quantity</th>}
               <th className={`${vs(compact, 'pb-2', 'pb-1')} text-right font-medium`}>Stitches</th>
-              <th className={`${vs(compact, 'pb-2', 'pb-1')} text-right font-medium`}>Unit Amount</th>
+              {invoice.showUnitAmount && <th className={`${vs(compact, 'pb-2', 'pb-1')} text-right font-medium`}>Unit Amount</th>}
               <th className={`${vs(compact, 'pb-2', 'pb-1')} text-right font-medium`}>Amount</th>
             </tr>
           </thead>
@@ -51,9 +54,9 @@ export function PremiumModernTemplate({ invoice, compact }: { invoice: InvoiceVi
             {invoice.items.map((item) => (
               <tr key={item.id} className="break-inside-avoid border-b border-slate-100">
                 <td className={`${vs(compact, 'py-2.5', 'py-1')} break-words`}>{item.description}</td>
-                <td className={`${vs(compact, 'py-2.5', 'py-1')} text-right`}>{item.quantity}</td>
+                {invoice.showItemQuantity && <td className={`${vs(compact, 'py-2.5', 'py-1')} text-right`}>{item.quantity}</td>}
                 <td className={`${vs(compact, 'py-2.5', 'py-1')} text-right`}>{item.stitches}</td>
-                <td className={`${vs(compact, 'py-2.5', 'py-1')} text-right`}>{item.unitAmount}</td>
+                {invoice.showUnitAmount && <td className={`${vs(compact, 'py-2.5', 'py-1')} text-right`}>{item.unitAmount}</td>}
                 <td className={`${vs(compact, 'py-2.5', 'py-1')} text-right`}>{item.amount}</td>
               </tr>
             ))}

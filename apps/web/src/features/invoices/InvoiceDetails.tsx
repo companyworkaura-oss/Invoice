@@ -1,4 +1,5 @@
 import type { InvoiceWithItems, Permission } from '@invoice/shared';
+import { calculateSets, formatQuantity } from '@invoice/shared';
 import { useState } from 'react';
 import { PaymentForm } from '../payments/PaymentForm';
 import * as invoicesApi from './api';
@@ -15,6 +16,7 @@ interface Props {
 export function InvoiceDetails({ invoice, permissions, onBack, onViewTemplate, onInvoiceUpdated, onEdit }: Props) {
   const [showPaymentForm, setShowPaymentForm] = useState(false);
   const canEdit = invoice.status === 'draft' && permissions.includes('invoice.edit');
+  const sets = calculateSets(invoice.generalQuantity);
 
   async function refresh() {
     onInvoiceUpdated(await invoicesApi.getInvoice(invoice.id));
@@ -27,8 +29,11 @@ export function InvoiceDetails({ invoice, permissions, onBack, onViewTemplate, o
           <h3 className="text-sm font-semibold text-slate-900">{invoice.invoiceNumber}</h3>
           <p className="text-xs text-slate-500">
             {invoice.customerName} · {invoice.invoiceDate} · {invoice.status}
+            {invoice.billNumber && <> · Bill #: {invoice.billNumber}</>}
             {invoice.lotNumber && <> · Internal Lot #: {invoice.lotNumber}</>}
             {invoice.customerLotNumber && <> · Customer Lot #: {invoice.customerLotNumber}</>}
+            {invoice.generalQuantity && <> · General Quantity: {formatQuantity(invoice.generalQuantity)}</>}
+            {sets && <> · Sets: {sets}</>}
           </p>
         </div>
         <div className="flex items-center gap-3">

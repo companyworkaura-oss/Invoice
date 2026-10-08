@@ -1,4 +1,5 @@
 import type { Customer, DiscountType, EmbroideryCategory, InvoiceWithItems } from '@invoice/shared';
+import { calculateSets } from '@invoice/shared';
 import { useEffect, useMemo, useState } from 'react';
 import { ApiError } from '../../lib/api';
 import * as customersApi from '../customers/api';
@@ -56,6 +57,10 @@ export function CreateInvoiceForm({ invoice, onSaved, onCancel }: Props) {
   const [invoiceDate, setInvoiceDate] = useState(invoice?.invoiceDate ?? todayLocal());
   const [lotNumber, setLotNumber] = useState(invoice?.lotNumber ?? '');
   const [customerLotNumber, setCustomerLotNumber] = useState(invoice?.customerLotNumber ?? '');
+  const [billNumber, setBillNumber] = useState(invoice?.billNumber ?? '');
+  const [generalQuantity, setGeneralQuantity] = useState(invoice?.generalQuantity ?? '');
+  const [showUnitAmount, setShowUnitAmount] = useState(invoice?.showUnitAmount ?? true);
+  const [showItemQuantity, setShowItemQuantity] = useState(invoice?.showItemQuantity ?? true);
   const [discountType, setDiscountType] = useState<DiscountType | ''>(invoice?.discountType ?? '');
   const [discountValue, setDiscountValue] = useState(invoice?.discountType ? invoice.discountValue : '');
   const [items, setItems] = useState<ItemRow[]>(() => (invoice ? invoice.items.map(itemRowFromInvoice) : [newRow()]));
@@ -93,6 +98,11 @@ export function CreateInvoiceForm({ invoice, onSaved, onCancel }: Props) {
   }, [customerId, editing]);
 
   const categoryById = useMemo(() => new Map(categories.map((c) => [c.id, c])), [categories]);
+
+  // Live preview only, same SUITS_PER_SET business rule the server/print
+  // view uses (see @invoice/shared's calculateSets) — General Quantity
+  // itself is the saved, authoritative field; Sets is never stored.
+  const setsPreview = useMemo(() => calculateSets(generalQuantity), [generalQuantity]);
 
   // Live preview only — the same formula engine as the server, run
   // client-side purely for feedback. The server recalculates everything
@@ -178,6 +188,10 @@ export function CreateInvoiceForm({ invoice, onSaved, onCancel }: Props) {
         invoiceDate,
         lotNumber: lotNumber || undefined,
         customerLotNumber: customerLotNumber || undefined,
+        billNumber: billNumber || undefined,
+        generalQuantity: generalQuantity || undefined,
+        showUnitAmount,
+        showItemQuantity,
         discountType: discountType || undefined,
         discountValue: discountType ? discountValue || '0' : undefined,
         items: items.map((row) => ({
@@ -263,6 +277,62 @@ export function CreateInvoiceForm({ invoice, onSaved, onCancel }: Props) {
             className={inputClass(false)}
           />
         </Field>
+      </div>
+
+      {/* Invoice Details: Bill Number, General Quantity (+ derived Sets), and the two print display toggles */}
+      <div className="mt-4 rounded-md border border-slate-200 p-3">
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Invoice Details</p>
+        <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <Field label="Bill Number">
+            <input
+              type="text"
+              value={billNumber}
+              onChange={(e) => setBillNumber(e.target.value)}
+              placeholder="e.g. 4587"
+              className={inputClass(false)}
+            />
+          </Field>
+
+          <Field label="General Quantity">
+            <input
+              inputMode="decimal"
+              value={generalQuantity}
+              onChange={(e) => setGeneralQuantity(e.target.value)}
+              placeholder="e.g. 504"
+              className={`${inputClass(false)} text-right`}
+            />
+          </Field>
+
+          <Field label="Sets">
+            <input
+              disabled
+              value={setsPreview ?? '—'}
+              className="w-full rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5 text-right text-sm text-slate-500"
+            />
+          </Field>
+        </div>
+
+        <div className="mt-3">
+          <p className="text-xs font-medium text-slate-500">Invoice Display</p>
+          <div className="mt-1 flex flex-wrap gap-4">
+            <label className="flex items-center gap-1.5 text-sm text-slate-700">
+              <input
+                type="checkbox"
+                checked={showItemQuantity}
+                onChange={(e) => setShowItemQuantity(e.target.checked)}
+              />
+              Show item quantity
+            </label>
+            <label className="flex items-center gap-1.5 text-sm text-slate-700">
+              <input
+                type="checkbox"
+                checked={showUnitAmount}
+                onChange={(e) => setShowUnitAmount(e.target.checked)}
+              />
+              Show unit amount
+            </label>
+          </div>
+        </div>
       </div>
 
       {/* Items */}

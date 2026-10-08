@@ -55,6 +55,35 @@ export interface InvoiceInput {
    * entirely there when this is empty, never falling back to lotNumber.
    */
   customerLotNumber?: string;
+  /**
+   * A second, business-assigned number — separate from the
+   * system-generated invoiceNumber, entered by the user and never
+   * auto-assigned. Shown on customer-facing print/PDF/WhatsApp, unlike
+   * the internal lot number.
+   */
+  billNumber?: string;
+  /**
+   * The overall suit quantity for this invoice/job as a whole — e.g.
+   * "504 suits" — distinct from each item's own quantity
+   * (InvoiceItemInput.quantity) and never used in any calculation.
+   * Purely job/invoice metadata; Number of Sets is always derived from
+   * this (see @invoice/shared's calculateSets), never stored
+   * separately.
+   */
+  generalQuantity?: string;
+  /**
+   * Display-only toggle for the customer-facing Unit Amount column —
+   * never affects the unit amount calculation itself, which is always
+   * computed and saved on every item regardless of this flag. Defaults
+   * to true (shown) when omitted, so existing behavior is preserved.
+   */
+  showUnitAmount?: boolean;
+  /**
+   * Display-only toggle for the customer-facing (per-item) Quantity
+   * column — never affects the saved per-item quantity or any
+   * calculation that uses it. Defaults to true (shown) when omitted.
+   */
+  showItemQuantity?: boolean;
   /** Omitted/undefined means no discount — same as passing 'percentage'/'fixed' with a value of "0.00". */
   discountType?: DiscountType;
   discountValue?: string;
@@ -164,6 +193,14 @@ export interface Invoice {
   lotNumber: string | null;
   /** The customer's own lot number — the only one shown on customer-facing print/PDF/WhatsApp. */
   customerLotNumber: string | null;
+  /** A second, business-assigned number, separate from invoiceNumber — shown on customer-facing print/PDF/WhatsApp. */
+  billNumber: string | null;
+  /** The overall suit quantity for this invoice/job as a whole — see InvoiceInput.generalQuantity. Never used in any calculation. */
+  generalQuantity: string | null;
+  /** Display-only: whether the customer-facing Unit Amount column is shown. Saved per invoice so an old invoice always prints the same way. */
+  showUnitAmount: boolean;
+  /** Display-only: whether the customer-facing per-item Quantity column is shown. Saved per invoice so an old invoice always prints the same way. */
+  showItemQuantity: boolean;
   discountType: DiscountType | null;
   discountValue: string;
   discountAmount: string;
@@ -223,7 +260,10 @@ const INVOICE_HEADER_COLUMNS = `
   i.id, i.company_id AS "companyId", i.customer_id AS "customerId", c.name AS "customerName",
   i.invoice_number AS "invoiceNumber", i.invoice_date AS "invoiceDate", i.notes, i.status,
   i.created_at AS "createdAt", i.archived_at AS "archivedAt",
-  i.lot_number AS "lotNumber", i.customer_lot_number AS "customerLotNumber", i.discount_type AS "discountType",
+  i.lot_number AS "lotNumber", i.customer_lot_number AS "customerLotNumber",
+  i.bill_number AS "billNumber", i.general_quantity AS "generalQuantity",
+  i.show_unit_amount AS "showUnitAmount", i.show_item_quantity AS "showItemQuantity",
+  i.discount_type AS "discountType",
   i.discount_value AS "discountValue", i.discount_amount AS "discountAmount"
 `;
 
@@ -467,9 +507,17 @@ export async function createInvoice(
     // note on the Invoice type above) — the column still exists and is
     // NOT NULL, but the app never reads, writes, or displays it anymore;
     // its DEFAULT 1 (migration 011) is all that satisfies the column now.
+    // Display toggles default to true (shown) when omitted, so an
+    // existing caller that never sends them gets today's exact
+    // behavior back — see InvoiceInput.showUnitAmount/showItemQuantity.
+    const showUnitAmount = input.showUnitAmount ?? true;
+    const showItemQuantity = input.showItemQuantity ?? true;
+
     const invoiceRes = await client.query<{ id: string; invoiceDate: string; createdAt: string }>(
-      `INSERT INTO invoices (company_id, customer_id, invoice_number, invoice_date, notes, status, lot_number, customer_lot_number)
-       VALUES ($1, $2, $3, COALESCE($4::date, CURRENT_DATE), $5, COALESCE($6, 'draft'), $7, $8)
+      `INSERT INTO invoices
+         (company_id, customer_id, invoice_number, invoice_date, notes, status, lot_number, customer_lot_number,
+          bill_number, general_quantity, show_unit_amount, show_item_quantity)
+       VALUES ($1, $2, $3, COALESCE($4::date, CURRENT_DATE), $5, COALESCE($6, 'draft'), $7, $8, $9, $10, $11, $12)
        RETURNING id, invoice_date AS "invoiceDate", created_at AS "createdAt"`,
       [
         companyId,
@@ -480,6 +528,10 @@ export async function createInvoice(
         input.status ?? null,
         input.lotNumber ?? null,
         input.customerLotNumber ?? null,
+        input.billNumber ?? null,
+        input.generalQuantity ?? null,
+        showUnitAmount,
+        showItemQuantity,
       ],
     );
     const { id: invoiceId, invoiceDate, createdAt } = invoiceRes.rows[0];
@@ -542,6 +594,13 @@ export async function createInvoice(
       archivedAt: null,
       lotNumber: input.lotNumber ?? null,
       customerLotNumber: input.customerLotNumber ?? null,
+      billNumber: input.billNumber ?? null,
+      // Matches the numeric(12,2) column's own normalization, same as
+      // discountValue just above — so a direct create response never
+      // disagrees in formatting with a subsequent GET of the same invoice.
+      generalQuantity: input.generalQuantity ? roundMoney(new Decimal(input.generalQuantity)) : null,
+      showUnitAmount,
+      showItemQuantity,
       discountType: discount.discountType,
       discountValue: discount.discountValue,
       discountAmount: discount.discountAmount,
@@ -597,7 +656,7 @@ export async function listInvoices(companyId: string, filter: InvoiceListFilter)
   if (filter.search) {
     params.push(`%${filter.search}%`);
     conditions.push(
-      `("invoiceNumber" ILIKE $${params.length} OR "customerName" ILIKE $${params.length} OR "lotNumber" ILIKE $${params.length} OR "customerLotNumber" ILIKE $${params.length})`,
+      `("invoiceNumber" ILIKE $${params.length} OR "customerName" ILIKE $${params.length} OR "lotNumber" ILIKE $${params.length} OR "customerLotNumber" ILIKE $${params.length} OR "billNumber" ILIKE $${params.length})`,
     );
   }
   // Default 'active': archived invoices are hidden unless explicitly
@@ -641,7 +700,10 @@ export async function listInvoices(companyId: string, filter: InvoiceListFilter)
          i.id, i.company_id AS "companyId", i.customer_id AS "customerId", c.name AS "customerName",
          i.invoice_number AS "invoiceNumber", i.invoice_date AS "invoiceDate", i.notes,
          i.status, i.created_at AS "createdAt", i.archived_at AS "archivedAt",
-         i.lot_number AS "lotNumber", i.customer_lot_number AS "customerLotNumber", i.discount_type AS "discountType",
+         i.lot_number AS "lotNumber", i.customer_lot_number AS "customerLotNumber",
+         i.bill_number AS "billNumber", i.general_quantity AS "generalQuantity",
+         i.show_unit_amount AS "showUnitAmount", i.show_item_quantity AS "showItemQuantity",
+         i.discount_type AS "discountType",
          i.discount_value AS "discountValue", i.discount_amount AS "discountAmount",
          COALESCE(items.total, 0) AS "totalAmount",
          COALESCE(items.total, 0) - i.discount_amount AS "grandTotal",
@@ -709,10 +771,12 @@ export async function getInvoice(companyId: string, invoiceId: string): Promise<
  * can't be re-validated by createInvoice, so that's rejected up front
  * with a clear reason instead of silently dropping the item.
  *
- * The discount type/value carry over (a duplicate is usually "the same
- * order again"), but neither lot number (internal or customer's) does —
- * each new batch/job is expected to get its own lot numbers, so leaving
- * both fields blank is safer than silently reusing the original's.
+ * The discount type/value, General Quantity, and the two display
+ * toggles all carry over (a duplicate is usually "the same order
+ * again" — same suit count, same printed layout preference). Neither
+ * lot number (internal or customer's) does, nor does Bill Number —
+ * each new batch/job/bill is expected to get its own, so leaving those
+ * three fields blank is safer than silently reusing the original's.
  */
 export async function duplicateInvoice(companyId: string, userId: string, invoiceId: string): Promise<InvoiceWithItems> {
   const original = await getInvoice(companyId, invoiceId);
@@ -730,6 +794,9 @@ export async function duplicateInvoice(companyId: string, userId: string, invoic
       customerId: original.customerId,
       notes: original.notes ?? undefined,
       status: 'draft',
+      generalQuantity: original.generalQuantity ?? undefined,
+      showUnitAmount: original.showUnitAmount,
+      showItemQuantity: original.showItemQuantity,
       discountType: original.discountType ?? undefined,
       discountValue: original.discountType ? original.discountValue : undefined,
       items: original.items.map((item) => ({
@@ -790,6 +857,10 @@ export async function updateInvoice(
               notes = $4,
               lot_number = $5,
               customer_lot_number = $6,
+              bill_number = $7,
+              general_quantity = $8,
+              show_unit_amount = $9,
+              show_item_quantity = $10,
               updated_at = now()
         WHERE id = $1 AND company_id = $2
         RETURNING invoice_date AS "invoiceDate"`,
@@ -800,6 +871,10 @@ export async function updateInvoice(
         input.notes ?? null,
         input.lotNumber ?? null,
         input.customerLotNumber ?? null,
+        input.billNumber ?? null,
+        input.generalQuantity ?? null,
+        input.showUnitAmount ?? true,
+        input.showItemQuantity ?? true,
       ],
     );
     const { invoiceDate } = invoiceRes.rows[0];

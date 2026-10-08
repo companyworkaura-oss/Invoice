@@ -1,7 +1,21 @@
 import type { InvoiceViewModel } from '@invoice/shared';
 import { vs } from './compact';
 
+/**
+ * Tailwind's JIT scanner only picks up complete class-name literals
+ * that appear verbatim in source text — so this returns one of a fixed
+ * set of full `grid-cols-N` strings (never an interpolated
+ * `grid-cols-${n}`), the same pattern the pre-existing lot-number
+ * ternary here already relied on.
+ */
+function infoGridClass(count: number): string {
+  if (count >= 4) return 'grid-cols-4';
+  if (count === 3) return 'grid-cols-3';
+  return 'grid-cols-2';
+}
+
 export function IndustrialBlueTemplate({ invoice, compact }: { invoice: InvoiceViewModel; compact?: boolean }) {
+  const infoCellCount = 2 + (invoice.billNumber ? 1 : 0) + (invoice.customerLotNumber ? 1 : 0);
   return (
     <div className="print-page-invoice mx-auto w-[148mm] min-h-[210mm] border-4 border-blue-800 bg-white text-slate-900 shadow print:shadow-none">
       <div className={`flex items-center justify-between bg-blue-800 px-6 ${vs(compact, 'py-4', 'py-2')} text-white`}>
@@ -14,8 +28,9 @@ export function IndustrialBlueTemplate({ invoice, compact }: { invoice: InvoiceV
         <p className="text-[length:calc(1.25rem*var(--inv-scale,1))] font-black uppercase tracking-widest">Invoice</p>
       </div>
 
-      <div className={`grid divide-x-2 divide-blue-800 border-b-2 border-blue-800 text-[length:calc(0.875rem*var(--inv-scale,1))] ${invoice.customerLotNumber ? 'grid-cols-3' : 'grid-cols-2'}`}>
+      <div className={`grid divide-x-2 divide-blue-800 border-b-2 border-blue-800 text-[length:calc(0.875rem*var(--inv-scale,1))] ${infoGridClass(infoCellCount)}`}>
         <InfoCell label="Invoice No." value={invoice.invoiceNumber} compact={compact} />
+        {invoice.billNumber && <InfoCell label="Bill #" value={invoice.billNumber} compact={compact} />}
         <InfoCell label="Date" value={invoice.invoiceDate} compact={compact} />
         {invoice.customerLotNumber && <InfoCell label="Lot #" value={invoice.customerLotNumber} compact={compact} />}
       </div>
@@ -24,15 +39,17 @@ export function IndustrialBlueTemplate({ invoice, compact }: { invoice: InvoiceV
         <p className="text-[length:calc(0.75rem*var(--inv-scale,1))] font-bold uppercase tracking-widest text-blue-800">Bill To</p>
         <p className="font-semibold">{invoice.customer.businessName || invoice.customer.name}</p>
         {invoice.customer.address && <p className="text-slate-600">{invoice.customer.address}</p>}
+        {invoice.generalQuantity && <p className="text-slate-600">Quantity: {invoice.generalQuantity} Suits</p>}
+        {invoice.sets && <p className="text-slate-600">Sets: {invoice.sets}</p>}
       </div>
 
       <table className="w-full text-[length:calc(0.875rem*var(--inv-scale,1))]">
         <thead>
           <tr className="border-b-2 border-blue-800 bg-blue-50 text-left text-[length:calc(0.75rem*var(--inv-scale,1))] font-bold uppercase tracking-wide text-blue-800">
             <th className={`px-4 ${vs(compact, 'py-2', 'py-1')}`}>Description</th>
-            <th className={`px-3 ${vs(compact, 'py-2', 'py-1')} text-right`}>Quantity</th>
+            {invoice.showItemQuantity && <th className={`px-3 ${vs(compact, 'py-2', 'py-1')} text-right`}>Quantity</th>}
             <th className={`px-3 ${vs(compact, 'py-2', 'py-1')} text-right`}>Stitches</th>
-            <th className={`px-3 ${vs(compact, 'py-2', 'py-1')} text-right`}>Unit Amount</th>
+            {invoice.showUnitAmount && <th className={`px-3 ${vs(compact, 'py-2', 'py-1')} text-right`}>Unit Amount</th>}
             <th className={`px-4 ${vs(compact, 'py-2', 'py-1')} text-right`}>Amount</th>
           </tr>
         </thead>
@@ -40,9 +57,9 @@ export function IndustrialBlueTemplate({ invoice, compact }: { invoice: InvoiceV
           {invoice.items.map((item) => (
             <tr key={item.id} className="break-inside-avoid border-b border-blue-100">
               <td className={`px-4 ${vs(compact, 'py-2', 'py-1')} break-words`}>{item.description}</td>
-              <td className={`px-3 ${vs(compact, 'py-2', 'py-1')} text-right`}>{item.quantity}</td>
+              {invoice.showItemQuantity && <td className={`px-3 ${vs(compact, 'py-2', 'py-1')} text-right`}>{item.quantity}</td>}
               <td className={`px-3 ${vs(compact, 'py-2', 'py-1')} text-right`}>{item.stitches}</td>
-              <td className={`px-3 ${vs(compact, 'py-2', 'py-1')} text-right`}>{item.unitAmount}</td>
+              {invoice.showUnitAmount && <td className={`px-3 ${vs(compact, 'py-2', 'py-1')} text-right`}>{item.unitAmount}</td>}
               <td className={`px-4 ${vs(compact, 'py-2', 'py-1')} text-right font-semibold`}>{item.amount}</td>
             </tr>
           ))}

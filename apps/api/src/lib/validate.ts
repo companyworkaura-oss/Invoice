@@ -112,6 +112,22 @@ export function requirePositiveDecimal(body: Body, key: string, opts: { decimals
   return raw;
 }
 
+/** Same shape as requirePositiveDecimal, but absent is fine — e.g. an invoice's optional General Quantity. */
+export function optionalPositiveDecimal(body: Body, key: string, opts: { decimals?: number } = {}): string | undefined {
+  if (body[key] === undefined) return undefined;
+  return requirePositiveDecimal(body, key, opts);
+}
+
+/** A plain true/false flag, e.g. an invoice's Show Unit Amount / Show Item Quantity display toggles. Absent is fine. */
+export function optionalBoolean(body: Body, key: string): boolean | undefined {
+  const raw = body[key];
+  if (raw === undefined) return undefined;
+  if (typeof raw !== 'boolean') {
+    throw badRequest('Validation failed', { [key]: 'Must be true or false' });
+  }
+  return raw;
+}
+
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 export function optionalDate(body: Body, key: string): string | undefined {

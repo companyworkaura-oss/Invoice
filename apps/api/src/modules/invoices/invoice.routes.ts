@@ -2,8 +2,10 @@ import { Router, type Request } from 'express';
 import { badRequest } from '../../lib/http-error.js';
 import {
   asBody,
+  optionalBoolean,
   optionalDate,
   optionalMoney,
+  optionalPositiveDecimal,
   optionalString,
   requirePositiveDecimal,
   requirePositiveInt,
@@ -61,7 +63,11 @@ function parseItems(body: Record<string, unknown>): service.InvoiceItemInput[] {
   });
 }
 
-/** discountType/discountValue/lotNumber/customerLotNumber — shared by create (POST /) and edit (PATCH /:id). */
+/**
+ * discountType/discountValue/lotNumber/customerLotNumber/billNumber/
+ * generalQuantity/showUnitAmount/showItemQuantity — shared by create
+ * (POST /) and edit (PATCH /:id).
+ */
 function parseDiscountAndLot(body: Record<string, unknown>) {
   const discountType = optionalString(body, 'discountType', { max: 20 });
   if (discountType && !(DISCOUNT_TYPES as readonly string[]).includes(discountType)) {
@@ -72,6 +78,13 @@ function parseDiscountAndLot(body: Record<string, unknown>) {
     lotNumber: optionalString(body, 'lotNumber', { max: 100 }),
     // The customer's own lot number — the only one shown on customer-facing print/PDF/WhatsApp.
     customerLotNumber: optionalString(body, 'customerLotNumber', { max: 100 }),
+    // A second, business-assigned number — separate from the system-generated invoice number.
+    billNumber: optionalString(body, 'billNumber', { max: 100 }),
+    // The overall suit quantity for the whole invoice/job — never an item's own quantity, never used in a calculation.
+    generalQuantity: optionalPositiveDecimal(body, 'generalQuantity'),
+    // Display-only toggles for the customer-facing table columns — see InvoiceInput.
+    showUnitAmount: optionalBoolean(body, 'showUnitAmount'),
+    showItemQuantity: optionalBoolean(body, 'showItemQuantity'),
     discountType: discountType as service.InvoiceInput['discountType'],
     discountValue: optionalMoney(body, 'discountValue'),
   };

@@ -29,6 +29,11 @@ const viewModel: InvoiceViewModel = {
   invoiceNumber: 'INV-000042',
   invoiceDate: '2026-01-15',
   customerLotNumber: 'CUST-458',
+  billNumber: '4587',
+  generalQuantity: '504',
+  sets: '6',
+  showItemQuantity: true,
+  showUnitAmount: true,
   items: [
     {
       id: 'item-1',
@@ -67,6 +72,9 @@ test('renders the invoice data the customer should see', () => {
   assert.match(html, /144\.00/);
   assert.match(html, /Payment due within 30 days\./);
   assert.match(html, /Lot #: CUST-458/);
+  assert.match(html, /Bill #: 4587/);
+  assert.match(html, /Quantity: 504 Suits/);
+  assert.match(html, /Sets: 6/);
   // The spec'd summary fields, by label.
   assert.match(html, /Subtotal/);
   assert.match(html, /Grand Total/);
@@ -98,6 +106,79 @@ test('never shows the internal lot number on print/PDF, even disguised as the cu
   for (const id of Object.keys(PDF_THEMES)) {
     const html = renderInvoiceHtml(getPdfTheme(id), viewModel, null);
     assert.ok(!html.includes('INTERNAL-'), `${id} theme must never render anything that looks like an internal lot number`);
+  }
+});
+
+test('hides the Bill # row entirely when billNumber is null, across every theme', () => {
+  const noBill = { ...viewModel, billNumber: null };
+  for (const id of Object.keys(PDF_THEMES)) {
+    const html = renderInvoiceHtml(getPdfTheme(id), noBill, null);
+    assert.ok(!html.includes('Bill #'), `${id} theme must not show a Bill # row when billNumber is null`);
+  }
+});
+
+test('hides the Quantity/Sets metadata rows entirely when generalQuantity is null, across every theme', () => {
+  const noQty = { ...viewModel, generalQuantity: null, sets: null };
+  for (const id of Object.keys(PDF_THEMES)) {
+    const html = renderInvoiceHtml(getPdfTheme(id), noQty, null);
+    assert.ok(!html.includes('Suits'), `${id} theme must not show a Quantity metadata row when generalQuantity is null`);
+    assert.ok(!html.includes('Sets:'), `${id} theme must not show a Sets row when generalQuantity is null`);
+  }
+});
+
+test('shows the Quantity/Sets metadata rows for every theme when a general quantity is set', () => {
+  for (const id of Object.keys(PDF_THEMES)) {
+    const html = renderInvoiceHtml(getPdfTheme(id), viewModel, null);
+    assert.match(html, /Quantity: 504 Suits/, `${id} theme must show the general quantity`);
+    assert.match(html, /Sets: 6/, `${id} theme must show the derived sets`);
+  }
+});
+
+test('Show Unit Amount OFF hides the Unit Amount column entirely (header and every row), across every theme', () => {
+  const noUnitAmount = { ...viewModel, showUnitAmount: false };
+  for (const id of Object.keys(PDF_THEMES)) {
+    const html = renderInvoiceHtml(getPdfTheme(id), noUnitAmount, null);
+    assert.ok(!html.includes('Unit Amount'), `${id} theme must not show a Unit Amount column when showUnitAmount is false`);
+    // The unit amount VALUE must also be gone, not just relabeled — 14.40 never appears when hidden (144.00 still legitimately does, as Amount).
+    assert.ok(!html.includes('>14.40<'), `${id} theme must not render the unit amount value when hidden`);
+  }
+});
+
+test('Show Item Quantity OFF hides the Quantity column entirely (header and every row), across every theme', () => {
+  const noItemQuantity = { ...viewModel, showItemQuantity: false };
+  for (const id of Object.keys(PDF_THEMES)) {
+    const html = renderInvoiceHtml(getPdfTheme(id), noItemQuantity, null);
+    assert.ok(!html.includes('<th class="num">Quantity</th>'), `${id} theme must not show a Quantity column when showItemQuantity is false`);
+    assert.ok(!html.includes('>10.00<'), `${id} theme must not render the item quantity value when hidden`);
+  }
+});
+
+test('both toggles ON: Description | Quantity | Stitches | Unit Amount | Amount', () => {
+  const html = renderInvoiceHtml(getPdfTheme('classic-navy'), { ...viewModel, showItemQuantity: true, showUnitAmount: true }, null);
+  assert.match(html, /<th>Description<\/th>\s*<th class="num">Quantity<\/th>\s*<th class="num">Stitches<\/th>\s*<th class="num">Unit Amount<\/th>\s*<th class="num">Amount<\/th>/);
+});
+
+test('Unit Amount OFF only: Description | Quantity | Stitches | Amount', () => {
+  const html = renderInvoiceHtml(getPdfTheme('classic-navy'), { ...viewModel, showItemQuantity: true, showUnitAmount: false }, null);
+  assert.match(html, /<th>Description<\/th>\s*<th class="num">Quantity<\/th>\s*<th class="num">Stitches<\/th>\s*<th class="num">Amount<\/th>/);
+});
+
+test('Item Quantity OFF only: Description | Stitches | Unit Amount | Amount', () => {
+  const html = renderInvoiceHtml(getPdfTheme('classic-navy'), { ...viewModel, showItemQuantity: false, showUnitAmount: true }, null);
+  assert.match(html, /<th>Description<\/th>\s*<th class="num">Stitches<\/th>\s*<th class="num">Unit Amount<\/th>\s*<th class="num">Amount<\/th>/);
+});
+
+test('both toggles OFF: Description | Stitches | Amount', () => {
+  const html = renderInvoiceHtml(getPdfTheme('classic-navy'), { ...viewModel, showItemQuantity: false, showUnitAmount: false }, null);
+  assert.match(html, /<th>Description<\/th>\s*<th class="num">Stitches<\/th>\s*<th class="num">Amount<\/th>/);
+});
+
+test('toggling either display flag never changes any item or total figure — display-only, calculations are identical', () => {
+  const shown = renderInvoiceHtml(getPdfTheme('classic-navy'), { ...viewModel, showItemQuantity: true, showUnitAmount: true }, null);
+  const hidden = renderInvoiceHtml(getPdfTheme('classic-navy'), { ...viewModel, showItemQuantity: false, showUnitAmount: false }, null);
+  for (const html of [shown, hidden]) {
+    assert.match(html, /144\.00/); // subtotal/amount unchanged regardless of what's visible
+    assert.match(html, /Grand Total/);
   }
 });
 

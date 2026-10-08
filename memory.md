@@ -1423,6 +1423,113 @@ the only one ever shown on a customer-facing output.
   serialization never contains an internal lot number value, even when
   one is set on the source invoice.
 
+## Optional Display Controls + General Quantity + Sets + Bill Number (Phase 30)
+
+Four additions, all additive-only (one migration, no column removed or
+repurposed) and all display/metadata — none of them touch the formula
+engine, calculated amounts, discount, ledger, or any existing
+calculation:
+
+1. **Show Unit Amount / Show Item Quantity** — two invoice-level
+   booleans (`show_unit_amount`, `show_item_quantity`, both `NOT NULL
+   DEFAULT true`) that control whether a template renders the Unit
+   Amount / (per-item) Quantity table columns. Display-only: the
+   underlying values (`calculatedUnitAmount`, each item's `quantity`)
+   are always computed and saved exactly as before regardless of these
+   flags — `InvoiceViewModel.items[].unitAmount`/`.quantity` are always
+   present; a template's JSX/HTML just conditionally renders the
+   `<th>`/`<td>` pair. Saved *per invoice*, not a global UI setting, so
+   an old invoice always prints the same way later even if some future
+   default changes (verified: toggling either flag on a fresh create
+   never changes `calculatedUnitAmount`, `calculatedTotal`,
+   `totalAmount`, `grandTotal`, or the ledger debit).
+2. **General Quantity** — a new, optional, invoice-level
+   `general_quantity numeric(12,2)` field: "the overall suit quantity
+   for the whole job," completely separate from each item's own
+   `invoice_items.quantity` (untouched) and never fed into any
+   calculation. Shown in-app and on customer-facing print/PDF/WhatsApp
+   as "Quantity: 504 Suits" (hidden entirely when null) — never
+   confused with the item-level "Quantity" table column.
+3. **Number of Sets** — `SUITS_PER_SET = 84`, the one named constant
+   (packages/shared's `invoice-sets.ts`) everywhere this business rule
+   is used; changing it later is a one-line edit, never a scattered
+   literal 84. **Deliberately not stored** — `calculateSets(generalQuantity)`
+   derives it fresh on every read/render (`generalQuantity /
+   SUITS_PER_SET`, formatted with `toDecimalPlaces(2).toString()` so a
+   whole result prints as "6" and a fractional one as "1.5", never
+   padded to "6.00" or wrongly rounded to a whole number for a
+   non-84-multiple like 100 → "1.19"). A sibling `formatQuantity()`
+   trims the DB's own "504.00" down to "504" for display only — the
+   stored `Invoice.generalQuantity` itself is untouched by either
+   helper.
+4. **Bill Number** — a new, optional `bill_number text` field, a
+   second business-assigned number distinct from the system-generated
+   `invoice_number`. Unlike the internal lot number, this one IS shown
+   on customer-facing print/PDF/WhatsApp ("Bill #: 4587", right near
+   the invoice number) — so, unlike `customerLotNumber`, it needed no
+   special view-model-shape enforcement; it's just another optional
+   field in `InvoiceViewModel`. Searchable (`listInvoices`' search
+   clause now also matches `billNumber`).
+
+- **Migration `015_invoice_display_and_metadata.sql`**: adds all four
+  columns (`bill_number`, `general_quantity`, `show_unit_amount`,
+  `show_item_quantity`) to `invoices` in one `ALTER TABLE`. The two
+  booleans default `true` so every pre-existing invoice prints exactly
+  as it already did — confirmed with a dedicated backward-compatibility
+  test (`invoice-display-metadata.test.ts`) that creates an invoice
+  sending none of the four new fields and asserts `billNumber`/
+  `generalQuantity` are `null` and both booleans are `true`.
+- **`invoice.service.ts`**: `InvoiceInput`/`Invoice` widened with the
+  four fields; `createInvoice`'s return normalizes `generalQuantity`
+  through `roundMoney` (matching the numeric(12,2) column's own
+  formatting — same convention `discountValue` already uses) so a
+  direct create response never disagrees with a subsequent GET's
+  formatting. `duplicateInvoice` carries over `generalQuantity` and
+  both display toggles (a duplicate is "the same order again — same
+  suit count, same print preference") but never `billNumber` (same
+  reasoning as the lot numbers: each new bill gets its own).
+- **`invoice.routes.ts`**: two new `validate.ts` helpers —
+  `optionalPositiveDecimal` (General Quantity) and `optionalBoolean`
+  (the two toggles) — both absent-is-fine, following the file's
+  existing `optionalX` naming convention.
+- **All 5 templates + `render-html.ts`** (the server-side PDF/print
+  HTML, shared by browser print, Download PDF, and WhatsApp's PDF
+  attachment — one code path, so fixing it once fixes all three
+  outputs): Quantity/Unit Amount `<th>`/`<td>` pairs are now
+  conditionally rendered on `invoice.showItemQuantity`/
+  `.showUnitAmount`; Bill #/Quantity/Sets lines added to each
+  template's existing metadata area, each independently conditional on
+  being non-null. `IndustrialBlueTemplate`'s info-cell grid (which
+  already varied its column count for the optional Lot # cell) gained
+  an `infoGridClass(count)` helper returning one of a fixed set of
+  literal `grid-cols-N` strings — Tailwind's JIT scanner only picks up
+  complete class-name literals that appear verbatim in source text, so
+  this can never be a live-interpolated `grid-cols-${n}`, the same
+  constraint the pre-existing lot-number ternary there already
+  satisfied.
+- **`CreateInvoiceForm.tsx`** gained a new "Invoice Details" section
+  (Bill Number, General Quantity, a disabled live-computed Sets
+  field via `calculateSets`, and the two "Invoice Display" checkboxes)
+  between the existing header fields and the items table — `Quick
+  InvoiceForm.tsx` was deliberately NOT touched, since the task scoped
+  this UI to Create/Edit Invoice only; a Quick Invoice still gets the
+  server's true/true/null/null defaults.
+- **`InvoiceDetails.tsx`** shows Bill #/General Quantity/Sets inline
+  next to the existing Internal/Customer Lot # line; **`InvoiceList.tsx`**
+  gained a "Bill #" column and its search placeholder now mentions it.
+- **Verified live** (Playwright, dev DB): the Invoice Details section
+  renders and live-recomputes Sets (504 → 6) as General Quantity is
+  typed; a saved invoice's template view shows "Bill #: 4587 /
+  Quantity: 504 Suits / Sets: 6"; with both toggles unchecked
+  (General Quantity 126 → Sets 1.5), all 5 templates correctly reduced
+  their item table to Description | Stitches | Amount only — confirmed
+  by screenshot on every one of the 5, not just Classic Navy. Dev DB
+  reset after verification.
+- 266/266 API tests (15 new in `invoice-display-metadata.test.ts` +
+  9 new column/toggle tests in `invoice-pdf-html.test.ts`), 49/49
+  shared tests (7 new in `invoice-view-model.test.ts`); `npm run
+  typecheck` and `npm run build` clean across all 3 workspaces.
+
 ## Known gotchas / things to check before starting work
 
 - **Postgres cluster is often stopped** when a session starts:
@@ -1645,6 +1752,17 @@ the only one ever shown on a customer-facing output.
     already used to keep the internal rate/formula off customer
     invoices. See "Internal Lot Number + Customer Lot Number (Phase
     29)" below
+35. Optional Display Controls + General Quantity + Sets + Bill Number:
+    four additive, display/metadata-only fields on `invoices` — two
+    booleans (`show_unit_amount`/`show_item_quantity`, default true)
+    that let a template hide its Unit Amount/Quantity columns without
+    touching the underlying saved values or any calculation; General
+    Quantity (an invoice-wide suit count, separate from each item's own
+    quantity); Number of Sets (`SUITS_PER_SET = 84`, the one named
+    constant it's derived from — never stored); and Bill Number (a
+    second, customer-facing document number, separate from the
+    system-generated invoice number). See "Optional Display Controls +
+    General Quantity + Sets + Bill Number (Phase 30)" below
 
 Repo also went through a monorepo restructure (`server/` → `apps/api` +
 new `apps/web` + `packages/shared`) between Phase 1 and Phase 2.

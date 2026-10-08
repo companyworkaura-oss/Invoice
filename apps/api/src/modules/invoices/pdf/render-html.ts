@@ -32,9 +32,9 @@ export function renderInvoiceHtml(theme: PdfTheme, invoice: InvoiceViewModel, lo
       (item) => `
       <tr>
         <td>${escapeHtml(item.description)}</td>
-        <td class="num">${escapeHtml(item.quantity)}</td>
+        ${invoice.showItemQuantity ? `<td class="num">${escapeHtml(item.quantity)}</td>` : ''}
         <td class="num">${item.stitches ?? ''}</td>
-        <td class="num">${escapeHtml(item.unitAmount)}</td>
+        ${invoice.showUnitAmount ? `<td class="num">${escapeHtml(item.unitAmount)}</td>` : ''}
         <td class="num">${escapeHtml(item.amount)}</td>
       </tr>`,
     )
@@ -109,8 +109,11 @@ export function renderInvoiceHtml(theme: PdfTheme, invoice: InvoiceViewModel, lo
       <div class="invoice-meta">
         <p class="invoice-title">Invoice</p>
         <p class="invoice-number">${escapeHtml(invoice.invoiceNumber)}</p>
+        ${invoice.billNumber ? `<p class="invoice-date">Bill #: ${escapeHtml(invoice.billNumber)}</p>` : ''}
         <p class="invoice-date">${escapeHtml(invoice.invoiceDate)}</p>
         ${invoice.customerLotNumber ? `<p class="invoice-date">Lot #: ${escapeHtml(invoice.customerLotNumber)}</p>` : ''}
+        ${invoice.generalQuantity ? `<p class="invoice-date">Quantity: ${escapeHtml(invoice.generalQuantity)} Suits</p>` : ''}
+        ${invoice.sets ? `<p class="invoice-date">Sets: ${escapeHtml(invoice.sets)}</p>` : ''}
       </div>
     </div>
 
@@ -125,9 +128,9 @@ export function renderInvoiceHtml(theme: PdfTheme, invoice: InvoiceViewModel, lo
         <thead>
           <tr>
             <th>Description</th>
-            <th class="num">Quantity</th>
+            ${invoice.showItemQuantity ? '<th class="num">Quantity</th>' : ''}
             <th class="num">Stitches</th>
-            <th class="num">Unit Amount</th>
+            ${invoice.showUnitAmount ? '<th class="num">Unit Amount</th>' : ''}
             <th class="num">Amount</th>
           </tr>
         </thead>

@@ -47,6 +47,10 @@ function baseInvoice(overrides: Partial<InvoiceWithItems> = {}): InvoiceWithItem
     createdAt: '2026-01-15T00:00:00.000Z',
     lotNumber: null,
     customerLotNumber: null,
+    billNumber: null,
+    generalQuantity: null,
+    showUnitAmount: true,
+    showItemQuantity: true,
     discountType: null,
     discountValue: '0.00',
     discountAmount: '0.00',
@@ -98,6 +102,53 @@ test('buildInvoiceViewModel never leaks the internal lot number — the view mod
   assert.ok(!('lotNumber' in viewModel), 'InvoiceViewModel must not carry the internal lot number under any key');
   assert.equal(viewModel.customerLotNumber, null, 'must not fall back to the internal lot number when customer lot number is empty');
   assert.ok(!JSON.stringify(viewModel).includes('INTERNAL-999'), 'the internal lot number value must never appear anywhere in the view model');
+});
+
+test('buildInvoiceViewModel maps a saved bill number through to the view model', () => {
+  const viewModel = buildInvoiceViewModel(baseInvoice({ billNumber: '4587' }), company, customer);
+  assert.equal(viewModel.billNumber, '4587');
+});
+
+test('buildInvoiceViewModel maps a null bill number as null', () => {
+  const viewModel = buildInvoiceViewModel(baseInvoice({ billNumber: null }), company, customer);
+  assert.equal(viewModel.billNumber, null);
+});
+
+test('buildInvoiceViewModel derives Sets from General Quantity using SUITS_PER_SET = 84', () => {
+  assert.equal(buildInvoiceViewModel(baseInvoice({ generalQuantity: '84' }), company, customer).sets, '1');
+  assert.equal(buildInvoiceViewModel(baseInvoice({ generalQuantity: '168' }), company, customer).sets, '2');
+  assert.equal(buildInvoiceViewModel(baseInvoice({ generalQuantity: '504' }), company, customer).sets, '6');
+});
+
+test('buildInvoiceViewModel shows a decimal Sets value, not a wrongly-rounded whole number, for a non-84-multiple', () => {
+  const viewModel = buildInvoiceViewModel(baseInvoice({ generalQuantity: '126' }), company, customer);
+  assert.equal(viewModel.sets, '1.5');
+});
+
+test('buildInvoiceViewModel leaves generalQuantity and sets null when no general quantity was saved', () => {
+  const viewModel = buildInvoiceViewModel(baseInvoice({ generalQuantity: null }), company, customer);
+  assert.equal(viewModel.generalQuantity, null);
+  assert.equal(viewModel.sets, null);
+});
+
+test('buildInvoiceViewModel passes the showUnitAmount/showItemQuantity display toggles through unchanged', () => {
+  const bothOn = buildInvoiceViewModel(baseInvoice({ showUnitAmount: true, showItemQuantity: true }), company, customer);
+  assert.equal(bothOn.showUnitAmount, true);
+  assert.equal(bothOn.showItemQuantity, true);
+
+  const bothOff = buildInvoiceViewModel(baseInvoice({ showUnitAmount: false, showItemQuantity: false }), company, customer);
+  assert.equal(bothOff.showUnitAmount, false);
+  assert.equal(bothOff.showItemQuantity, false);
+});
+
+test('hiding showUnitAmount/showItemQuantity never changes any item or total figure — display-only', () => {
+  const shown = buildInvoiceViewModel(baseInvoice({ showUnitAmount: true, showItemQuantity: true }), company, customer);
+  const hidden = buildInvoiceViewModel(baseInvoice({ showUnitAmount: false, showItemQuantity: false }), company, customer);
+  assert.equal(shown.items[0].unitAmount, hidden.items[0].unitAmount);
+  assert.equal(shown.items[0].quantity, hidden.items[0].quantity);
+  assert.equal(shown.items[0].amount, hidden.items[0].amount);
+  assert.equal(shown.subtotal, hidden.subtotal);
+  assert.equal(shown.grandTotal, hidden.grandTotal);
 });
 
 test('buildInvoiceViewModel maps the saved calculatedUnitAmount as unitAmount, not a re-derived value', () => {

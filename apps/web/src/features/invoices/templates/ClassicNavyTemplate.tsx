@@ -19,8 +19,11 @@ export function ClassicNavyTemplate({ invoice, compact }: { invoice: InvoiceView
         <div className="text-right">
           <p className="text-[length:calc(1.5rem*var(--inv-scale,1))] font-bold tracking-wide text-blue-950">INVOICE</p>
           <p className="text-[length:calc(0.875rem*var(--inv-scale,1))] text-slate-600">{invoice.invoiceNumber}</p>
+          {invoice.billNumber && <p className="text-[length:calc(0.875rem*var(--inv-scale,1))] text-slate-600">Bill #: {invoice.billNumber}</p>}
           <p className="text-[length:calc(0.875rem*var(--inv-scale,1))] text-slate-600">{invoice.invoiceDate}</p>
           {invoice.customerLotNumber && <p className="text-[length:calc(0.875rem*var(--inv-scale,1))] text-slate-600">Lot #: {invoice.customerLotNumber}</p>}
+          {invoice.generalQuantity && <p className="text-[length:calc(0.875rem*var(--inv-scale,1))] text-slate-600">Quantity: {invoice.generalQuantity} Suits</p>}
+          {invoice.sets && <p className="text-[length:calc(0.875rem*var(--inv-scale,1))] text-slate-600">Sets: {invoice.sets}</p>}
         </div>
       </div>
 
@@ -35,9 +38,9 @@ export function ClassicNavyTemplate({ invoice, compact }: { invoice: InvoiceView
         <thead>
           <tr className="border-b-2 border-blue-950 text-left text-[length:calc(0.75rem*var(--inv-scale,1))] uppercase tracking-wide text-blue-950">
             <th className={vs(compact, 'py-2', 'py-1')}>Description</th>
-            <th className={`${vs(compact, 'py-2', 'py-1')} text-right`}>Quantity</th>
+            {invoice.showItemQuantity && <th className={`${vs(compact, 'py-2', 'py-1')} text-right`}>Quantity</th>}
             <th className={`${vs(compact, 'py-2', 'py-1')} text-right`}>Stitches</th>
-            <th className={`${vs(compact, 'py-2', 'py-1')} text-right`}>Unit Amount</th>
+            {invoice.showUnitAmount && <th className={`${vs(compact, 'py-2', 'py-1')} text-right`}>Unit Amount</th>}
             <th className={`${vs(compact, 'py-2', 'py-1')} text-right`}>Amount</th>
           </tr>
         </thead>
@@ -45,9 +48,9 @@ export function ClassicNavyTemplate({ invoice, compact }: { invoice: InvoiceView
           {invoice.items.map((item) => (
             <tr key={item.id} className="break-inside-avoid border-b border-slate-200">
               <td className={`${vs(compact, 'py-2', 'py-1')} break-words`}>{item.description}</td>
-              <td className={`${vs(compact, 'py-2', 'py-1')} text-right`}>{item.quantity}</td>
+              {invoice.showItemQuantity && <td className={`${vs(compact, 'py-2', 'py-1')} text-right`}>{item.quantity}</td>}
               <td className={`${vs(compact, 'py-2', 'py-1')} text-right`}>{item.stitches}</td>
-              <td className={`${vs(compact, 'py-2', 'py-1')} text-right`}>{item.unitAmount}</td>
+              {invoice.showUnitAmount && <td className={`${vs(compact, 'py-2', 'py-1')} text-right`}>{item.unitAmount}</td>}
               <td className={`${vs(compact, 'py-2', 'py-1')} text-right`}>{item.amount}</td>
             </tr>
           ))}

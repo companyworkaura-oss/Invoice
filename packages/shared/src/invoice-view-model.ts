@@ -1,6 +1,7 @@
 import { Decimal } from 'decimal.js';
 import type { Customer, CompanyProfile, InvoiceWithItems } from './entities.js';
 import { roundMoney } from './formula-engine/formula-engine.js';
+import { calculateSets, formatQuantity } from './invoice-sets.js';
 
 /**
  * Exactly what a printable invoice is allowed to show — deliberately a
@@ -41,14 +42,33 @@ export interface InvoiceViewModel {
    * to it here even when this is empty.
    */
   customerLotNumber: string | null;
+  /** A second, business-assigned number — null when not set, in which case a template must hide the Bill # row entirely. */
+  billNumber: string | null;
+  /**
+   * The overall suit quantity for the invoice/job as a whole — e.g.
+   * "504" — null when not set, in which case a template must hide the
+   * Quantity metadata row entirely. Not to be confused with each
+   * item's own `quantity` below.
+   */
+  generalQuantity: string | null;
+  /**
+   * generalQuantity / SUITS_PER_SET, already formatted for display
+   * (see calculateSets) — null exactly when generalQuantity is, so a
+   * template can gate both rows on the same presence check if it wants.
+   */
+  sets: string | null;
+  /** Whether a template should render the per-item Quantity column — display-only, see Invoice.showItemQuantity. */
+  showItemQuantity: boolean;
+  /** Whether a template should render the per-item Unit Amount column — display-only, see Invoice.showUnitAmount. */
+  showUnitAmount: boolean;
   items: {
     id: string;
     description: string;
-    /** This line's own quantity — each category/line has its own (e.g. BAZU=12, FRONT=8), not one invoice-wide value. */
+    /** This line's own quantity — each category/line has its own (e.g. BAZU=12, FRONT=8), not one invoice-wide value. Always present even when showItemQuantity is false — hiding it is the template's job, not this shape's. */
     quantity: string;
     /** Null for a manual (Quick Invoice) item — it has no stitch count. */
     stitches: number | null;
-    /** Price of a single unit/piece, after the formula calculation — never the internal rate. See unitAmount() below. */
+    /** Price of a single unit/piece, after the formula calculation — never the internal rate. See unitAmount() below. Always present even when showUnitAmount is false. */
     unitAmount: string;
     amount: string;
   }[];
@@ -131,6 +151,11 @@ export function buildInvoiceViewModel(
     invoiceNumber: invoice.invoiceNumber,
     invoiceDate: invoice.invoiceDate,
     customerLotNumber: invoice.customerLotNumber,
+    billNumber: invoice.billNumber,
+    generalQuantity: formatQuantity(invoice.generalQuantity),
+    sets: calculateSets(invoice.generalQuantity),
+    showItemQuantity: invoice.showItemQuantity,
+    showUnitAmount: invoice.showUnitAmount,
     items: invoice.items.map((item) => ({
       id: item.id,
       description: itemDescription(item),

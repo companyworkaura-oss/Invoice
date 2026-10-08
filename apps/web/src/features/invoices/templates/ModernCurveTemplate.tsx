@@ -21,8 +21,11 @@ export function ModernCurveTemplate({ invoice, compact }: { invoice: InvoiceView
           <div className="rounded-2xl bg-white/15 px-4 py-2 text-right backdrop-blur">
             <p className="text-[length:calc(0.75rem*var(--inv-scale,1))] uppercase tracking-widest text-violet-100">Invoice</p>
             <p className="font-semibold">{invoice.invoiceNumber}</p>
+            {invoice.billNumber && <p className="text-[length:calc(0.75rem*var(--inv-scale,1))] text-violet-100">Bill #: {invoice.billNumber}</p>}
             <p className="text-[length:calc(0.75rem*var(--inv-scale,1))] text-violet-100">{invoice.invoiceDate}</p>
             {invoice.customerLotNumber && <p className="text-[length:calc(0.75rem*var(--inv-scale,1))] text-violet-100">Lot #: {invoice.customerLotNumber}</p>}
+            {invoice.generalQuantity && <p className="text-[length:calc(0.75rem*var(--inv-scale,1))] text-violet-100">Quantity: {invoice.generalQuantity} Suits</p>}
+            {invoice.sets && <p className="text-[length:calc(0.75rem*var(--inv-scale,1))] text-violet-100">Sets: {invoice.sets}</p>}
           </div>
         </div>
       </div>
@@ -39,9 +42,9 @@ export function ModernCurveTemplate({ invoice, compact }: { invoice: InvoiceView
             <thead>
               <tr className="bg-violet-50 text-left text-[length:calc(0.75rem*var(--inv-scale,1))] uppercase tracking-wide text-violet-500">
                 <th className={`px-3 ${vs(compact, 'py-2', 'py-1')}`}>Description</th>
-                <th className={`px-2 ${vs(compact, 'py-2', 'py-1')} text-right`}>Quantity</th>
+                {invoice.showItemQuantity && <th className={`px-2 ${vs(compact, 'py-2', 'py-1')} text-right`}>Quantity</th>}
                 <th className={`px-2 ${vs(compact, 'py-2', 'py-1')} text-right`}>Stitches</th>
-                <th className={`px-2 ${vs(compact, 'py-2', 'py-1')} text-right`}>Unit Amount</th>
+                {invoice.showUnitAmount && <th className={`px-2 ${vs(compact, 'py-2', 'py-1')} text-right`}>Unit Amount</th>}
                 <th className={`px-3 ${vs(compact, 'py-2', 'py-1')} text-right`}>Amount</th>
               </tr>
             </thead>
@@ -49,9 +52,9 @@ export function ModernCurveTemplate({ invoice, compact }: { invoice: InvoiceView
               {invoice.items.map((item) => (
                 <tr key={item.id} className="break-inside-avoid border-t border-violet-100">
                   <td className={`px-3 ${vs(compact, 'py-2', 'py-1')} break-words`}>{item.description}</td>
-                  <td className={`px-2 ${vs(compact, 'py-2', 'py-1')} text-right`}>{item.quantity}</td>
+                  {invoice.showItemQuantity && <td className={`px-2 ${vs(compact, 'py-2', 'py-1')} text-right`}>{item.quantity}</td>}
                   <td className={`px-2 ${vs(compact, 'py-2', 'py-1')} text-right`}>{item.stitches}</td>
-                  <td className={`px-2 ${vs(compact, 'py-2', 'py-1')} text-right`}>{item.unitAmount}</td>
+                  {invoice.showUnitAmount && <td className={`px-2 ${vs(compact, 'py-2', 'py-1')} text-right`}>{item.unitAmount}</td>}
                   <td className={`px-3 ${vs(compact, 'py-2', 'py-1')} text-right`}>{item.amount}</td>
                 </tr>
               ))}

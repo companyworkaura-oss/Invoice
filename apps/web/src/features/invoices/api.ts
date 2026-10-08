@@ -32,6 +32,14 @@ export interface InvoiceInput {
   lotNumber?: string;
   /** The customer's own lot number — the only one shown on customer-facing print/PDF. */
   customerLotNumber?: string;
+  /** A second, business-assigned number — separate from the system-generated invoice number. Shown on customer-facing print/PDF. */
+  billNumber?: string;
+  /** The overall suit quantity for the invoice/job as a whole — never an item's own quantity, never used in a calculation. */
+  generalQuantity?: string;
+  /** Display-only toggle for the customer-facing Unit Amount column. Defaults to true (shown) when omitted. */
+  showUnitAmount?: boolean;
+  /** Display-only toggle for the customer-facing per-item Quantity column. Defaults to true (shown) when omitted. */
+  showItemQuantity?: boolean;
   discountType?: DiscountType;
   discountValue?: string;
   items: InvoiceItemInput[];

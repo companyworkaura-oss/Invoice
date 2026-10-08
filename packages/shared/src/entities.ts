@@ -148,6 +148,20 @@ export interface Invoice {
    * entirely when this is null, never falling back to lotNumber.
    */
   customerLotNumber: string | null;
+  /** A second, business-assigned number — separate from invoiceNumber — shown on customer-facing print/PDF/WhatsApp. */
+  billNumber: string | null;
+  /**
+   * The overall suit quantity for this invoice/job as a whole — e.g.
+   * "504" — distinct from each item's own quantity (InvoiceItem.quantity)
+   * and never used in any calculation; pure job/invoice metadata.
+   * Number of Sets is always derived from this (see @invoice/shared's
+   * calculateSets), never stored.
+   */
+  generalQuantity: string | null;
+  /** Display-only: whether the customer-facing Unit Amount column is shown. Saved per invoice so an old invoice always prints the same way, regardless of any later global UI default change. */
+  showUnitAmount: boolean;
+  /** Display-only: whether the customer-facing per-item Quantity column is shown. Saved per invoice so an old invoice always prints the same way, regardless of any later global UI default change. */
+  showItemQuantity: boolean;
   /**
    * Invoice-level discount (never per-item). `discountType` null means no
    * discount at all — `discountValue`/`discountAmount` are then always
