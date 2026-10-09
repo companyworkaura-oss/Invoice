@@ -1,5 +1,5 @@
 import type { Customer, InvoiceArchivedFilter, InvoiceListEntry, InvoicePaymentStatus, Permission } from '@invoice/shared';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ApiError } from '../../lib/api';
 import * as customersApi from '../customers/api';
 import * as invoicesApi from './api';
@@ -54,6 +54,65 @@ function useDebounced<T>(value: T, delayMs: number): T {
     return () => clearTimeout(timer);
   }, [value, delayMs]);
   return debounced;
+}
+
+interface RowMenuItem {
+  key: string;
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+  title?: string;
+  className?: string;
+}
+
+/** The "⋮" overflow menu for a row's less-frequently-used actions. Purely presentational — every action/permission/disabled-reason it renders is decided by the caller, nothing here changes what's allowed. */
+function RowActionsMenu({ items }: { items: RowMenuItem[] }) {
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function handleOutsideClick(e: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, [open]);
+
+  return (
+    <div ref={containerRef} className="relative inline-block">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-label="More actions"
+        aria-expanded={open}
+        className="rounded-md px-1.5 py-0.5 text-slate-500 hover:bg-slate-100 hover:text-slate-900"
+      >
+        ⋮
+      </button>
+      {open && (
+        <div className="absolute right-0 z-10 mt-1 min-w-[150px] rounded-md border border-slate-200 bg-white py-1 text-xs shadow-md">
+          {items.map((item) => (
+            <button
+              key={item.key}
+              type="button"
+              disabled={item.disabled}
+              title={item.title}
+              onClick={() => {
+                setOpen(false);
+                item.onClick();
+              }}
+              className={`block w-full px-3 py-1.5 text-left hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-400 disabled:hover:bg-transparent ${item.className ?? 'text-slate-700'}`}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 export function InvoiceList({ onSelect, onAction, onViewPayments, permissions, refreshToken }: Props) {
@@ -168,17 +227,21 @@ export function InvoiceList({ onSelect, onAction, onViewPayments, permissions, r
       </div>
 
       <div className="mt-3 flex flex-wrap items-end gap-2">
-        <input
-          type="text"
-          value={searchInput}
-          onChange={(e) => setSearchInput(e.target.value)}
-          placeholder="Search invoice #, bill #, gate pass #, customer, internal lot #, or customer lot #…"
-          className="min-w-[200px] flex-1 rounded-md border border-slate-300 px-2 py-1 text-sm"
-        />
+        <div className="min-w-[180px] flex-[2_1_260px]">
+          <input
+            type="text"
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+            placeholder="Search invoices…"
+            title="Search by invoice #, bill #, customer, lot #, gate pass #"
+            className="w-full rounded-md border border-slate-300 px-2 py-1 text-sm"
+          />
+          <p className="mt-0.5 text-[11px] text-slate-400">Search by invoice #, bill #, customer, lot #, gate pass #</p>
+        </div>
         <select
           value={customerId}
           onChange={(e) => setCustomerId(e.target.value)}
-          className="rounded-md border border-slate-300 px-2 py-1 text-sm"
+          className="flex-1 basis-[150px] rounded-md border border-slate-300 px-2 py-1 text-sm"
         >
           <option value="">All customers</option>
           {customers.map((c) => (
@@ -190,7 +253,7 @@ export function InvoiceList({ onSelect, onAction, onViewPayments, permissions, r
         <select
           value={paymentStatus}
           onChange={(e) => setPaymentStatus(e.target.value as InvoicePaymentStatus | '')}
-          className="rounded-md border border-slate-300 px-2 py-1 text-sm"
+          className="flex-1 basis-[130px] rounded-md border border-slate-300 px-2 py-1 text-sm"
         >
           <option value="">All statuses</option>
           {PAYMENT_STATUSES.map((s) => (
@@ -199,24 +262,24 @@ export function InvoiceList({ onSelect, onAction, onViewPayments, permissions, r
             </option>
           ))}
         </select>
-        <label className="text-xs font-medium text-slate-500">
+        <label className="shrink-0 text-xs font-medium text-slate-500">
           From
           <input
             type="date"
             value={from}
             max={to || undefined}
             onChange={(e) => setFrom(e.target.value)}
-            className="mt-1 block rounded-md border border-slate-300 px-2 py-1 text-sm"
+            className="mt-1 block w-[130px] rounded-md border border-slate-300 px-2 py-1 text-sm"
           />
         </label>
-        <label className="text-xs font-medium text-slate-500">
+        <label className="shrink-0 text-xs font-medium text-slate-500">
           To
           <input
             type="date"
             value={to}
             min={from || undefined}
             onChange={(e) => setTo(e.target.value)}
-            className="mt-1 block rounded-md border border-slate-300 px-2 py-1 text-sm"
+            className="mt-1 block w-[130px] rounded-md border border-slate-300 px-2 py-1 text-sm"
           />
         </label>
       </div>
@@ -230,17 +293,17 @@ export function InvoiceList({ onSelect, onAction, onViewPayments, permissions, r
         <p className="mt-3 text-sm text-slate-400">No invoices match these filters.</p>
       ) : (
         <div className="mt-3 overflow-x-auto">
-          <table className="w-full min-w-[1040px] text-sm">
+          <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-slate-200 text-left text-xs text-slate-500">
                 <th className="py-1.5 pr-2 font-medium">Invoice No</th>
                 <th className="py-1.5 pr-2 font-medium">Bill #</th>
                 <th className="py-1.5 pr-2 font-medium">Date</th>
-                <th className="py-1.5 pr-2 font-medium">Internal Lot #</th>
-                <th className="py-1.5 pr-2 font-medium">Customer Lot #</th>
+                <th className="hidden py-1.5 pr-2 font-medium xl:table-cell">Internal Lot #</th>
+                <th className="hidden py-1.5 pr-2 font-medium xl:table-cell">Customer Lot #</th>
                 <th className="py-1.5 pr-2 font-medium">Customer</th>
                 <th className="py-1.5 pr-2 text-right font-medium">Grand Total</th>
-                <th className="py-1.5 pr-2 text-right font-medium">Paid</th>
+                <th className="hidden py-1.5 pr-2 text-right font-medium lg:table-cell">Paid</th>
                 <th className="py-1.5 pr-2 text-right font-medium">Balance</th>
                 <th className="py-1.5 pr-2 font-medium">Status</th>
                 <th className="py-1.5 font-medium">Actions</th>
@@ -262,11 +325,11 @@ export function InvoiceList({ onSelect, onAction, onViewPayments, permissions, r
                     </td>
                     <td className="py-1.5 pr-2 text-slate-500">{inv.billNumber ?? '—'}</td>
                     <td className="py-1.5 pr-2 text-slate-500">{inv.invoiceDate}</td>
-                    <td className="py-1.5 pr-2 text-slate-500">{inv.lotNumber ?? '—'}</td>
-                    <td className="py-1.5 pr-2 text-slate-500">{inv.customerLotNumber ?? '—'}</td>
+                    <td className="hidden py-1.5 pr-2 text-slate-500 xl:table-cell">{inv.lotNumber ?? '—'}</td>
+                    <td className="hidden py-1.5 pr-2 text-slate-500 xl:table-cell">{inv.customerLotNumber ?? '—'}</td>
                     <td className="py-1.5 pr-2 text-slate-600">{inv.customerName}</td>
                     <td className="py-1.5 pr-2 text-right tabular-nums">{inv.grandTotal}</td>
-                    <td className="py-1.5 pr-2 text-right tabular-nums">{inv.paid}</td>
+                    <td className="hidden py-1.5 pr-2 text-right tabular-nums lg:table-cell">{inv.paid}</td>
                     <td className="py-1.5 pr-2 text-right tabular-nums font-medium text-slate-900">{inv.balance}</td>
                     <td className="py-1.5 pr-2">
                       <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_STYLE[inv.paymentStatus]}`}>
@@ -274,71 +337,61 @@ export function InvoiceList({ onSelect, onAction, onViewPayments, permissions, r
                       </span>
                     </td>
                     <td className="py-1.5">
-                      <div className="flex flex-wrap gap-x-2 gap-y-1 text-xs">
+                      <div className="flex items-center gap-2 text-xs">
                         <button type="button" onClick={() => onSelect(inv)} className="text-slate-600 underline hover:text-slate-900">
                           View
                         </button>
-                        <button type="button" onClick={() => onAction('pdf', inv)} className="text-slate-600 underline hover:text-slate-900">
-                          PDF
-                        </button>
-                        {!isArchived && (
-                          <>
-                            <button type="button" onClick={() => onAction('print', inv)} className="text-slate-600 underline hover:text-slate-900">
-                              Print
-                            </button>
-                            <button type="button" onClick={() => onAction('whatsapp', inv)} className="text-green-700 underline hover:text-green-900">
-                              WhatsApp
-                            </button>
-                            <button type="button" onClick={() => onAction('duplicate', inv)} className="text-slate-600 underline hover:text-slate-900">
-                              Duplicate
-                            </button>
-                            {canArchive && (
-                              <button
-                                type="button"
-                                disabled={busy}
-                                onClick={() => handleArchive(inv)}
-                                className="text-amber-700 underline hover:text-amber-900 disabled:opacity-50"
-                              >
-                                Archive
-                              </button>
-                            )}
-                          </>
-                        )}
-                        {isArchived && canArchive && (
-                          <button
-                            type="button"
-                            disabled={busy}
-                            onClick={() => handleUnarchive(inv)}
-                            className="text-blue-700 underline hover:text-blue-900 disabled:opacity-50"
-                          >
-                            Restore
-                          </button>
-                        )}
-                        {canDelete && (() => {
-                          const blockReason = hardDeleteBlockReason(inv);
-                          return (
-                            <>
-                              <button
-                                type="button"
-                                disabled={busy || blockReason !== null}
-                                title={blockReason ?? undefined}
-                                onClick={() => handleDelete(inv)}
-                                className="text-red-600 underline hover:text-red-800 disabled:cursor-not-allowed disabled:text-slate-400 disabled:no-underline disabled:opacity-100"
-                              >
-                                {blockReason ? 'Delete (disabled)' : 'Delete'}
-                              </button>
-                              {blockReason !== null && inv.paid !== '0.00' && (
-                                <button
-                                  type="button"
-                                  onClick={() => onViewPayments(inv.customerId)}
-                                  className="text-slate-600 underline hover:text-slate-900"
-                                >
-                                  View payments
-                                </button>
-                              )}
-                            </>
-                          );
-                        })()}
+                        <RowActionsMenu
+                          items={(() => {
+                            const blockReason = hardDeleteBlockReason(inv);
+                            const menuItems: RowMenuItem[] = [
+                              { key: 'pdf', label: 'PDF', onClick: () => onAction('pdf', inv) },
+                            ];
+                            if (!isArchived) {
+                              menuItems.push(
+                                { key: 'print', label: 'Print', onClick: () => onAction('print', inv) },
+                                { key: 'whatsapp', label: 'WhatsApp', onClick: () => onAction('whatsapp', inv), className: 'text-green-700' },
+                                { key: 'duplicate', label: 'Duplicate', onClick: () => onAction('duplicate', inv) },
+                              );
+                              if (canArchive) {
+                                menuItems.push({
+                                  key: 'archive',
+                                  label: 'Archive',
+                                  onClick: () => handleArchive(inv),
+                                  disabled: busy,
+                                  className: 'text-amber-700',
+                                });
+                              }
+                            }
+                            if (isArchived && canArchive) {
+                              menuItems.push({
+                                key: 'restore',
+                                label: 'Restore',
+                                onClick: () => handleUnarchive(inv),
+                                disabled: busy,
+                                className: 'text-blue-700',
+                              });
+                            }
+                            if (canDelete) {
+                              menuItems.push({
+                                key: 'delete',
+                                label: blockReason ? 'Delete (disabled)' : 'Delete',
+                                onClick: () => handleDelete(inv),
+                                disabled: busy || blockReason !== null,
+                                title: blockReason ?? undefined,
+                                className: 'text-red-600',
+                              });
+                              if (blockReason !== null && inv.paid !== '0.00') {
+                                menuItems.push({
+                                  key: 'view-payments',
+                                  label: 'View payments',
+                                  onClick: () => onViewPayments(inv.customerId),
+                                });
+                              }
+                            }
+                            return menuItems;
+                          })()}
+                        />
                       </div>
                     </td>
                   </tr>

@@ -1723,6 +1723,84 @@ touched by this phase.
   clean across all 3 workspaces. No `deleteInvoice` or any other
   backend accounting/ledger code was changed.
 
+## Invoice List Scroll + Search Bar Cleanup (Phase 34)
+
+A pure UI/layout cleanup of `InvoiceList.tsx` — no data, search-backend
+logic, filters, calculations, ledger, payments, invoice actions, or
+permissions were touched; `listInvoices`, its query params, and every
+action handler (`handleArchive`/`handleUnarchive`/`handleDelete`) are
+byte-for-byte unchanged.
+
+- **Root cause of the desktop horizontal scroll**: the table had a
+  hardcoded `min-w-[1040px]` and all 11 columns (Invoice No, Bill #,
+  Date, Internal Lot #, Customer Lot #, Customer, Grand Total, Paid,
+  Balance, Status, Actions) always rendered, regardless of viewport —
+  at 1366px and below that combination simply didn't fit inside the
+  card's content width, forcing the `overflow-x-auto` wrapper to show
+  a scrollbar even on a normal desktop window.
+- **Fix**: dropped `min-w-[1040px]` entirely (the table is now `w-full
+  text-sm` with no min-width) and made the three least-essential
+  columns responsively hidden instead of deleted — Internal Lot # and
+  Customer Lot # (`hidden xl:table-cell`, both `<th>` and `<td>`) and
+  Paid (`hidden lg:table-cell`) collapse away first as the viewport
+  narrows; Bill #/Date/Customer/Grand Total/Balance/Status/Actions
+  stay always-visible per the task's preferred column list. The data
+  itself is never removed from the row — it's still fetched and still
+  present in the DOM, just not shown at that width (and still visible
+  via View → Invoice Details, which already showed lot numbers/Paid).
+  `overflow-x-auto` was kept on the table's wrapper div for the
+  tablet/mobile case where even the trimmed column set still needs to
+  scroll — confirmed empirically at 1366/1024/768px (no page-level
+  horizontal scroll at any of the three) vs. a 390px mobile width
+  (table-level scroll only, page itself still doesn't scroll).
+- **Search bar**: placeholder cut from the full six-field list down to
+  `Search invoices…`; the full field list ("Search by invoice #, bill
+  #, customer, lot #, gate pass #") moved to the input's `title`
+  tooltip and a `text-[11px] text-slate-400` helper line directly
+  underneath. `searchInput`/the existing 300ms-debounced `search`
+  value/`invoicesApi.listInvoices({ search, ... })` call are all
+  unchanged — only the input's displayed text changed.
+- **Compact actions**: the 7 inline underlined links (View/PDF/Print/
+  WhatsApp/Duplicate/Archive-or-Restore/Delete) collapsed to a
+  standalone "View" button plus a new `RowActionsMenu` component — a
+  small "⋮" toggle button that opens an absolutely-positioned dropdown
+  (closes on outside click via a `mousedown` listener on a `ref`'d
+  container, cleaned up in a `useEffect`). The menu is purely
+  presentational: it takes a plain `RowMenuItem[]` (`label`, `onClick`,
+  optional `disabled`/`title`/`className`), and the row's existing code
+  decides that array's contents exactly as before — same `isArchived`/
+  `canArchive`/`canDelete` checks, same `hardDeleteBlockReason()` call
+  from Phase 33 (so Delete is still disabled-with-tooltip, not hidden,
+  when blocked), same "View payments" item next to a payment-blocked
+  Delete. Nothing about *what* is allowed changed, only that it's now
+  one menu click away instead of a row of links.
+- **Filter row**: Search given more of the available width
+  (`flex-[2_1_260px]`), Customer/Status each `flex-1 basis-[...]`, From/
+  To shrunk to a fixed `w-[130px]` each (`shrink-0` on their labels) so
+  they don't compete for space — all still in one `flex flex-wrap`
+  row that wraps cleanly on narrower screens exactly as it already did.
+- **Verified live** (Playwright, dev DB, 4 freshly-registered test
+  companies/seeded invoices+payments via direct API calls through the
+  authenticated browser session): screenshotted the Invoices tab at
+  1366/1024/768/390px — confirmed `document.scrollingElement.scrollWidth
+  <= clientWidth` (no page horizontal scroll) at all three desktop/
+  tablet widths, lot-number columns correctly disappear at 1024px,
+  Paid also gone by 768px; opened the "⋮" menu and confirmed its
+  items/order; confirmed a draft/zero-paid invoice's menu Delete is
+  enabled plain "Delete", an issued invoice's is "Delete (disabled)"
+  with the exact not-draft tooltip, and a draft invoice with a partial
+  payment shows the exact has-payment tooltip plus a working "View
+  payments" link that navigates to the Payments tab pre-filtered to
+  that one customer (and "Show all payments" correctly clears it).
+  Dev DB reset (drop + recreate + re-migrate) after verification; no
+  stray dev-server processes left running afterward.
+- `npm run typecheck`, `npm run build`, and `npm test` (292/292) all
+  clean — this phase added no new backend code, so no new backend
+  tests were needed; `InvoiceList.tsx` has no dedicated frontend test
+  file (consistent with this repo's established convention — see
+  "Testing conventions" below), so Playwright live verification was
+  the coverage for this change, same as prior frontend-only phases.
+
 ## Known gotchas / things to check before starting work
 
 - **Postgres cluster is often stopped** when a session starts:
@@ -1988,6 +2066,26 @@ touched by this phase.
     customer-level, never invoice-level, so there's no per-invoice
     payment list to link to). Archive/Unarchive untouched. See "Show
     Why Delete Is Not Available (Phase 33)" below
+
+39. Invoice List Scroll + Search Bar Cleanup: pure frontend layout fix,
+    no data/search-backend/filter/calculation/ledger/payments/
+    permissions change. The desktop table's unnecessary horizontal
+    scroll came from a hardcoded `min-w-[1040px]` plus every column
+    (including the two lot-number columns and Paid) always rendering —
+    removed the min-width and made Internal Lot #/Customer Lot #
+    (`hidden xl:table-cell`) and Paid (`hidden lg:table-cell`)
+    responsively hidden instead of deleted, so the data is still one
+    click away via View. The search placeholder's full field list
+    became "Search invoices…" with the field list moved to a `title`
+    tooltip and a small helper line underneath — the debounced search
+    call itself is untouched. The 7-link Actions cell collapsed into a
+    standalone "View" button plus a new `RowActionsMenu` "⋮" dropdown
+    (outside-click-to-close, its own component) holding PDF/Print/
+    WhatsApp/Duplicate/Archive-or-Restore/Delete — every item/label/
+    disabled-reason/permission check it renders is still decided by
+    the exact same logic from Phase 33, just relocated into the menu's
+    item list instead of being inline buttons. See "Invoice List
+    Scroll + Search Bar Cleanup (Phase 34)" below
 
 Repo also went through a monorepo restructure (`server/` → `apps/api` +
 new `apps/web` + `packages/shared`) between Phase 1 and Phase 2.
