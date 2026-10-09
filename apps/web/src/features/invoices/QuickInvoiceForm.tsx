@@ -100,6 +100,7 @@ export function QuickInvoiceForm({ invoice, onSaved, onCancel }: Props) {
   const [lotNumber, setLotNumber] = useState(invoice?.lotNumber ?? '');
   const [customerLotNumber, setCustomerLotNumber] = useState(invoice?.customerLotNumber ?? '');
   const [billNumber, setBillNumber] = useState(invoice?.billNumber ?? '');
+  const [gatePassNumber, setGatePassNumber] = useState(invoice?.gatePassNumber ?? '');
   const [generalQuantity, setGeneralQuantity] = useState(invoice?.generalQuantity ? formatNumber(invoice.generalQuantity) : '');
   const [paid, setPaid] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cash');
@@ -183,6 +184,7 @@ export function QuickInvoiceForm({ invoice, onSaved, onCancel }: Props) {
         lotNumber: lotNumber || undefined,
         customerLotNumber: customerLotNumber || undefined,
         billNumber: billNumber || undefined,
+        gatePassNumber: gatePassNumber || undefined,
         generalQuantity: generalQuantity || undefined,
         notes: notes || undefined,
         discountType: discountType || undefined,
@@ -317,7 +319,7 @@ export function QuickInvoiceForm({ invoice, onSaved, onCancel }: Props) {
         )}
       </div>
 
-      {/* Invoice Details: Bill Number, General Quantity (+ derived Sets) — same fields CreateInvoiceForm shows, no category/formula controls here */}
+      {/* Invoice Details: Bill Number, Gate Pass Number, General Quantity (+ derived Sets) — same fields CreateInvoiceForm shows, no category/formula controls here */}
       <div className="mt-4 rounded-md border border-slate-200 p-3">
         <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Invoice Details</p>
         <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -327,6 +329,16 @@ export function QuickInvoiceForm({ invoice, onSaved, onCancel }: Props) {
               value={billNumber}
               onChange={(e) => setBillNumber(e.target.value)}
               placeholder="e.g. 4587"
+              className={inputClass(false)}
+            />
+          </Field>
+
+          <Field label="Gate Pass Number">
+            <input
+              type="text"
+              value={gatePassNumber}
+              onChange={(e) => setGatePassNumber(e.target.value)}
+              placeholder="e.g. GP-4587"
               className={inputClass(false)}
             />
           </Field>

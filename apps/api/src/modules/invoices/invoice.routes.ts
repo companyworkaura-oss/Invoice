@@ -65,8 +65,8 @@ function parseItems(body: Record<string, unknown>): service.InvoiceItemInput[] {
 
 /**
  * discountType/discountValue/lotNumber/customerLotNumber/billNumber/
- * generalQuantity/showUnitAmount/showItemQuantity — shared by create
- * (POST /) and edit (PATCH /:id).
+ * gatePassNumber/generalQuantity/showUnitAmount/showItemQuantity —
+ * shared by create (POST /) and edit (PATCH /:id).
  */
 function parseDiscountAndLot(body: Record<string, unknown>) {
   const discountType = optionalString(body, 'discountType', { max: 20 });
@@ -80,6 +80,8 @@ function parseDiscountAndLot(body: Record<string, unknown>) {
     customerLotNumber: optionalString(body, 'customerLotNumber', { max: 100 }),
     // A second, business-assigned number — separate from the system-generated invoice number.
     billNumber: optionalString(body, 'billNumber', { max: 100 }),
+    // The gate pass number that came with the client's material — free text (letters/digits/slashes/dashes all allowed via optionalString's plain length check).
+    gatePassNumber: optionalString(body, 'gatePassNumber', { max: 100 }),
     // The overall suit quantity for the whole invoice/job — never an item's own quantity, never used in a calculation.
     generalQuantity: optionalPositiveDecimal(body, 'generalQuantity'),
     // Display-only toggles for the customer-facing table columns — see InvoiceInput.

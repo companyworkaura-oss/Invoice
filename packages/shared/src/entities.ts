@@ -162,6 +162,8 @@ export interface Invoice {
   customerLotNumber: string | null;
   /** A second, business-assigned number — separate from invoiceNumber — shown on customer-facing print/PDF/WhatsApp. */
   billNumber: string | null;
+  /** The gate pass number that came with the client's material — manual, free text — shown on customer-facing print/PDF/WhatsApp. */
+  gatePassNumber: string | null;
   /**
    * The overall suit quantity for this invoice/job as a whole — e.g.
    * "504" — distinct from each item's own quantity (InvoiceItem.quantity)

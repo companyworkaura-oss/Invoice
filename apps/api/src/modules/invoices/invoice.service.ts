@@ -84,6 +84,13 @@ export interface InvoiceInput {
    */
   billNumber?: string;
   /**
+   * The gate pass number that came with the client's material — a
+   * free-text field, entered manually, never auto-assigned or validated
+   * beyond basic length. Shown on customer-facing print/PDF/WhatsApp,
+   * same as billNumber above.
+   */
+  gatePassNumber?: string;
+  /**
    * The overall suit quantity for this invoice/job as a whole — e.g.
    * "504 suits" — distinct from each item's own quantity
    * (InvoiceItemInput.quantity) and never used in any calculation.
@@ -218,6 +225,8 @@ export interface Invoice {
   customerLotNumber: string | null;
   /** A second, business-assigned number, separate from invoiceNumber — shown on customer-facing print/PDF/WhatsApp. */
   billNumber: string | null;
+  /** The gate pass number that came with the client's material — manual, free text — shown on customer-facing print/PDF/WhatsApp. */
+  gatePassNumber: string | null;
   /** The overall suit quantity for this invoice/job as a whole — see InvoiceInput.generalQuantity. Never used in any calculation. */
   generalQuantity: string | null;
   /** Display-only: whether the customer-facing Unit Amount column is shown. Saved per invoice so an old invoice always prints the same way. */
@@ -285,7 +294,7 @@ const INVOICE_HEADER_COLUMNS = `
   i.created_at AS "createdAt", i.archived_at AS "archivedAt",
   i.invoice_mode AS "invoiceMode",
   i.lot_number AS "lotNumber", i.customer_lot_number AS "customerLotNumber",
-  i.bill_number AS "billNumber", i.general_quantity AS "generalQuantity",
+  i.bill_number AS "billNumber", i.gate_pass_number AS "gatePassNumber", i.general_quantity AS "generalQuantity",
   i.show_unit_amount AS "showUnitAmount", i.show_item_quantity AS "showItemQuantity",
   i.discount_type AS "discountType",
   i.discount_value AS "discountValue", i.discount_amount AS "discountAmount"
@@ -546,8 +555,8 @@ export async function createInvoice(
     const invoiceRes = await client.query<{ id: string; invoiceDate: string; createdAt: string }>(
       `INSERT INTO invoices
          (company_id, customer_id, invoice_number, invoice_date, notes, status, lot_number, customer_lot_number,
-          bill_number, general_quantity, show_unit_amount, show_item_quantity, invoice_mode)
-       VALUES ($1, $2, $3, COALESCE($4::date, CURRENT_DATE), $5, COALESCE($6, 'draft'), $7, $8, $9, $10, $11, $12, $13)
+          bill_number, gate_pass_number, general_quantity, show_unit_amount, show_item_quantity, invoice_mode)
+       VALUES ($1, $2, $3, COALESCE($4::date, CURRENT_DATE), $5, COALESCE($6, 'draft'), $7, $8, $9, $10, $11, $12, $13, $14)
        RETURNING id, invoice_date AS "invoiceDate", created_at AS "createdAt"`,
       [
         companyId,
@@ -559,6 +568,7 @@ export async function createInvoice(
         input.lotNumber ?? null,
         input.customerLotNumber ?? null,
         input.billNumber ?? null,
+        input.gatePassNumber ?? null,
         input.generalQuantity ?? null,
         showUnitAmount,
         showItemQuantity,
@@ -627,6 +637,7 @@ export async function createInvoice(
       lotNumber: input.lotNumber ?? null,
       customerLotNumber: input.customerLotNumber ?? null,
       billNumber: input.billNumber ?? null,
+      gatePassNumber: input.gatePassNumber ?? null,
       // Matches the numeric(12,2) column's own normalization, same as
       // discountValue just above — so a direct create response never
       // disagrees in formatting with a subsequent GET of the same invoice.
@@ -688,7 +699,7 @@ export async function listInvoices(companyId: string, filter: InvoiceListFilter)
   if (filter.search) {
     params.push(`%${filter.search}%`);
     conditions.push(
-      `("invoiceNumber" ILIKE $${params.length} OR "customerName" ILIKE $${params.length} OR "lotNumber" ILIKE $${params.length} OR "customerLotNumber" ILIKE $${params.length} OR "billNumber" ILIKE $${params.length})`,
+      `("invoiceNumber" ILIKE $${params.length} OR "customerName" ILIKE $${params.length} OR "lotNumber" ILIKE $${params.length} OR "customerLotNumber" ILIKE $${params.length} OR "billNumber" ILIKE $${params.length} OR "gatePassNumber" ILIKE $${params.length})`,
     );
   }
   // Default 'active': archived invoices are hidden unless explicitly
@@ -733,7 +744,7 @@ export async function listInvoices(companyId: string, filter: InvoiceListFilter)
          i.invoice_number AS "invoiceNumber", i.invoice_date AS "invoiceDate", i.notes,
          i.status, i.created_at AS "createdAt", i.archived_at AS "archivedAt",
          i.lot_number AS "lotNumber", i.customer_lot_number AS "customerLotNumber",
-         i.bill_number AS "billNumber", i.general_quantity AS "generalQuantity",
+         i.bill_number AS "billNumber", i.gate_pass_number AS "gatePassNumber", i.general_quantity AS "generalQuantity",
          i.show_unit_amount AS "showUnitAmount", i.show_item_quantity AS "showItemQuantity",
          i.discount_type AS "discountType",
          i.discount_value AS "discountValue", i.discount_amount AS "discountAmount",
@@ -806,9 +817,10 @@ export async function getInvoice(companyId: string, invoiceId: string): Promise<
  * The discount type/value, General Quantity, and the two display
  * toggles all carry over (a duplicate is usually "the same order
  * again" — same suit count, same printed layout preference). Neither
- * lot number (internal or customer's) does, nor does Bill Number —
- * each new batch/job/bill is expected to get its own, so leaving those
- * three fields blank is safer than silently reusing the original's.
+ * lot number (internal or customer's) does, nor does Bill Number or
+ * Gate Pass Number — each new batch/job/bill/material delivery is
+ * expected to get its own, so leaving those four fields blank is safer
+ * than silently reusing the original's.
  */
 export async function duplicateInvoice(companyId: string, userId: string, invoiceId: string): Promise<InvoiceWithItems> {
   const original = await getInvoice(companyId, invoiceId);
@@ -897,10 +909,11 @@ export async function updateInvoice(
               lot_number = $5,
               customer_lot_number = $6,
               bill_number = $7,
-              general_quantity = $8,
-              show_unit_amount = $9,
-              show_item_quantity = $10,
-              invoice_mode = $11,
+              gate_pass_number = $8,
+              general_quantity = $9,
+              show_unit_amount = $10,
+              show_item_quantity = $11,
+              invoice_mode = $12,
               updated_at = now()
         WHERE id = $1 AND company_id = $2
         RETURNING invoice_date AS "invoiceDate"`,
@@ -912,6 +925,7 @@ export async function updateInvoice(
         input.lotNumber ?? null,
         input.customerLotNumber ?? null,
         input.billNumber ?? null,
+        input.gatePassNumber ?? null,
         input.generalQuantity ?? null,
         input.showUnitAmount ?? true,
         input.showItemQuantity ?? true,

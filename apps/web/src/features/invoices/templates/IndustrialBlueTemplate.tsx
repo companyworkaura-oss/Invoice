@@ -9,13 +9,15 @@ import { vs } from './compact';
  * ternary here already relied on.
  */
 function infoGridClass(count: number): string {
-  if (count >= 4) return 'grid-cols-4';
+  if (count >= 5) return 'grid-cols-5';
+  if (count === 4) return 'grid-cols-4';
   if (count === 3) return 'grid-cols-3';
   return 'grid-cols-2';
 }
 
 export function IndustrialBlueTemplate({ invoice, compact }: { invoice: InvoiceViewModel; compact?: boolean }) {
-  const infoCellCount = 2 + (invoice.billNumber ? 1 : 0) + (invoice.customerLotNumber ? 1 : 0);
+  const infoCellCount =
+    2 + (invoice.billNumber ? 1 : 0) + (invoice.customerLotNumber ? 1 : 0) + (invoice.gatePassNumber ? 1 : 0);
   return (
     <div className="print-page-invoice mx-auto w-[148mm] min-h-[210mm] border-4 border-blue-800 bg-white text-slate-900 shadow print:shadow-none">
       <div className={`flex items-center justify-between bg-blue-800 px-6 ${vs(compact, 'py-4', 'py-2')} text-white`}>
@@ -33,6 +35,7 @@ export function IndustrialBlueTemplate({ invoice, compact }: { invoice: InvoiceV
         {invoice.billNumber && <InfoCell label="Bill #" value={invoice.billNumber} compact={compact} />}
         <InfoCell label="Date" value={invoice.invoiceDate} compact={compact} />
         {invoice.customerLotNumber && <InfoCell label="Lot #" value={invoice.customerLotNumber} compact={compact} />}
+        {invoice.gatePassNumber && <InfoCell label="Gate Pass #" value={invoice.gatePassNumber} compact={compact} />}
       </div>
 
       <div className={`border-b-2 border-blue-800 px-6 ${vs(compact, 'py-3', 'py-1.5')} text-[length:calc(0.875rem*var(--inv-scale,1))]`}>

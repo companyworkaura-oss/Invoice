@@ -1606,6 +1606,72 @@ need trimming at all.
   tests; `npm run typecheck` and `npm run build` clean across all 3
   workspaces.
 
+## Gate Pass Number (Phase 32)
+
+A manual, free-text invoice field — the gate pass number that comes
+with a client's material — added as a straight sibling of Bill Number
+(Phase 30): same tier (invoice-level metadata, never used in any
+calculation), same treatment (shown on customer-facing print/PDF/
+WhatsApp, searchable, available on both Standard and Quick Invoice,
+never copied by Duplicate).
+
+- **Migration `017_gate_pass_number.sql`**: `ALTER TABLE invoices ADD
+  COLUMN gate_pass_number text NULL;` — the only schema change. No
+  character restriction beyond `optionalString`'s plain length check,
+  so letters/digits/slashes/dashes ("GP-4587", "12345", "Gate-77/26")
+  all pass through untouched.
+- **Backend**: `gatePassNumber` threaded through `InvoiceInput`/
+  `Invoice`/`InvoiceUpdateInput` exactly like `billNumber` — added to
+  `INVOICE_HEADER_COLUMNS`, the `listInvoices` CTE'S column list *and*
+  its search clause, the `createInvoice` INSERT/return, and the
+  `updateInvoice` UPDATE. `duplicateInvoice` needed no code change (it
+  already only copies fields explicitly listed in its `createInvoice`
+  call; `gatePassNumber` simply isn't one of them, so it's `null` on a
+  duplicate for the same reason `billNumber` already was) — just a doc
+  comment update.
+- **`InvoiceViewModel`** gained `gatePassNumber: string | null`,
+  mapped straight from `invoice.gatePassNumber` in
+  `buildInvoiceViewModel` — no special enforcement needed (unlike
+  `customerLotNumber`'s internal/customer split), since this field has
+  only one meaning and is always customer-facing.
+- **All 5 templates + `render-html.ts`**: a `Gate Pass #: …` line added
+  right after Customer Lot # in each template's existing metadata area,
+  hidden entirely when null — same `{invoice.gatePassNumber && …}`
+  pattern as every other optional metadata row.
+  `IndustrialBlueTemplate`'s dynamic info-cell grid (previously capped
+  at `grid-cols-4` for up to 2 optional cells) was extended to
+  `grid-cols-5` for the new potential 5th cell (Invoice No. + Date are
+  fixed, Bill #/Lot #/Gate Pass # are each independently optional) —
+  same literal-class-string convention (`infoGridClass`) the existing
+  Bill #/Lot # logic already used, since Tailwind's JIT scanner only
+  picks up complete class names that appear verbatim in source.
+- **`CreateInvoiceForm.tsx`** and **`QuickInvoiceForm.tsx`** both gained
+  a "Gate Pass Number" text field in their existing "Invoice Details"
+  section, right next to Bill Number — present in both create and edit
+  mode for both forms (QuickInvoiceForm's own edit mode, from Phase 31,
+  already had the Bill Number/General Quantity pattern to extend).
+  `InvoiceDetails.tsx` shows `· Gate Pass #: GP-4587` inline with the
+  other optional metadata, hidden when null. `InvoiceList.tsx`'s search
+  placeholder mentions it; no dedicated list column was added (the
+  table was already fairly wide, and the task only asked for search
+  to work, not a new column — unlike Bill Number, which got one).
+- **Verified live** (Playwright, dev DB): filled Gate Pass Number on a
+  Standard Invoice create form, saved, confirmed Invoice Details and
+  all 5 templates show "Gate Pass #: GP-4587"; separately created a
+  Quick Invoice with Bill Number + Gate Pass Number (containing a
+  slash, "GP-77/26") + Customer Lot Number all at once and confirmed
+  the Industrial Blue template's 5-column grid renders all three
+  cleanly with no layout breakage. Dev DB reset after verification.
+  (Also found and cleaned up an unrelated stale dev-server process
+  left over from an earlier phase of this session, still holding port
+  4000 — not a code bug, just leftover session state.)
+- 14 new tests in `apps/api/test/gate-pass-number.test.ts` (save/edit/
+  clear/detail/print/Quick/Standard/search/duplicate/tenant-isolation/
+  never-affects-calculations), 2 new column-presence tests in
+  `invoice-pdf-html.test.ts`, 2 new tests in `packages/shared/test/
+  invoice-view-model.test.ts`. 291/291 API tests, 56/56 shared tests;
+  `npm run typecheck` and `npm run build` clean across all 3 workspaces.
+
 ## Known gotchas / things to check before starting work
 
 - **Postgres cluster is often stopped** when a session starts:
@@ -1851,6 +1917,14 @@ need trimming at all.
     trailing zeros ("787871.00" → "787871") at Quick Invoice's edit
     prefill only. See "Quick Invoice Edit Mode Bug Fix + invoice_mode
     (Phase 31)" below
+
+37. Gate Pass Number: a manual, free-text invoice field (letters/
+    digits/slashes/dashes all allowed) for the gate pass number that
+    comes with a client's material — a straight sibling of Bill
+    Number, same tier (metadata only, never used in any calculation),
+    same treatment (customer-facing print/PDF/WhatsApp, searchable,
+    available on both Standard and Quick Invoice, never copied by
+    Duplicate). See "Gate Pass Number (Phase 32)" below
 
 Repo also went through a monorepo restructure (`server/` → `apps/api` +
 new `apps/web` + `packages/shared`) between Phase 1 and Phase 2.

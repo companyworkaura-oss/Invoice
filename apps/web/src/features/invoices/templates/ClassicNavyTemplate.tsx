@@ -22,6 +22,7 @@ export function ClassicNavyTemplate({ invoice, compact }: { invoice: InvoiceView
           {invoice.billNumber && <p className="text-[length:calc(0.875rem*var(--inv-scale,1))] text-slate-600">Bill #: {invoice.billNumber}</p>}
           <p className="text-[length:calc(0.875rem*var(--inv-scale,1))] text-slate-600">{invoice.invoiceDate}</p>
           {invoice.customerLotNumber && <p className="text-[length:calc(0.875rem*var(--inv-scale,1))] text-slate-600">Lot #: {invoice.customerLotNumber}</p>}
+          {invoice.gatePassNumber && <p className="text-[length:calc(0.875rem*var(--inv-scale,1))] text-slate-600">Gate Pass #: {invoice.gatePassNumber}</p>}
           {invoice.generalQuantity && <p className="text-[length:calc(0.875rem*var(--inv-scale,1))] text-slate-600">Quantity: {invoice.generalQuantity} Suits</p>}
           {invoice.sets && <p className="text-[length:calc(0.875rem*var(--inv-scale,1))] text-slate-600">Sets: {invoice.sets}</p>}
         </div>

@@ -164,7 +164,7 @@ export function InvoiceList({ onSelect, onAction, permissions, refreshToken }: P
           type="text"
           value={searchInput}
           onChange={(e) => setSearchInput(e.target.value)}
-          placeholder="Search invoice #, bill #, customer, internal lot #, or customer lot #…"
+          placeholder="Search invoice #, bill #, gate pass #, customer, internal lot #, or customer lot #…"
           className="min-w-[200px] flex-1 rounded-md border border-slate-300 px-2 py-1 text-sm"
         />
         <select

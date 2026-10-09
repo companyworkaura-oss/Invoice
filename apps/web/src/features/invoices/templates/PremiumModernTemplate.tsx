@@ -33,6 +33,7 @@ export function PremiumModernTemplate({ invoice, compact }: { invoice: InvoiceVi
           <div className="text-right text-slate-500">
             <p>{invoice.invoiceDate}</p>
             {invoice.customerLotNumber && <p>Lot #: {invoice.customerLotNumber}</p>}
+            {invoice.gatePassNumber && <p>Gate Pass #: {invoice.gatePassNumber}</p>}
             {invoice.generalQuantity && <p>Quantity: {invoice.generalQuantity} Suits</p>}
             {invoice.sets && <p>Sets: {invoice.sets}</p>}
           </div>

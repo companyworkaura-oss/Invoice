@@ -112,6 +112,7 @@ export function renderInvoiceHtml(theme: PdfTheme, invoice: InvoiceViewModel, lo
         ${invoice.billNumber ? `<p class="invoice-date">Bill #: ${escapeHtml(invoice.billNumber)}</p>` : ''}
         <p class="invoice-date">${escapeHtml(invoice.invoiceDate)}</p>
         ${invoice.customerLotNumber ? `<p class="invoice-date">Lot #: ${escapeHtml(invoice.customerLotNumber)}</p>` : ''}
+        ${invoice.gatePassNumber ? `<p class="invoice-date">Gate Pass #: ${escapeHtml(invoice.gatePassNumber)}</p>` : ''}
         ${invoice.generalQuantity ? `<p class="invoice-date">Quantity: ${escapeHtml(invoice.generalQuantity)} Suits</p>` : ''}
         ${invoice.sets ? `<p class="invoice-date">Sets: ${escapeHtml(invoice.sets)}</p>` : ''}
       </div>

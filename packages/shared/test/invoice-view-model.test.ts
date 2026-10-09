@@ -48,6 +48,7 @@ function baseInvoice(overrides: Partial<InvoiceWithItems> = {}): InvoiceWithItem
     lotNumber: null,
     customerLotNumber: null,
     billNumber: null,
+    gatePassNumber: null,
     generalQuantity: null,
     showUnitAmount: true,
     showItemQuantity: true,
@@ -112,6 +113,16 @@ test('buildInvoiceViewModel maps a saved bill number through to the view model',
 test('buildInvoiceViewModel maps a null bill number as null', () => {
   const viewModel = buildInvoiceViewModel(baseInvoice({ billNumber: null }), company, customer);
   assert.equal(viewModel.billNumber, null);
+});
+
+test('buildInvoiceViewModel maps a saved gate pass number through to the view model', () => {
+  const viewModel = buildInvoiceViewModel(baseInvoice({ gatePassNumber: 'GP-4587' }), company, customer);
+  assert.equal(viewModel.gatePassNumber, 'GP-4587');
+});
+
+test('buildInvoiceViewModel maps a null gate pass number as null', () => {
+  const viewModel = buildInvoiceViewModel(baseInvoice({ gatePassNumber: null }), company, customer);
+  assert.equal(viewModel.gatePassNumber, null);
 });
 
 test('buildInvoiceViewModel derives Sets from General Quantity using SUITS_PER_SET = 84', () => {

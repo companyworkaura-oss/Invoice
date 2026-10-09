@@ -34,6 +34,8 @@ export interface InvoiceInput {
   customerLotNumber?: string;
   /** A second, business-assigned number — separate from the system-generated invoice number. Shown on customer-facing print/PDF. */
   billNumber?: string;
+  /** The gate pass number that came with the client's material — manual, free text. Shown on customer-facing print/PDF. */
+  gatePassNumber?: string;
   /** The overall suit quantity for the invoice/job as a whole — never an item's own quantity, never used in a calculation. */
   generalQuantity?: string;
   /** Display-only toggle for the customer-facing Unit Amount column. Defaults to true (shown) when omitted. */

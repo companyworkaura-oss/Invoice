@@ -30,6 +30,7 @@ const viewModel: InvoiceViewModel = {
   invoiceDate: '2026-01-15',
   customerLotNumber: 'CUST-458',
   billNumber: '4587',
+  gatePassNumber: 'GP-4587',
   generalQuantity: '504',
   sets: '6',
   showItemQuantity: true,
@@ -73,6 +74,7 @@ test('renders the invoice data the customer should see', () => {
   assert.match(html, /Payment due within 30 days\./);
   assert.match(html, /Lot #: CUST-458/);
   assert.match(html, /Bill #: 4587/);
+  assert.match(html, /Gate Pass #: GP-4587/);
   assert.match(html, /Quantity: 504 Suits/);
   assert.match(html, /Sets: 6/);
   // The spec'd summary fields, by label.
@@ -114,6 +116,21 @@ test('hides the Bill # row entirely when billNumber is null, across every theme'
   for (const id of Object.keys(PDF_THEMES)) {
     const html = renderInvoiceHtml(getPdfTheme(id), noBill, null);
     assert.ok(!html.includes('Bill #'), `${id} theme must not show a Bill # row when billNumber is null`);
+  }
+});
+
+test('hides the Gate Pass # row entirely when gatePassNumber is null, across every theme', () => {
+  const noGatePass = { ...viewModel, gatePassNumber: null };
+  for (const id of Object.keys(PDF_THEMES)) {
+    const html = renderInvoiceHtml(getPdfTheme(id), noGatePass, null);
+    assert.ok(!html.includes('Gate Pass #'), `${id} theme must not show a Gate Pass # row when gatePassNumber is null`);
+  }
+});
+
+test('shows the Gate Pass # row for every theme when a gate pass number is set', () => {
+  for (const id of Object.keys(PDF_THEMES)) {
+    const html = renderInvoiceHtml(getPdfTheme(id), viewModel, null);
+    assert.match(html, /Gate Pass #: GP-4587/, `${id} theme must show the gate pass number`);
   }
 });
 

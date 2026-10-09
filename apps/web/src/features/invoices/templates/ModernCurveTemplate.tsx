@@ -24,6 +24,7 @@ export function ModernCurveTemplate({ invoice, compact }: { invoice: InvoiceView
             {invoice.billNumber && <p className="text-[length:calc(0.75rem*var(--inv-scale,1))] text-violet-100">Bill #: {invoice.billNumber}</p>}
             <p className="text-[length:calc(0.75rem*var(--inv-scale,1))] text-violet-100">{invoice.invoiceDate}</p>
             {invoice.customerLotNumber && <p className="text-[length:calc(0.75rem*var(--inv-scale,1))] text-violet-100">Lot #: {invoice.customerLotNumber}</p>}
+            {invoice.gatePassNumber && <p className="text-[length:calc(0.75rem*var(--inv-scale,1))] text-violet-100">Gate Pass #: {invoice.gatePassNumber}</p>}
             {invoice.generalQuantity && <p className="text-[length:calc(0.75rem*var(--inv-scale,1))] text-violet-100">Quantity: {invoice.generalQuantity} Suits</p>}
             {invoice.sets && <p className="text-[length:calc(0.75rem*var(--inv-scale,1))] text-violet-100">Sets: {invoice.sets}</p>}
           </div>

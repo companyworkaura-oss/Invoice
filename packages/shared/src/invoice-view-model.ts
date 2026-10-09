@@ -44,6 +44,8 @@ export interface InvoiceViewModel {
   customerLotNumber: string | null;
   /** A second, business-assigned number — null when not set, in which case a template must hide the Bill # row entirely. */
   billNumber: string | null;
+  /** The gate pass number that came with the client's material — null when not set, in which case a template must hide the Gate Pass # row entirely. */
+  gatePassNumber: string | null;
   /**
    * The overall suit quantity for the invoice/job as a whole — e.g.
    * "504" — null when not set, in which case a template must hide the
@@ -152,6 +154,7 @@ export function buildInvoiceViewModel(
     invoiceDate: invoice.invoiceDate,
     customerLotNumber: invoice.customerLotNumber,
     billNumber: invoice.billNumber,
+    gatePassNumber: invoice.gatePassNumber,
     generalQuantity: formatQuantity(invoice.generalQuantity),
     sets: calculateSets(invoice.generalQuantity),
     showItemQuantity: invoice.showItemQuantity,

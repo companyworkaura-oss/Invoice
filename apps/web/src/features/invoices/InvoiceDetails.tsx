@@ -32,6 +32,7 @@ export function InvoiceDetails({ invoice, permissions, onBack, onViewTemplate, o
             {invoice.billNumber && <> · Bill #: {invoice.billNumber}</>}
             {invoice.lotNumber && <> · Internal Lot #: {invoice.lotNumber}</>}
             {invoice.customerLotNumber && <> · Customer Lot #: {invoice.customerLotNumber}</>}
+            {invoice.gatePassNumber && <> · Gate Pass #: {invoice.gatePassNumber}</>}
             {invoice.generalQuantity && <> · General Quantity: {formatQuantity(invoice.generalQuantity)}</>}
             {sets && <> · Sets: {sets}</>}
           </p>
