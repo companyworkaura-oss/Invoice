@@ -146,7 +146,28 @@ export function InvoicesPage({ permissions }: Props) {
           />
         )}
 
-        {view.name === 'edit' && (
+        {/*
+          invoice.invoiceMode decides the editor — never inferred from
+          item shape here. A 'quick' invoice (manual description/
+          quantity/unit-price items, no category) reopens in
+          QuickInvoiceForm; everything else ('standard') reopens in
+          CreateInvoiceForm exactly as before. Saving either one keeps
+          sending the same item shape it always has, so the server
+          re-derives the same invoiceMode and reopening it again lands
+          back in the same editor.
+        */}
+        {view.name === 'edit' && view.invoice.invoiceMode === 'quick' && (
+          <QuickInvoiceForm
+            invoice={view.invoice}
+            onSaved={(invoice) => {
+              setRefreshToken((t) => t + 1);
+              setView({ name: 'details', invoice });
+            }}
+            onCancel={() => setView({ name: 'details', invoice: view.invoice })}
+          />
+        )}
+
+        {view.name === 'edit' && view.invoice.invoiceMode !== 'quick' && (
           <CreateInvoiceForm
             invoice={view.invoice}
             onSaved={(invoice) => {

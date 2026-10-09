@@ -1530,6 +1530,82 @@ calculation:
   shared tests (7 new in `invoice-view-model.test.ts`); `npm run
   typecheck` and `npm run build` clean across all 3 workspaces.
 
+## Quick Invoice Edit Mode Bug Fix + invoice_mode (Phase 31)
+
+**Root cause**: editing *any* invoice always routed to `CreateInvoiceForm`
+(`InvoicesPage.tsx`'s `'edit'` view had exactly one branch) — there was
+no discriminator anywhere that told the edit screen "this was created
+as a Quick Invoice." A Quick Invoice's manual items (`categoryId: null`)
+loaded into `CreateInvoiceForm`'s category-item row shape via
+`itemRowFromInvoice`, so the Category `<select>` appeared empty/wrong,
+Stitches/Rate showed raw DB values, and editing-and-saving would have
+tried to run the item through the formula engine. A second, related bug
+('787871.00'/'789.00' trailing decimals) was really the same root
+issue: those raw DB-formatted strings were only ever meant to flow
+through `CreateInvoiceForm`'s category-item fields, which don't trim
+them, and Quick Invoice's own item fields didn't exist in edit mode to
+need trimming at all.
+
+- **Fix is structural, not inferred**: a new `invoice_mode` column
+  (`'standard' | 'quick'`, migration `016_invoice_mode.sql`) is the
+  discriminator `InvoicesPage.tsx` now switches on. It is **always
+  server-derived** from the items actually being saved
+  (`invoiceModeFromItems` in `invoice.service.ts`: `'quick'` iff every
+  item lacks `categoryId`, the identical signal `createInvoiceItem`
+  already uses to pick `createManualInvoiceItem`), computed fresh in
+  both `createInvoice` and `updateInvoice` — never accepted from the
+  client (a request body with `invoiceMode: 'standard'` next to manual
+  items is silently ignored; tested explicitly). This means it can't
+  drift: as long as each editor keeps sending the item shape it always
+  has (manual for Quick, category for Standard), the mode a saved
+  invoice carries is automatically correct on every reopen, with zero
+  coupling between the two forms.
+- **Migration backfill**: existing rows get `invoice_mode = 'quick'`
+  only when every one of their items is manual (same condition, applied
+  once via `UPDATE ... WHERE EXISTS/NOT EXISTS`), so an invoice created
+  before this phase reopens in the right editor too.
+- **`InvoicesPage.tsx`**: the `'edit'` view now has two branches on
+  `view.invoice.invoiceMode` — `'quick'` renders `QuickInvoiceForm`,
+  anything else renders the untouched `CreateInvoiceForm`.
+- **`QuickInvoiceForm.tsx`** gained edit support (an optional `invoice`
+  prop, same contract as `CreateInvoiceForm`'s): Customer becomes a
+  disabled read-only field (can't reassign, matching
+  `CreateInvoiceForm`'s edit convention); Lot Number/Customer Lot
+  Number/Bill Number/General Quantity(+live Sets)/Discount/Notes/items
+  all prefill from the invoice; saving calls `updateInvoice` instead of
+  `createInvoice` and always sends manual items, so the server
+  re-derives `'quick'` again. The Paid/Unpaid toggle and Payment Method
+  are hidden entirely in edit mode — editing never creates a payment;
+  "Record a payment" in `InvoiceDetails` is the one place that already
+  does, and this was deliberately left alone (payments/ledger are
+  out of scope for this fix).
+- **Number formatting**: new `formatNumber()` (`packages/shared/src/
+  number-format.ts`) trims a numeric(12,2) column's padded trailing
+  zeros for display — `"787871.00"` → `"787871"`, `"504.50"` →
+  `"504.5"`, `"1.25"` stays `"1.25"` — via `new Decimal(value).toString()`,
+  never rounding, never touching the stored value. Used only at
+  `QuickInvoiceForm`'s edit-time prefill (`itemRowFromInvoice`, General
+  Quantity, Discount) and its Amount display — a purely cosmetic,
+  Quick-Invoice-only fix; `CreateInvoiceForm`'s own item prefill
+  (`itemRowFromInvoice` there) was deliberately left exactly as it was.
+- **Verified live** (Playwright, dev DB): created a Quick Invoice with
+  Quantity 787871 / Unit Price 789, reopened Edit — confirmed no
+  "Category"/"Stitches"/"Avg" anywhere on the page, confirmed
+  "Item / Description"/"Unit Price" labels present, confirmed the
+  Quantity input reads "787871" and Unit Price reads "789" (not
+  "787871.00"/"789.00"), edited and saved, reopened Edit a second time
+  and confirmed it still has no Category label (invoiceMode survived
+  the round-trip). Separately created and edited a Standard Invoice —
+  screenshot confirms Category/Description/Quantity/Stitches/Rate/Amount
+  render exactly as before, byte-for-byte unchanged. Dev DB reset after
+  verification.
+- 9 new tests in `apps/api/test/invoice-mode.test.ts` (create/edit/
+  reopen for both modes, client can't set invoiceMode, migration
+  backfill logic, tenant isolation) and 5 new tests in `packages/
+  shared/test/number-format.test.ts`. 275/275 API tests, 54/54 shared
+  tests; `npm run typecheck` and `npm run build` clean across all 3
+  workspaces.
+
 ## Known gotchas / things to check before starting work
 
 - **Postgres cluster is often stopped** when a session starts:
@@ -1763,6 +1839,18 @@ calculation:
     second, customer-facing document number, separate from the
     system-generated invoice number). See "Optional Display Controls +
     General Quantity + Sets + Bill Number (Phase 30)" below
+
+36. Quick Invoice Edit Mode Bug Fix: editing any invoice always opened
+    `CreateInvoiceForm` (Category/Stitches/formula controls) because
+    nothing distinguished a Quick Invoice from a Standard one at edit
+    time. Added `invoice_mode` ('standard'|'quick'), always derived
+    server-side from the items actually saved (never client-supplied),
+    and gave `QuickInvoiceForm` real edit support so `InvoicesPage`
+    can route to the right editor. Also fixed a related display bug —
+    new `formatNumber()` trims a numeric(12,2) column's padded
+    trailing zeros ("787871.00" → "787871") at Quick Invoice's edit
+    prefill only. See "Quick Invoice Edit Mode Bug Fix + invoice_mode
+    (Phase 31)" below
 
 Repo also went through a monorepo restructure (`server/` → `apps/api` +
 new `apps/web` + `packages/shared`) between Phase 1 and Phase 2.

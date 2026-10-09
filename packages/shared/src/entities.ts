@@ -92,6 +92,16 @@ export interface EmbroideryCategory {
 
 export type InvoiceStatus = 'draft' | 'issued' | 'cancelled';
 
+/**
+ * Which editor an invoice reopens in — 'standard' for a category/
+ * formula invoice (CreateInvoiceForm shows Category/Stitches/Avg
+ * Stitch/formula controls), 'quick' for a manual description/quantity
+ * /unit-price invoice (QuickInvoiceForm shows none of those). Always
+ * derived server-side from the items actually saved, never
+ * client-supplied — see apps/api's invoice.service.ts invoiceModeFromItems.
+ */
+export type InvoiceMode = 'standard' | 'quick';
+
 /** Percentage of the subtotal, or a fixed money amount — see Invoice.discountType. */
 export type DiscountType = 'percentage' | 'fixed';
 
@@ -133,6 +143,8 @@ export interface Invoice {
   notes: string | null;
   status: InvoiceStatus;
   createdAt: string;
+  /** Which editor this invoice reopens in — see InvoiceMode. Always server-derived, never client-supplied. */
+  invoiceMode: InvoiceMode;
   /**
    * Internal lot/batch/job identifier, e.g. "LOT-001" — free text, not
    * required to be unique. Factory/business-internal only; never shown

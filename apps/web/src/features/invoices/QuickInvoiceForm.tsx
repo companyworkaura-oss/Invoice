@@ -1,5 +1,5 @@
 import type { Customer, DiscountType, InvoiceWithItems, PaymentMethod } from '@invoice/shared';
-import { Decimal, roundMoney } from '@invoice/shared';
+import { Decimal, calculateSets, formatNumber, roundMoney } from '@invoice/shared';
 import { useMemo, useState, useEffect } from 'react';
 import { ApiError } from '../../lib/api';
 import * as customersApi from '../customers/api';
@@ -12,11 +12,12 @@ import { previewDiscount, sumAmounts } from './preview';
  * handful of items, done). It is a thin frontend layer only — every
  * calculation, save, and the resulting invoice record go through the
  * exact same apis/services as CreateInvoiceForm: createInvoice (same
- * ledger debit, same invoice numbering), and createPayment (same ledger
- * credit) when "Paid" is checked. Nothing here has its own accounting
- * logic, its own totals math, or its own storage — a saved Quick
- * Invoice is a normal invoice row from the moment it's created, and
- * shows up everywhere a normal invoice does (list, ledger, PDF, audit).
+ * ledger debit, same invoice numbering), updateInvoice when editing,
+ * and createPayment (same ledger credit) when "Paid" is checked on
+ * create. Nothing here has its own accounting logic, its own totals
+ * math, or its own storage — a saved Quick Invoice is a normal invoice
+ * row from the moment it's created, and shows up everywhere a normal
+ * invoice does (list, ledger, PDF, audit).
  *
  * Unlike CreateInvoiceForm, a Quick Invoice item never goes through a
  * category or the formula engine — each row is just
@@ -24,9 +25,18 @@ import { previewDiscount, sumAmounts } from './preview';
  * unitPrice. The server (createManualInvoiceItem in
  * apps/api's invoice.service.ts) recalculates that multiplication
  * itself from the saved unitPrice; this preview is never what gets saved.
+ *
+ * Edit mode (invoice prop present): InvoicesPage routes here — instead
+ * of CreateInvoiceForm — only when invoice.invoiceMode === 'quick', so
+ * this never has to guess which editor an invoice belongs in. Saving an
+ * edit always sends manual (no-categoryId) items, so the server
+ * recomputes invoiceMode as 'quick' again — reopening it keeps landing
+ * back here, never in the Normal Invoice form.
  */
 
 interface Props {
+  /** Present in edit mode: prefills the form from this draft and saves via PATCH instead of POST. The customer can't be changed; there's no "Paid" convenience in edit mode (use the existing "Record a payment" action instead). */
+  invoice?: InvoiceWithItems;
   onSaved: (invoice: InvoiceWithItems) => void;
   onCancel: () => void;
 }
@@ -52,6 +62,23 @@ const newRow = (): QuickItemRow => ({
   unitPrice: '',
 });
 
+/**
+ * A saved manual item's quantity/unitPrice come back from a numeric(12,2)
+ * column padded to 2 decimals (e.g. "787871.00") — formatNumber trims
+ * that to a clean editable value ("787871") without changing what the
+ * number actually is. calculatedUnitAmount is where a manual item's
+ * unit price lives (see createManualInvoiceItem) — never `rate`, which
+ * is a category-item-only field this form never touches.
+ */
+function itemRowFromInvoice(item: InvoiceWithItems['items'][number]): QuickItemRow {
+  return {
+    key: nextRowKey++,
+    description: item.description ?? '',
+    quantity: formatNumber(item.quantity),
+    unitPrice: formatNumber(item.calculatedUnitAmount),
+  };
+}
+
 function todayLocal(): string {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -66,17 +93,20 @@ function previewLineAmount(quantity: string, unitPrice: string): string | null {
   return roundMoney(new Decimal(quantity).times(unitPrice));
 }
 
-export function QuickInvoiceForm({ onSaved, onCancel }: Props) {
+export function QuickInvoiceForm({ invoice, onSaved, onCancel }: Props) {
+  const editing = Boolean(invoice);
   const [customers, setCustomers] = useState<Customer[]>([]);
-  const [customerId, setCustomerId] = useState('');
-  const [lotNumber, setLotNumber] = useState('');
-  const [customerLotNumber, setCustomerLotNumber] = useState('');
+  const [customerId, setCustomerId] = useState(invoice?.customerId ?? '');
+  const [lotNumber, setLotNumber] = useState(invoice?.lotNumber ?? '');
+  const [customerLotNumber, setCustomerLotNumber] = useState(invoice?.customerLotNumber ?? '');
+  const [billNumber, setBillNumber] = useState(invoice?.billNumber ?? '');
+  const [generalQuantity, setGeneralQuantity] = useState(invoice?.generalQuantity ? formatNumber(invoice.generalQuantity) : '');
   const [paid, setPaid] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cash');
-  const [items, setItems] = useState<QuickItemRow[]>(() => [newRow()]);
-  const [discountType, setDiscountType] = useState<DiscountType | ''>('');
-  const [discountValue, setDiscountValue] = useState('');
-  const [notes, setNotes] = useState('');
+  const [items, setItems] = useState<QuickItemRow[]>(() => (invoice ? invoice.items.map(itemRowFromInvoice) : [newRow()]));
+  const [discountType, setDiscountType] = useState<DiscountType | ''>(invoice?.discountType ?? '');
+  const [discountValue, setDiscountValue] = useState(invoice?.discountType ? formatNumber(invoice.discountValue) : '');
+  const [notes, setNotes] = useState(invoice?.notes ?? '');
   const [errors, setErrors] = useState<FieldErrors>({});
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -92,6 +122,10 @@ export function QuickInvoiceForm({ onSaved, onCancel }: Props) {
     [subtotal, discountType, discountValue],
   );
   const grandTotal = discountPreview.grandTotal;
+  // Live preview only, same SUITS_PER_SET business rule the server/print
+  // view uses — General Quantity itself is the saved, authoritative
+  // field; Sets is never stored.
+  const setsPreview = useMemo(() => calculateSets(generalQuantity), [generalQuantity]);
 
   function updateItem(index: number, patch: Partial<QuickItemRow>) {
     setItems((rows) => rows.map((row, i) => (i === index ? { ...row, ...patch } : row)));
@@ -120,7 +154,7 @@ export function QuickInvoiceForm({ onSaved, onCancel }: Props) {
 
   function validate(): FieldErrors {
     const next: FieldErrors = {};
-    if (!customerId) next.customerId = 'Choose a customer';
+    if (!editing && !customerId) next.customerId = 'Choose a customer';
     if (discountPreview.error) next.discountValue = discountPreview.error;
 
     const itemErrors: Record<number, { description?: string; quantity?: string; unitPrice?: string }> = {};
@@ -145,25 +179,42 @@ export function QuickInvoiceForm({ onSaved, onCancel }: Props) {
 
     setSaving(true);
     try {
-      // Same createInvoice call CreateInvoiceForm makes — same ledger
-      // debit, same invoice numbering — just with manual
-      // (no-category) items: the server recalculates lineAmount =
-      // quantity * unitPrice itself (createManualInvoiceItem) rather
-      // than trusting any total from here.
-      const saved = await invoicesApi.createInvoice({
-        customerId,
-        invoiceDate: todayLocal(),
+      const sharedFields = {
         lotNumber: lotNumber || undefined,
         customerLotNumber: customerLotNumber || undefined,
+        billNumber: billNumber || undefined,
+        generalQuantity: generalQuantity || undefined,
         notes: notes || undefined,
         discountType: discountType || undefined,
         discountValue: discountType ? discountValue || '0' : undefined,
+        // Never categoryId: a manual item is exactly what keeps this
+        // invoice's invoiceMode 'quick' on the server (see
+        // invoiceModeFromItems in invoice.service.ts) — reopening it
+        // after this save lands back in this editor, never
+        // CreateInvoiceForm.
         items: items.map((row) => ({
           description: row.description.trim(),
           quantity: row.quantity || undefined,
           unitPrice: row.unitPrice,
         })),
-      });
+      };
+
+      if (editing && invoice) {
+        // Same updateInvoice call CreateInvoiceForm's edit mode makes —
+        // the customer can't be reassigned here either. No payment is
+        // ever created from an edit; "Record a payment" in
+        // InvoiceDetails is the one place that happens.
+        const saved = await invoicesApi.updateInvoice(invoice.id, sharedFields);
+        onSaved(saved);
+        return;
+      }
+
+      // Same createInvoice call CreateInvoiceForm makes — same ledger
+      // debit, same invoice numbering — just with manual
+      // (no-category) items: the server recalculates lineAmount =
+      // quantity * unitPrice itself (createManualInvoiceItem) rather
+      // than trusting any total from here.
+      const saved = await invoicesApi.createInvoice({ ...sharedFields, customerId, invoiceDate: todayLocal() });
 
       // "Paid" is a convenience: it records a payment immediately after
       // saving, through the exact same createPayment call (and ledger
@@ -196,19 +247,27 @@ export function QuickInvoiceForm({ onSaved, onCancel }: Props) {
     <form onSubmit={handleSubmit} className="rounded-md border border-slate-200 p-4 md:p-6">
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <Field label="Customer" error={errors.customerId}>
-          <select
-            autoFocus
-            value={customerId}
-            onChange={(e) => setCustomerId(e.target.value)}
-            className={inputClass(Boolean(errors.customerId))}
-          >
-            <option value="">Select…</option>
-            {customers.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
+          {editing ? (
+            <input
+              disabled
+              value={invoice?.customerName ?? ''}
+              className="w-full rounded-md border border-slate-200 bg-slate-50 px-2 py-2 text-sm text-slate-500"
+            />
+          ) : (
+            <select
+              autoFocus
+              value={customerId}
+              onChange={(e) => setCustomerId(e.target.value)}
+              className={inputClass(Boolean(errors.customerId))}
+            >
+              <option value="">Select…</option>
+              {customers.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          )}
         </Field>
 
         <Field label="Internal Lot Number">
@@ -231,18 +290,20 @@ export function QuickInvoiceForm({ onSaved, onCancel }: Props) {
           />
         </Field>
 
-        <Field label="Payment Status">
-          <div className="flex gap-2">
-            <ToggleButton active={!paid} onClick={() => setPaid(false)}>
-              Unpaid
-            </ToggleButton>
-            <ToggleButton active={paid} onClick={() => setPaid(true)}>
-              Paid
-            </ToggleButton>
-          </div>
-        </Field>
+        {!editing && (
+          <Field label="Payment Status">
+            <div className="flex gap-2">
+              <ToggleButton active={!paid} onClick={() => setPaid(false)}>
+                Unpaid
+              </ToggleButton>
+              <ToggleButton active={paid} onClick={() => setPaid(true)}>
+                Paid
+              </ToggleButton>
+            </div>
+          </Field>
+        )}
 
-        {paid && (
+        {!editing && paid && (
           <Field label="Payment Method">
             <div className="flex gap-2">
               <ToggleButton active={paymentMethod === 'cash'} onClick={() => setPaymentMethod('cash')}>
@@ -254,6 +315,40 @@ export function QuickInvoiceForm({ onSaved, onCancel }: Props) {
             </div>
           </Field>
         )}
+      </div>
+
+      {/* Invoice Details: Bill Number, General Quantity (+ derived Sets) — same fields CreateInvoiceForm shows, no category/formula controls here */}
+      <div className="mt-4 rounded-md border border-slate-200 p-3">
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Invoice Details</p>
+        <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <Field label="Bill Number">
+            <input
+              type="text"
+              value={billNumber}
+              onChange={(e) => setBillNumber(e.target.value)}
+              placeholder="e.g. 4587"
+              className={inputClass(false)}
+            />
+          </Field>
+
+          <Field label="General Quantity">
+            <input
+              inputMode="decimal"
+              value={generalQuantity}
+              onChange={(e) => setGeneralQuantity(e.target.value)}
+              placeholder="e.g. 504"
+              className={`${inputClass(false)} text-right`}
+            />
+          </Field>
+
+          <Field label="Sets">
+            <input
+              disabled
+              value={setsPreview ?? '—'}
+              className="w-full rounded-md border border-slate-200 bg-slate-50 px-2 py-2 text-right text-sm text-slate-500"
+            />
+          </Field>
+        </div>
       </div>
 
       {/* Items — each its own card on mobile, a table on wider screens */}
@@ -299,7 +394,7 @@ export function QuickInvoiceForm({ onSaved, onCancel }: Props) {
                     type="text"
                     readOnly
                     tabIndex={-1}
-                    value={amount ?? ''}
+                    value={amount ? formatNumber(amount) : ''}
                     placeholder="0.00"
                     className="w-full rounded-md border border-slate-200 bg-slate-50 px-2 py-2 text-right text-sm text-slate-700"
                   />
@@ -400,7 +495,7 @@ export function QuickInvoiceForm({ onSaved, onCancel }: Props) {
           disabled={saving}
           className="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50"
         >
-          {saving ? 'Saving…' : 'Save Invoice'}
+          {saving ? 'Saving…' : editing ? 'Save changes' : 'Save Invoice'}
         </button>
       </div>
     </form>

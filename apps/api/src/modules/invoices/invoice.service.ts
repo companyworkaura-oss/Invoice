@@ -15,6 +15,27 @@ import { getBalanceBefore, getCustomerBalance, postLedgerEntry } from '../ledger
 
 export type InvoiceStatus = 'draft' | 'issued' | 'cancelled';
 
+/**
+ * Which editor an invoice reopens in — 'standard' for a category/
+ * formula invoice (CreateInvoiceForm), 'quick' for a manual
+ * description/quantity/unit-price invoice (QuickInvoiceForm). Always
+ * derived server-side from the items actually being saved (see
+ * invoiceModeFromItems below), never accepted from the client — so the
+ * frontend can't desync it from what was actually saved.
+ */
+export type InvoiceMode = 'standard' | 'quick';
+
+/**
+ * An invoice is 'quick' only when every one of its items is manual (no
+ * categoryId) — the exact same signal createInvoiceItem already uses to
+ * route a single item to createManualInvoiceItem. A mix (or an
+ * all-category invoice) is 'standard', since CreateInvoiceForm is the
+ * only editor that can represent a category item.
+ */
+function invoiceModeFromItems(items: InvoiceItemInput[]): InvoiceMode {
+  return items.every((item) => !item.categoryId) ? 'quick' : 'standard';
+}
+
 export interface InvoiceItemInput {
   /** Omit for a manual (Quick Invoice) item — see unitPrice below. A category item still always requires this. */
   categoryId?: string;
@@ -189,6 +210,8 @@ export interface Invoice {
   status: InvoiceStatus;
   createdAt: string;
   archivedAt: string | null;
+  /** Which editor this invoice reopens in — see InvoiceMode. Always server-derived, never client-supplied. */
+  invoiceMode: InvoiceMode;
   /** Internal lot number — never shown on customer-facing print/PDF/WhatsApp. */
   lotNumber: string | null;
   /** The customer's own lot number — the only one shown on customer-facing print/PDF/WhatsApp. */
@@ -260,6 +283,7 @@ const INVOICE_HEADER_COLUMNS = `
   i.id, i.company_id AS "companyId", i.customer_id AS "customerId", c.name AS "customerName",
   i.invoice_number AS "invoiceNumber", i.invoice_date AS "invoiceDate", i.notes, i.status,
   i.created_at AS "createdAt", i.archived_at AS "archivedAt",
+  i.invoice_mode AS "invoiceMode",
   i.lot_number AS "lotNumber", i.customer_lot_number AS "customerLotNumber",
   i.bill_number AS "billNumber", i.general_quantity AS "generalQuantity",
   i.show_unit_amount AS "showUnitAmount", i.show_item_quantity AS "showItemQuantity",
@@ -512,12 +536,18 @@ export async function createInvoice(
     // behavior back — see InvoiceInput.showUnitAmount/showItemQuantity.
     const showUnitAmount = input.showUnitAmount ?? true;
     const showItemQuantity = input.showItemQuantity ?? true;
+    // Derived from the items actually being saved, not accepted from
+    // the client — see invoiceModeFromItems. This is what decides which
+    // editor (CreateInvoiceForm vs QuickInvoiceForm) the invoice reopens
+    // in, so it must always reflect what was actually saved, never a
+    // claim the request could get wrong.
+    const invoiceMode = invoiceModeFromItems(input.items);
 
     const invoiceRes = await client.query<{ id: string; invoiceDate: string; createdAt: string }>(
       `INSERT INTO invoices
          (company_id, customer_id, invoice_number, invoice_date, notes, status, lot_number, customer_lot_number,
-          bill_number, general_quantity, show_unit_amount, show_item_quantity)
-       VALUES ($1, $2, $3, COALESCE($4::date, CURRENT_DATE), $5, COALESCE($6, 'draft'), $7, $8, $9, $10, $11, $12)
+          bill_number, general_quantity, show_unit_amount, show_item_quantity, invoice_mode)
+       VALUES ($1, $2, $3, COALESCE($4::date, CURRENT_DATE), $5, COALESCE($6, 'draft'), $7, $8, $9, $10, $11, $12, $13)
        RETURNING id, invoice_date AS "invoiceDate", created_at AS "createdAt"`,
       [
         companyId,
@@ -532,6 +562,7 @@ export async function createInvoice(
         input.generalQuantity ?? null,
         showUnitAmount,
         showItemQuantity,
+        invoiceMode,
       ],
     );
     const { id: invoiceId, invoiceDate, createdAt } = invoiceRes.rows[0];
@@ -592,6 +623,7 @@ export async function createInvoice(
       status: input.status ?? 'draft',
       createdAt,
       archivedAt: null,
+      invoiceMode,
       lotNumber: input.lotNumber ?? null,
       customerLotNumber: input.customerLotNumber ?? null,
       billNumber: input.billNumber ?? null,
@@ -851,6 +883,13 @@ export async function updateInvoice(
       throw badRequest('Validation failed', { status: 'Only draft invoices can be edited.' });
     }
 
+    // Recomputed from the items actually being saved in this edit, same
+    // as createInvoice — so a Quick Invoice (all-manual items, saved by
+    // QuickInvoiceForm) stays 'quick' and a Standard invoice (all
+    // category items, saved by CreateInvoiceForm) stays 'standard' as
+    // long as each editor keeps sending the item shape it always has.
+    const invoiceMode = invoiceModeFromItems(input.items);
+
     const invoiceRes = await client.query<{ invoiceDate: string }>(
       `UPDATE invoices
           SET invoice_date = COALESCE($3::date, invoice_date),
@@ -861,6 +900,7 @@ export async function updateInvoice(
               general_quantity = $8,
               show_unit_amount = $9,
               show_item_quantity = $10,
+              invoice_mode = $11,
               updated_at = now()
         WHERE id = $1 AND company_id = $2
         RETURNING invoice_date AS "invoiceDate"`,
@@ -875,6 +915,7 @@ export async function updateInvoice(
         input.generalQuantity ?? null,
         input.showUnitAmount ?? true,
         input.showItemQuantity ?? true,
+        invoiceMode,
       ],
     );
     const { invoiceDate } = invoiceRes.rows[0];
