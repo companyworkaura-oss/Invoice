@@ -216,6 +216,28 @@ test('blocks deleting a draft invoice once a payment has actually reached it', a
   assert.equal(ledger.body.balance, '0.00');
 });
 
+test('blocks deleting a draft invoice once a partial payment has reached it', async () => {
+  const { agent } = await registeredOwner('Delete Partial Draft Co');
+  const customerId = await createCustomer(agent, 'Partial Draft Customer');
+  const categoryId = await createCategory(agent);
+  const invoice = await createInvoice(agent, customerId, categoryId); // total 144.00
+
+  // Pay only part of it — FIFO still attributes this partial payment to this invoice.
+  const payment = await agent.post('/api/payments').send({ customerId, amount: '50.00', paymentMethod: 'cash' });
+  assert.equal(payment.status, 201);
+
+  const res = await agent.delete(`/api/invoices/${invoice.id}`);
+  assert.equal(res.status, 400);
+  assert.match(res.body.details?.payments ?? '', /payment/i);
+
+  const stillThere = await agent.get(`/api/invoices/${invoice.id}`);
+  assert.equal(stillThere.status, 200, 'blocked delete must not remove the invoice');
+
+  // The partial payment and its ledger credit are completely untouched.
+  const ledger = await agent.get(`/api/customers/${customerId}/ledger`);
+  assert.equal(ledger.body.balance, '94.00');
+});
+
 test('archived invoices still count toward historical/accounting totals', async () => {
   const { agent } = await registeredOwner('Archive Totals Co');
   const customerId = await createCustomer(agent, 'Totals Customer');

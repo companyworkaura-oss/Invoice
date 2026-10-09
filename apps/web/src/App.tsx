@@ -21,6 +21,12 @@ function App() {
   const [authView, setAuthView] = useState<AuthView>('login');
   const [showProfile, setShowProfile] = useState(false);
   const [tab, setTab] = useState<DashboardTab>('dashboard');
+  const [paymentsCustomerFilter, setPaymentsCustomerFilter] = useState<string | undefined>(undefined);
+
+  function viewPaymentsForCustomer(customerId: string) {
+    setPaymentsCustomerFilter(customerId);
+    setTab('payments');
+  }
 
   function refreshMe() {
     authApi
@@ -164,13 +170,13 @@ function App() {
 
         {tab === 'invoices' && (
           <div className="mt-4 print:mt-0">
-            <InvoicesPage key={me.company.id} permissions={me.permissions} />
+            <InvoicesPage key={me.company.id} permissions={me.permissions} onViewPayments={viewPaymentsForCustomer} />
           </div>
         )}
 
         {tab === 'payments' && (
           <div className="mt-4 print:mt-0">
-            <PaymentsPage key={me.company.id} permissions={me.permissions} />
+            <PaymentsPage key={me.company.id} permissions={me.permissions} initialCustomerId={paymentsCustomerFilter} />
           </div>
         )}
 

@@ -27,9 +27,10 @@ const ROW_ACTION_TO_INITIAL_ACTION: Record<InvoiceRowAction, TemplateInitialActi
 
 interface Props {
   permissions: Permission[];
+  onViewPayments: (customerId: string) => void;
 }
 
-export function InvoicesPage({ permissions }: Props) {
+export function InvoicesPage({ permissions, onViewPayments }: Props) {
   const [view, setView] = useState<View>({ name: 'list' });
   const [refreshToken, setRefreshToken] = useState(0);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -92,6 +93,7 @@ export function InvoicesPage({ permissions }: Props) {
             permissions={permissions}
             onSelect={(entry) => openInvoice(entry.id)}
             onAction={handleRowAction}
+            onViewPayments={onViewPayments}
           />
         )}
 

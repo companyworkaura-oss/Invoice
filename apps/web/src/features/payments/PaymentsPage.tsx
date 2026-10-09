@@ -8,23 +8,36 @@ const METHOD_LABEL: Record<string, string> = { cash: 'Cash', bank: 'Bank', chequ
 
 interface Props {
   permissions: Permission[];
+  /** Pre-filters the list to one customer's payments — e.g. when arriving here from an invoice's "View payments" link. */
+  initialCustomerId?: string;
 }
 
 const DELETE_CONFIRM = 'Delete this payment? The related ledger entry and balances will be updated. This action cannot be undone.';
 
-export function PaymentsPage({ permissions }: Props) {
+export function PaymentsPage({ permissions, initialCustomerId }: Props) {
   const [payments, setPayments] = useState<Payment[] | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [customerFilter, setCustomerFilter] = useState(initialCustomerId ?? '');
 
   const canDelete = permissions.includes('payment.delete');
 
   function refresh() {
-    paymentsApi.listPayments().then(setPayments).catch(() => setPayments([]));
+    paymentsApi
+      .listPayments(customerFilter ? { customerId: customerFilter } : {})
+      .then(setPayments)
+      .catch(() => setPayments([]));
   }
 
-  useEffect(refresh, []);
+  useEffect(refresh, [customerFilter]);
+
+  // initialCustomerId arrives fresh each time the invoices tab sends us here
+  // (e.g. a different invoice's "View payments" link) without remounting
+  // this page, so pick it up whenever it actually changes.
+  useEffect(() => {
+    if (initialCustomerId) setCustomerFilter(initialCustomerId);
+  }, [initialCustomerId]);
 
   async function handleDelete(payment: Payment) {
     if (!window.confirm(DELETE_CONFIRM)) return;
@@ -68,6 +81,15 @@ export function PaymentsPage({ permissions }: Props) {
       )}
 
       {actionError && <p className="mt-2 text-sm text-red-600">{actionError}</p>}
+
+      {customerFilter && (
+        <p className="mt-2 text-sm text-slate-500">
+          Showing payments for one customer.{' '}
+          <button type="button" onClick={() => setCustomerFilter('')} className="underline hover:text-slate-900">
+            Show all payments
+          </button>
+        </p>
+      )}
 
       <div className="mt-3">
         {payments === null ? (

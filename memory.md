@@ -1672,6 +1672,57 @@ never copied by Duplicate).
   invoice-view-model.test.ts`. 291/291 API tests, 56/56 shared tests;
   `npm run typecheck` and `npm run build` clean across all 3 workspaces.
 
+## Show Why Delete Is Not Available (Phase 33)
+
+The Delete action on `InvoiceList.tsx` silently disappeared whenever
+`canHardDelete()` returned false (not draft, or paid > 0), with zero
+explanation — confusing even though the underlying safety rule
+(`deleteInvoice` in `invoice.service.ts`) is correct and was never
+touched by this phase.
+
+- **`InvoiceList.tsx`**: `canHardDelete(invoice): boolean` replaced
+  with `hardDeleteBlockReason(invoice): string | null`, returning
+  `null` when the backend would accept the delete and otherwise the
+  *exact* wording `deleteInvoice` itself throws (not-draft status, or
+  has-payments) — so the UI reason and the server's own rejection
+  message never drift apart. The Delete button is now always rendered
+  (given `invoice.delete` permission): enabled when the reason is
+  `null`, otherwise `disabled` with a `title` tooltip carrying the
+  reason and its label changed to "Delete (disabled)". When the block
+  is payment-related (`invoice.paid !== '0.00'`), a "View payments"
+  link appears next to it.
+- **"View payments" cross-tab navigation**: payments are recorded at
+  the customer level only (FIFO-allocated across that customer's
+  invoices on every read — see Phase 15's dashboard/history logic), so
+  there is no single invoice→payment link to show; "View payments"
+  means "jump to this invoice's customer's payment history" instead.
+  Wired as a plain callback prop, since `App.tsx` has no router — just
+  a local `useState<DashboardTab>`:
+  `InvoiceList` → `onViewPayments(customerId)` → `InvoicesPage` passes
+  it straight through → `App.tsx`'s `viewPaymentsForCustomer` sets a
+  new `paymentsCustomerFilter` state and switches `tab` to
+  `'payments'` → `PaymentsPage` gained an `initialCustomerId` prop,
+  synced into its own `customerFilter` state via a `useEffect` (so a
+  second "View payments" click for a different customer, while already
+  on the Payments tab, still takes effect — the component isn't
+  remounted, only re-rendered), which is passed into the already-
+  existing `customerId` filter of `paymentsApi.listPayments` — the
+  backend route already supported this filter end-to-end, so zero
+  backend changes were needed for this part either. A "Show all
+  payments" link clears the filter.
+- Archive/Unarchive and the Active/Archived/All tab filter: untouched,
+  as required — the fix only changes how a blocked Delete is presented,
+  never what Archive can do or when.
+- New backend test `apps/api/test/invoice-archive.test.ts`: "blocks
+  deleting a draft invoice once a *partial* payment has reached it" —
+  the existing suite only covered a *fully*-paid invoice and a
+  never-paid one; this closes that gap, asserting the 400 + exact
+  `details.payments` message + the partial payment and its ledger
+  credit still both being intact afterward.
+- 292/292 API tests (1 new), `npm run typecheck` and `npm run build`
+  clean across all 3 workspaces. No `deleteInvoice` or any other
+  backend accounting/ledger code was changed.
+
 ## Known gotchas / things to check before starting work
 
 - **Postgres cluster is often stopped** when a session starts:
@@ -1925,6 +1976,18 @@ never copied by Duplicate).
     same treatment (customer-facing print/PDF/WhatsApp, searchable,
     available on both Standard and Quick Invoice, never copied by
     Duplicate). See "Gate Pass Number (Phase 32)" below
+
+38. Show Why Delete Is Not Available: the Delete button on a
+    payment-blocked or non-draft invoice used to just vanish with no
+    explanation. Backend `deleteInvoice` safety rule (draft-only,
+    zero-paid) is untouched — this is a pure frontend presentation
+    fix: the button always renders, is disabled with the exact
+    backend-matching reason in its tooltip when blocked, and a "View
+    payments" link appears next to a payment-blocked Delete that jumps
+    to a customer-filtered Payments tab (FIFO payments are
+    customer-level, never invoice-level, so there's no per-invoice
+    payment list to link to). Archive/Unarchive untouched. See "Show
+    Why Delete Is Not Available (Phase 33)" below
 
 Repo also went through a monorepo restructure (`server/` → `apps/api` +
 new `apps/web` + `packages/shared`) between Phase 1 and Phase 2.

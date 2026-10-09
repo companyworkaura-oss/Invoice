@@ -9,6 +9,7 @@ export type InvoiceRowAction = 'print' | 'pdf' | 'whatsapp' | 'duplicate';
 interface Props {
   onSelect: (invoice: InvoiceListEntry) => void;
   onAction: (action: InvoiceRowAction, invoice: InvoiceListEntry) => void;
+  onViewPayments: (customerId: string) => void;
   permissions: Permission[];
   refreshToken: number;
 }
@@ -32,11 +33,18 @@ const ARCHIVED_TABS: { value: InvoiceArchivedFilter; label: string }[] = [
  * Mirrors the backend's deleteInvoice safety rule exactly (invoice.service.ts):
  * only a draft with nothing paid against it can be permanently deleted. `paid`
  * here is the same FIFO-allocated per-invoice amount the backend's own check
- * uses, so this never has to guess — a button hidden by this is a delete the
- * server would have rejected anyway.
+ * uses, so this never has to guess — returning null here means the server
+ * would accept the delete; any other return value is the exact reason it
+ * would reject it, worded the same way the backend itself would.
  */
-function canHardDelete(invoice: InvoiceListEntry): boolean {
-  return invoice.status === 'draft' && invoice.paid === '0.00';
+function hardDeleteBlockReason(invoice: InvoiceListEntry): string | null {
+  if (invoice.status !== 'draft') {
+    return 'Only draft invoices can be permanently deleted. Cancel or archive an issued invoice instead.';
+  }
+  if (invoice.paid !== '0.00') {
+    return 'This invoice has a payment applied to it and cannot be permanently deleted — archive it instead to preserve accounting history.';
+  }
+  return null;
 }
 
 function useDebounced<T>(value: T, delayMs: number): T {
@@ -48,7 +56,7 @@ function useDebounced<T>(value: T, delayMs: number): T {
   return debounced;
 }
 
-export function InvoiceList({ onSelect, onAction, permissions, refreshToken }: Props) {
+export function InvoiceList({ onSelect, onAction, onViewPayments, permissions, refreshToken }: Props) {
   const [searchInput, setSearchInput] = useState('');
   const search = useDebounced(searchInput, 300);
   const [customerId, setCustomerId] = useState('');
@@ -306,16 +314,31 @@ export function InvoiceList({ onSelect, onAction, permissions, refreshToken }: P
                             Restore
                           </button>
                         )}
-                        {canDelete && canHardDelete(inv) && (
-                          <button
-                            type="button"
-                            disabled={busy}
-                            onClick={() => handleDelete(inv)}
-                            className="text-red-600 underline hover:text-red-800 disabled:opacity-50"
-                          >
-                            Delete
-                          </button>
-                        )}
+                        {canDelete && (() => {
+                          const blockReason = hardDeleteBlockReason(inv);
+                          return (
+                            <>
+                              <button
+                                type="button"
+                                disabled={busy || blockReason !== null}
+                                title={blockReason ?? undefined}
+                                onClick={() => handleDelete(inv)}
+                                className="text-red-600 underline hover:text-red-800 disabled:cursor-not-allowed disabled:text-slate-400 disabled:no-underline disabled:opacity-100"
+                              >
+                                {blockReason ? 'Delete (disabled)' : 'Delete'}
+                              </button>
+                              {blockReason !== null && inv.paid !== '0.00' && (
+                                <button
+                                  type="button"
+                                  onClick={() => onViewPayments(inv.customerId)}
+                                  className="text-slate-600 underline hover:text-slate-900"
+                                >
+                                  View payments
+                                </button>
+                              )}
+                            </>
+                          );
+                        })()}
                       </div>
                     </td>
                   </tr>
