@@ -1801,6 +1801,89 @@ byte-for-byte unchanged.
   "Testing conventions" below), so Playwright live verification was
   the coverage for this change, same as prior frontend-only phases.
 
+## Display Number Format (Phase 35)
+
+A pure display-formatting fix — no stored value, API payload, formula
+engine, roundMoney, or calculation changed anywhere. The only kind of
+edit in this phase is wrapping an already-final numeric string in
+`formatNumber(...)` at the point it's rendered to the screen.
+
+- **The formatter already existed**: `formatNumber()` in `packages/
+  shared/src/number-format.ts` (added in Phase 31 for Quick Invoice's
+  edit-mode prefill) does exactly what this task asked for —
+  `new Decimal(value).toString()`, which trims insignificant trailing
+  zeros and never rounds: `"144.00"` -> `"144"`, `"504.50"` ->
+  `"504.5"`, `"131.03"` -> `"131.03"` (untouched, both decimals
+  meaningful), `"0.00"` -> `"0"`. Using `Decimal` instead of
+  `Number`/`toLocaleString` avoids float precision loss on a large
+  value like `"4406226.00"`. No new formatter was created — this
+  phase just applied the existing one everywhere it was still missing.
+- **One central fix covers print/PDF/all 5 templates**: every
+  template (`ClassicNavyTemplate`, `ModernCurveTemplate`,
+  `MinimalCleanTemplate`, `IndustrialBlueTemplate`,
+  `PremiumModernTemplate`) and the server-side PDF HTML renderer
+  (`apps/api/.../pdf/render-html.ts`) only ever read fields straight
+  off the shared `InvoiceViewModel` — confirmed by grepping all 5
+  template files and render-html.ts for every relevant field name;
+  none re-derive or reformat anything themselves. So formatting once,
+  inside `buildInvoiceViewModel` (`packages/shared/src/
+  invoice-view-model.ts`) — item quantity/unitAmount/amount, subtotal,
+  discountValue, discountAmount (and `discountLabel`, which embeds
+  discountValue in its own string), grandTotal, previousBalance,
+  amountPaid, currentBalance — fixed print preview, PDF download, and
+  all 5 templates simultaneously, with zero per-template edits.
+  `generalQuantity`/`sets` were already trimmed by Phase 30's
+  `formatQuantity`/`calculateSets` and needed no change.
+- **Everywhere else that reads directly off the raw API response**
+  (not through the view model) needed its own `formatNumber(...)`
+  call at render time:
+  - `InvoiceList.tsx`: Grand Total/Paid/Balance table columns.
+  - `InvoiceDetails.tsx` (the separate non-template detail panel):
+    each item's quantity/rate/unit amount/total, the subtotal/
+    discount/grand-total table footer, and all 5 `StatRow` figures
+    (Previous Balance/Grand Total/Total Receivable/Amount Paid/
+    Current Balance).
+  - `CreateInvoiceForm.tsx` and `QuickInvoiceForm.tsx`'s shared-shape
+    `SummaryRow` component now formats its `value` prop internally —
+    covers Subtotal/Discount/Grand Total/Previous Balance/Total
+    Receivable/Amount Paid/Current Balance in both forms with one
+    change per form. `CreateInvoiceForm` additionally gained
+    `formatNumber` on its edit-mode prefill (`itemRowFromInvoice`'s
+    quantity/rate, `generalQuantity`, `discountValue` initial state)
+    and its live per-row preview Amount cell — bringing it up to the
+    same clean-number editing behavior `QuickInvoiceForm` already had
+    from Phase 31 (its own prefill/Amount cell were already
+    formatted and untouched here).
+- A value being formatted is never fed back into a calculation: every
+  call site wraps `formatNumber(...)` around a value only at the
+  JSX render boundary, after every `sumAmounts`/`roundMoney`/
+  `previewItemAmount`/`previewDiscount` call it depends on has
+  already run on the raw, unformatted string.
+- **Test updates**: `invoice-view-model.test.ts` had 2 existing
+  assertions expecting the old padded output (`'14.40'`, `'0.00'`)
+  updated to the new, correct trimmed expectation (`'14.4'`, `'0'`) —
+  this is the intended behavior change this phase makes, not a
+  regression. 2 new tests added: one confirming a 7-digit whole-number
+  total (`"4406226.00"` -> `"4406226"`) and a two-decimal value
+  (`"131.03"`) are each trimmed correctly and independently inside the
+  same view model, and one confirming a percentage discount's value is
+  trimmed both as its own field and inside the human-readable
+  `discountLabel` string (`"Discount (10.00%)"` -> `"Discount (10%)"`).
+- **Verified live** (Playwright, dev DB, seeded invoices mixing whole-
+  number and decimal totals on the same customer — e.g. grand totals
+  of `144.00`/`151.20` and a `131.03` payment side by side): invoice
+  list showed `144`/`151.2`/`131.03`/`12.97` with no stray `.00`;
+  invoice detail panel showed `14.4` unit amount, `504` general
+  quantity, `6` sets; all 5 templates (switched live via the template
+  selector) rendered `6666`-style whole numbers cleanly with `79.36`
+  Sets correctly kept as a real decimal; Quick Invoice's own detail
+  and edit views showed `6666`/`1` with no padding; the PDF download
+  endpoint (`GET /invoices/:id/pdf`) still returned 200 with a valid
+  PDF. Dev DB reset (drop + recreate + re-migrate) after verification,
+  no stray dev-server processes left running.
+- `npm run typecheck`, `npm run build`, and `npm test` all clean —
+  292/292 API tests, 58/58 shared tests (56 pre-existing + 2 new).
+
 ## Known gotchas / things to check before starting work
 
 - **Postgres cluster is often stopped** when a session starts:
@@ -2086,6 +2169,52 @@ byte-for-byte unchanged.
     the exact same logic from Phase 33, just relocated into the menu's
     item list instead of being inline buttons. See "Invoice List
     Scroll + Search Bar Cleanup (Phase 34)" below
+
+40. Display Number Format (trim trailing zeros): a numeric(12,2)
+    column always hands back a padded string ("144.00", "6666.00"),
+    and most of the UI was printing that padding straight through.
+    Reused the existing `formatNumber()` (`packages/shared/src/
+    number-format.ts`, introduced in Phase 31 for Quick Invoice's edit
+    prefill) as the one shared display formatter — `Decimal(value)
+    .toString()`, which trims insignificant trailing zeros and never
+    rounds ("144.00"->"144", "504.50"->"504.5", "0.00"->"0"). Applied
+    it at the single most-central point for print/PDF — inside
+    `buildInvoiceViewModel` (`packages/shared/src/
+    invoice-view-model.ts`) — formatting every item's quantity/
+    unitAmount/amount plus subtotal/discountValue/discountAmount/
+    grandTotal/previousBalance/amountPaid/currentBalance once, so all
+    5 templates, the server-side PDF renderer, and the web print-
+    preview (all three just echo `invoice.<field>` from this one view
+    model, confirmed by reading each) picked it up with zero
+    per-template edits. Also applied directly in `InvoiceList.tsx`
+    (Grand Total/Paid/Balance columns), `InvoiceDetails.tsx` (the
+    separate, non-template detail panel: item quantity/rate/unit
+    amount/total, subtotal, discount, grand total, and all 5 StatRow
+    figures), and both invoice forms' `SummaryRow` component
+    (Subtotal/Discount/Grand Total/Previous Balance/Amount Paid/
+    Current Balance) — `CreateInvoiceForm` additionally gained it on
+    edit-mode prefill (quantity/rate/generalQuantity/discountValue)
+    and the live per-row preview amount, matching the pattern
+    `QuickInvoiceForm` already had from Phase 31. General Quantity and
+    Sets were already display-trimmed by Phase 30's `formatQuantity`/
+    `calculateSets` and needed no change. Nowhere are stored values,
+    API payloads, the formula engine, roundMoney, or any calculation
+    touched — every edit is `formatNumber(x)` wrapped around an
+    already-final string purely at render time.
+    2 existing `invoice-view-model.test.ts` assertions were updated to
+    expect the now-trimmed output ("14.40"->"14.4", "0.00"->"0") since
+    that's the intended behavior change; 2 new tests added covering a
+    7-digit whole-number total ("4406226.00"->"4406226") and a
+    percentage discount's value trimming inside `discountLabel`
+    itself ("Discount (10.00%)"->"Discount (10%)"). Verified live
+    (Playwright, dev DB): invoice list, invoice detail, Quick
+    Invoice's own detail/edit view, and all 5 templates (switched
+    live in the template selector) all showing "6666"/"504"/"14.4"/
+    "131.03"-style clean numbers from the same seeded data: a whole-
+    number total, a one-decimal total, and a two-decimal payment
+    amount side by side on one invoice — and confirmed the PDF
+    download endpoint still returns 200 with a valid PDF. See
+    "Display Number Format (Phase 35)" below
 
 Repo also went through a monorepo restructure (`server/` → `apps/api` +
 new `apps/web` + `packages/shared`) between Phase 1 and Phase 2.

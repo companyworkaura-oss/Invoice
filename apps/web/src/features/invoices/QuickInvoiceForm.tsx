@@ -550,7 +550,7 @@ function SummaryRow({ label, value, emphasize }: { label: string; value: string;
   return (
     <div className="flex justify-between">
       <dt className={emphasize ? 'font-semibold text-slate-900' : 'text-slate-500'}>{label}</dt>
-      <dd className={emphasize ? 'font-semibold text-slate-900' : 'text-slate-700'}>{value}</dd>
+      <dd className={emphasize ? 'font-semibold text-slate-900' : 'text-slate-700'}>{formatNumber(value)}</dd>
     </div>
   );
 }

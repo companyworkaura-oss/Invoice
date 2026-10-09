@@ -1,4 +1,5 @@
 import type { Customer, InvoiceArchivedFilter, InvoiceListEntry, InvoicePaymentStatus, Permission } from '@invoice/shared';
+import { formatNumber } from '@invoice/shared';
 import { useEffect, useRef, useState } from 'react';
 import { ApiError } from '../../lib/api';
 import * as customersApi from '../customers/api';
@@ -328,9 +329,9 @@ export function InvoiceList({ onSelect, onAction, onViewPayments, permissions, r
                     <td className="hidden py-1.5 pr-2 text-slate-500 xl:table-cell">{inv.lotNumber ?? '—'}</td>
                     <td className="hidden py-1.5 pr-2 text-slate-500 xl:table-cell">{inv.customerLotNumber ?? '—'}</td>
                     <td className="py-1.5 pr-2 text-slate-600">{inv.customerName}</td>
-                    <td className="py-1.5 pr-2 text-right tabular-nums">{inv.grandTotal}</td>
-                    <td className="hidden py-1.5 pr-2 text-right tabular-nums lg:table-cell">{inv.paid}</td>
-                    <td className="py-1.5 pr-2 text-right tabular-nums font-medium text-slate-900">{inv.balance}</td>
+                    <td className="py-1.5 pr-2 text-right tabular-nums">{formatNumber(inv.grandTotal)}</td>
+                    <td className="hidden py-1.5 pr-2 text-right tabular-nums lg:table-cell">{formatNumber(inv.paid)}</td>
+                    <td className="py-1.5 pr-2 text-right tabular-nums font-medium text-slate-900">{formatNumber(inv.balance)}</td>
                     <td className="py-1.5 pr-2">
                       <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_STYLE[inv.paymentStatus]}`}>
                         {inv.paymentStatus}

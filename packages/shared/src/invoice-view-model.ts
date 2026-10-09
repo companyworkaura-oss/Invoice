@@ -2,6 +2,7 @@ import { Decimal } from 'decimal.js';
 import type { Customer, CompanyProfile, InvoiceWithItems } from './entities.js';
 import { roundMoney } from './formula-engine/formula-engine.js';
 import { calculateSets, formatQuantity } from './invoice-sets.js';
+import { formatNumber } from './number-format.js';
 
 /**
  * Exactly what a printable invoice is allowed to show — deliberately a
@@ -59,6 +60,15 @@ export interface InvoiceViewModel {
    * template can gate both rows on the same presence check if it wants.
    */
   sets: string | null;
+  /**
+   * Every numeric string below (quantity/unitAmount/amount/subtotal/
+   * discountValue/discountAmount/grandTotal/previousBalance/amountPaid/
+   * currentBalance) is already run through formatNumber — trailing
+   * insignificant zeros trimmed ("144.00" -> "144", "504.50" -> "504.5"),
+   * never rounded and never the saved/calculated value itself. A
+   * template renders these strings as-is and must never re-parse or
+   * re-format them.
+   */
   /** Whether a template should render the per-item Quantity column — display-only, see Invoice.showItemQuantity. */
   showItemQuantity: boolean;
   /** Whether a template should render the per-item Unit Amount column — display-only, see Invoice.showUnitAmount. */
@@ -162,20 +172,20 @@ export function buildInvoiceViewModel(
     items: invoice.items.map((item) => ({
       id: item.id,
       description: itemDescription(item),
-      quantity: item.quantity,
+      quantity: formatNumber(item.quantity),
       stitches: item.stitches,
-      unitAmount: unitAmount(item),
-      amount: item.calculatedTotal,
+      unitAmount: formatNumber(unitAmount(item)),
+      amount: formatNumber(item.calculatedTotal),
     })),
-    subtotal: invoice.totalAmount,
+    subtotal: formatNumber(invoice.totalAmount),
     discountType: invoice.discountType,
-    discountValue: invoice.discountValue,
-    discountLabel: invoice.discountType === 'percentage' ? `Discount (${invoice.discountValue}%)` : 'Discount',
-    discountAmount: invoice.discountAmount,
-    grandTotal: invoice.grandTotal,
-    previousBalance: invoice.previousBalance,
-    amountPaid: invoice.amountPaid,
-    currentBalance: invoice.currentBalance,
+    discountValue: formatNumber(invoice.discountValue),
+    discountLabel: invoice.discountType === 'percentage' ? `Discount (${formatNumber(invoice.discountValue)}%)` : 'Discount',
+    discountAmount: formatNumber(invoice.discountAmount),
+    grandTotal: formatNumber(invoice.grandTotal),
+    previousBalance: formatNumber(invoice.previousBalance),
+    amountPaid: formatNumber(invoice.amountPaid),
+    currentBalance: formatNumber(invoice.currentBalance),
     terms: company.invoiceTerms,
   };
 }

@@ -1,5 +1,5 @@
 import type { InvoiceWithItems, Permission } from '@invoice/shared';
-import { calculateSets, formatQuantity } from '@invoice/shared';
+import { calculateSets, formatNumber, formatQuantity } from '@invoice/shared';
 import { useState } from 'react';
 import { PaymentForm } from '../payments/PaymentForm';
 import * as invoicesApi from './api';
@@ -71,11 +71,11 @@ export function InvoiceDetails({ invoice, permissions, onBack, onViewTemplate, o
             <tr key={item.id} className="border-b border-slate-100">
               <td className="py-1 pr-2">{item.categoryName}</td>
               <td className="py-1 pr-2 text-slate-500">{item.description ?? '—'}</td>
-              <td className="py-1 pr-2 text-right">{item.quantity}</td>
+              <td className="py-1 pr-2 text-right">{formatNumber(item.quantity)}</td>
               <td className="py-1 pr-2 text-right">{item.stitches}</td>
-              <td className="py-1 pr-2 text-right">{item.rate}</td>
-              <td className="py-1 pr-2 text-right">{item.calculatedUnitAmount}</td>
-              <td className="py-1 text-right">{item.calculatedTotal}</td>
+              <td className="py-1 pr-2 text-right">{formatNumber(item.rate)}</td>
+              <td className="py-1 pr-2 text-right">{formatNumber(item.calculatedUnitAmount)}</td>
+              <td className="py-1 text-right">{formatNumber(item.calculatedTotal)}</td>
             </tr>
           ))}
         </tbody>
@@ -84,31 +84,31 @@ export function InvoiceDetails({ invoice, permissions, onBack, onViewTemplate, o
             <td colSpan={6} className="pt-2 text-right text-sm text-slate-500">
               Subtotal
             </td>
-            <td className="pt-2 text-right text-sm text-slate-700">{invoice.totalAmount}</td>
+            <td className="pt-2 text-right text-sm text-slate-700">{formatNumber(invoice.totalAmount)}</td>
           </tr>
           {invoice.discountType && (
             <tr>
               <td colSpan={6} className="pt-1 text-right text-sm text-slate-500">
-                {invoice.discountType === 'percentage' ? `Discount (${invoice.discountValue}%)` : 'Discount'}
+                {invoice.discountType === 'percentage' ? `Discount (${formatNumber(invoice.discountValue)}%)` : 'Discount'}
               </td>
-              <td className="pt-1 text-right text-sm text-slate-700">-{invoice.discountAmount}</td>
+              <td className="pt-1 text-right text-sm text-slate-700">-{formatNumber(invoice.discountAmount)}</td>
             </tr>
           )}
           <tr>
             <td colSpan={6} className="pt-1 text-right text-sm font-medium text-slate-900">
               Grand Total
             </td>
-            <td className="pt-1 text-right text-sm font-semibold text-slate-900">{invoice.grandTotal}</td>
+            <td className="pt-1 text-right text-sm font-semibold text-slate-900">{formatNumber(invoice.grandTotal)}</td>
           </tr>
         </tfoot>
       </table>
 
       <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-1 border-t border-slate-200 pt-3 text-sm sm:grid-cols-5">
-        <StatRow label="Previous Balance" value={invoice.previousBalance} />
-        <StatRow label="Grand Total" value={invoice.grandTotal} />
-        <StatRow label="Total Receivable" value={invoice.totalReceivable} />
-        <StatRow label="Amount Paid" value={invoice.amountPaid} />
-        <StatRow label="Current Balance" value={invoice.currentBalance} emphasize />
+        <StatRow label="Previous Balance" value={formatNumber(invoice.previousBalance)} />
+        <StatRow label="Grand Total" value={formatNumber(invoice.grandTotal)} />
+        <StatRow label="Total Receivable" value={formatNumber(invoice.totalReceivable)} />
+        <StatRow label="Amount Paid" value={formatNumber(invoice.amountPaid)} />
+        <StatRow label="Current Balance" value={formatNumber(invoice.currentBalance)} emphasize />
       </dl>
 
       <div className="mt-4 border-t border-slate-200 pt-3">

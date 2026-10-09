@@ -164,8 +164,8 @@ test('hiding showUnitAmount/showItemQuantity never changes any item or total fig
 
 test('buildInvoiceViewModel maps the saved calculatedUnitAmount as unitAmount, not a re-derived value', () => {
   const viewModel = buildInvoiceViewModel(baseInvoice(), company, customer);
-  assert.equal(viewModel.items[0].unitAmount, '14.40'); // the item's saved calculatedUnitAmount
-  assert.equal(viewModel.items[0].amount, '144.00'); // unchanged: still the saved calculatedTotal
+  assert.equal(viewModel.items[0].unitAmount, '14.4'); // the item's saved calculatedUnitAmount, trailing zero trimmed for display
+  assert.equal(viewModel.items[0].amount, '144'); // the saved calculatedTotal, trailing zeros trimmed for display
 });
 
 test('buildInvoiceViewModel falls back to total/quantity, safely, when calculatedUnitAmount is missing', () => {
@@ -190,10 +190,10 @@ test('buildInvoiceViewModel falls back to total/quantity, safely, when calculate
     ],
   });
   const viewModel = buildInvoiceViewModel(invoice, company, customer);
-  assert.equal(viewModel.items[0].unitAmount, '14.40'); // 144.00 / 10 — same derived answer here
+  assert.equal(viewModel.items[0].unitAmount, '14.4'); // 144.00 / 10 — same derived answer here, trimmed for display
 });
 
-test('buildInvoiceViewModel never divides by zero — falls back to "0.00" for a zero/missing quantity with no saved unit amount', () => {
+test('buildInvoiceViewModel never divides by zero — falls back to "0" for a zero/missing quantity with no saved unit amount', () => {
   const invoice = baseInvoice({
     items: [
       {
@@ -215,5 +215,29 @@ test('buildInvoiceViewModel never divides by zero — falls back to "0.00" for a
     ],
   });
   const viewModel = buildInvoiceViewModel(invoice, company, customer);
-  assert.equal(viewModel.items[0].unitAmount, '0.00');
+  assert.equal(viewModel.items[0].unitAmount, '0');
+});
+
+test('buildInvoiceViewModel trims trailing zeros off every invoice-level total for display, never rounding the real value', () => {
+  const invoice = baseInvoice({
+    totalAmount: '4406226.00',
+    grandTotal: '4406226.00',
+    previousBalance: '131.03',
+    amountPaid: '0.00',
+    currentBalance: '4406357.03',
+  });
+  const viewModel = buildInvoiceViewModel(invoice, company, customer);
+  assert.equal(viewModel.subtotal, '4406226');
+  assert.equal(viewModel.grandTotal, '4406226');
+  assert.equal(viewModel.previousBalance, '131.03'); // two meaningful decimals — left untouched
+  assert.equal(viewModel.amountPaid, '0');
+  assert.equal(viewModel.currentBalance, '4406357.03');
+});
+
+test('buildInvoiceViewModel trims a percentage discount value both in discountAmount and inside discountLabel', () => {
+  const invoice = baseInvoice({ discountType: 'percentage', discountValue: '10.00', discountAmount: '14.40' });
+  const viewModel = buildInvoiceViewModel(invoice, company, customer);
+  assert.equal(viewModel.discountValue, '10');
+  assert.equal(viewModel.discountAmount, '14.4');
+  assert.equal(viewModel.discountLabel, 'Discount (10%)');
 });

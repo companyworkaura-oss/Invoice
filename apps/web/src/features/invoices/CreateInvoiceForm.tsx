@@ -1,5 +1,5 @@
 import type { Customer, DiscountType, EmbroideryCategory, InvoiceWithItems } from '@invoice/shared';
-import { calculateSets } from '@invoice/shared';
+import { calculateSets, formatNumber } from '@invoice/shared';
 import { useEffect, useMemo, useState } from 'react';
 import { ApiError } from '../../lib/api';
 import * as customersApi from '../customers/api';
@@ -38,9 +38,9 @@ function itemRowFromInvoice(item: InvoiceWithItems['items'][number]): ItemRow {
     key: nextRowKey++,
     categoryId: item.categoryId ?? '',
     description: item.description ?? '',
-    quantity: item.quantity,
+    quantity: formatNumber(item.quantity),
     stitches: String(item.stitches),
-    rate: item.rate,
+    rate: formatNumber(item.rate),
   };
 }
 
@@ -59,11 +59,11 @@ export function CreateInvoiceForm({ invoice, onSaved, onCancel }: Props) {
   const [customerLotNumber, setCustomerLotNumber] = useState(invoice?.customerLotNumber ?? '');
   const [billNumber, setBillNumber] = useState(invoice?.billNumber ?? '');
   const [gatePassNumber, setGatePassNumber] = useState(invoice?.gatePassNumber ?? '');
-  const [generalQuantity, setGeneralQuantity] = useState(invoice?.generalQuantity ?? '');
+  const [generalQuantity, setGeneralQuantity] = useState(invoice?.generalQuantity ? formatNumber(invoice.generalQuantity) : '');
   const [showUnitAmount, setShowUnitAmount] = useState(invoice?.showUnitAmount ?? true);
   const [showItemQuantity, setShowItemQuantity] = useState(invoice?.showItemQuantity ?? true);
   const [discountType, setDiscountType] = useState<DiscountType | ''>(invoice?.discountType ?? '');
-  const [discountValue, setDiscountValue] = useState(invoice?.discountType ? invoice.discountValue : '');
+  const [discountValue, setDiscountValue] = useState(invoice?.discountType ? formatNumber(invoice.discountValue) : '');
   const [items, setItems] = useState<ItemRow[]>(() => (invoice ? invoice.items.map(itemRowFromInvoice) : [newRow()]));
   const [previousBalance, setPreviousBalance] = useState<string | null>(null);
   const [errors, setErrors] = useState<FieldErrors>({});
@@ -434,7 +434,7 @@ export function CreateInvoiceForm({ invoice, onSaved, onCancel }: Props) {
                     />
                   </td>
                   <td className="py-1.5 pr-2 text-right tabular-nums text-slate-700">
-                    {preview.amount ?? (preview.error ? <span className="text-red-600">—</span> : '—')}
+                    {preview.amount ? formatNumber(preview.amount) : preview.error ? <span className="text-red-600">—</span> : '—'}
                   </td>
                   <td className="py-1.5 text-right">
                     <button
@@ -554,7 +554,7 @@ function SummaryRow({ label, value, emphasize }: { label: string; value: string;
   return (
     <div className="flex justify-between">
       <dt className={emphasize ? 'font-semibold text-slate-900' : 'text-slate-500'}>{label}</dt>
-      <dd className={emphasize ? 'font-semibold text-slate-900' : 'text-slate-700'}>{value}</dd>
+      <dd className={emphasize ? 'font-semibold text-slate-900' : 'text-slate-700'}>{formatNumber(value)}</dd>
     </div>
   );
 }
