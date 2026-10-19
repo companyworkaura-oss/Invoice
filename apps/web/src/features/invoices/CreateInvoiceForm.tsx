@@ -447,6 +447,7 @@ export function CreateInvoiceForm({ invoice, onSaved, onCancel }: Props) {
                     <input
                       inputMode="decimal"
                       placeholder={category?.defaultRate ?? ''}
+                      title="Pre-filled from the category's default rate — editable per invoice item"
                       value={row.rate}
                       onChange={(e) => updateItem(index, { rate: e.target.value })}
                       onKeyDown={(e) => handleRateKeyDown(e, index)}

@@ -101,7 +101,7 @@ export function CategoryForm({ category, onSaved, onCancel }: Props) {
       <div className="grid grid-cols-2 gap-3">
         <div>
           <label htmlFor="cat-rate" className="block text-xs font-medium text-slate-500">
-            Default rate
+            Default Rate
           </label>
           <input
             id="cat-rate"
@@ -111,6 +111,7 @@ export function CategoryForm({ category, onSaved, onCancel }: Props) {
             onChange={(e) => field('defaultRate', e.target.value)}
             className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-slate-500 focus:outline-none"
           />
+          <p className="mt-0.5 text-[11px] text-slate-400">Starting point only — can be overridden per invoice item.</p>
         </div>
         <div>
           <label htmlFor="cat-formula-type" className="block text-xs font-medium text-slate-500">

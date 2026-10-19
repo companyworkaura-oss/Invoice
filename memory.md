@@ -2186,6 +2186,82 @@ fields are laid out.
   (298/298 API tests, 61/61 shared — this phase touches no backend
   code, so no test changes were needed).
 
+## Per-Invoice Rate Override (Phase 40)
+
+A task framed as a new feature ("allow a category to be used at
+different rates per invoice/customer without duplicating categories")
+turned out to already be fully built — this phase's real work was
+verifying that thoroughly, closing the specific test gaps the task's
+own checklist called for, and a small labeling clarity pass. No
+calculation, formula engine, or existing behavior changed.
+
+- **How Default Rate works**: `embroidery_categories.default_rate` is
+  only ever a *starting value*. `CreateInvoiceForm`'s category
+  `<select>` onChange sets the row's `rate` state directly to
+  `cat?.defaultRate ?? ''` (not just a placeholder) — the Rate
+  `<input>` is a fully controlled, editable field from that point on.
+- **How the override works**: the user edits the Rate input freely;
+  `previewItemAmount` recalculates the live preview using
+  `rateOverride || category.defaultRate` on every keystroke (same
+  formula engine, unchanged). On save, the row's `rate` is sent as
+  `InvoiceItemInput.rate`; the backend's `createInvoiceItem`
+  (`invoice.service.ts`) resolves `const rate = input.rate ??
+  category.defaultRate` — present and used.
+- **How the snapshot is stored**: that resolved `rate` is written
+  straight into `invoice_items.rate` at INSERT time (and again,
+  overwriting the previous rows, when an edit's items are
+  recreated by `updateInvoice` — items are deleted and rebuilt from
+  the edit payload every time, same as every other field). Every
+  downstream read (`InvoiceDetails`, all 5 print templates, the PDF
+  renderer) displays this saved `item.rate`/`calculatedUnitAmount`
+  directly — never re-joins or re-derives from the category's current
+  `default_rate`. A later change to the category's own default rate
+  therefore can never retroactively change an already-saved item,
+  confirmed by the pre-existing `invoices.test.ts` test "snapshots
+  survive later changes to the category rate and formula" (covers the
+  create-time case) and this phase's new edit-time equivalent.
+- **Category switch resets, never carries over**: `CreateInvoiceForm`'s
+  category-select onChange always sets `rate: cat?.defaultRate ?? ''`
+  — a manually-overridden rate is deliberately *not* preserved across
+  a category change (already documented in an inline comment at that
+  exact line from an earlier phase). Backend-equivalent: sending a new
+  `categoryId` with no `rate` in an edit resolves to the *new*
+  category's own `default_rate`, confirmed by this phase's new test.
+- **New test file `apps/api/test/invoice-rate-override.test.ts`** (6
+  tests) fills the gaps the task's checklist asked for that weren't
+  covered elsewhere: creating with no override (uses category
+  default) and with an override (recalculates correctly) as a focused
+  pair; editing a draft to change the rate, then reopening via a fresh
+  GET, proves the override survives persistence+reopen (not just
+  create); changing the category's own default rate *after* an edit,
+  twice, proves the edited item's snapshot never moves; switching an
+  item's category during an edit with no rate supplied proves it
+  resets to the new category's default, not the old override; and a
+  dedicated Quick Invoice (manual item, no `categoryId`) test proves
+  it's entirely unaffected — category rate changes are irrelevant to
+  it, and editing its own `unitPrice` is a plain multiplication with
+  no rate/category concept involved at all.
+- **UI clarity pass** (the only actual code changes this phase made):
+  `CategoryForm.tsx`'s "Default rate" label capitalized to "Default
+  Rate" with a new one-line hint underneath ("Starting point only —
+  can be overridden per invoice item"); `CreateInvoiceForm.tsx`'s Rate
+  `<input>` gained a `title` tooltip with the same message. Both are
+  label/hint-only — no behavior changed.
+- **Verified live** (Playwright, dev DB): selected a category with
+  Default Rate 1.50 on a new invoice — Rate field auto-filled to
+  "1.50", Amount showed 180.00 (12 × 1.50 × 10); typed 1.70 into Rate
+  — Amount live-recalculated to 204.00 with zero save/reload; saved
+  the invoice and confirmed the detail view shows Rate 1.7, Total 204;
+  reopened it via Edit and confirmed the Rate field shows "1.7" (the
+  saved override), not "1.50" (the category's still-unchanged
+  default); switched that row's category to a different one (Default
+  Rate 2.20) and confirmed Rate immediately reset to "2.20". Also
+  confirmed the new category-form label/hint render correctly. Dev DB
+  reset after verification, no stray dev-server processes left
+  running.
+- `npm run typecheck`, `npm run build`, and `npm test` all clean —
+  304/304 API tests (6 new), 61/61 shared tests (unaffected).
+
 ## Known gotchas / things to check before starting work
 
 - **Postgres cluster is often stopped** when a session starts:
@@ -2617,6 +2693,27 @@ fields are laid out.
     except where this reorganization added a card the table flows
     below. See "Invoice Detail Metadata Reorganization (Phase 39)"
     below
+
+45. Per-Invoice Rate Override (clarification, not a new feature): the
+    ability to use a category at a different rate per invoice/customer
+    — auto-fill from `embroideryCategories.defaultRate`, a fully
+    editable Rate field, the formula recalculating live, the chosen
+    rate saved as a per-item snapshot (`invoice_items.rate`) that a
+    later change to the category's own default never touches, and a
+    category switch resetting to the *new* category's default — was
+    already completely implemented (`createInvoiceItem`'s `input.rate
+    ?? category.defaultRate`, `CreateInvoiceForm`'s editable Rate
+    `<input>` with the category-change handler that resets it). This
+    phase only closed test-coverage gaps the task's checklist called
+    for that weren't covered yet — editing (not just creating)
+    preserves/updates the snapshot, a category switch during an edit
+    resets to the new category's default, and confirming Quick
+    Invoice's manual items are untouched — plus a small UI clarity
+    pass: the category form's "Default rate" label capitalized to
+    "Default Rate" with a one-line hint ("Starting point only — can be
+    overridden per invoice item"), and a `title` tooltip on the
+    invoice form's own Rate input saying the same. See "Per-Invoice
+    Rate Override (Phase 40)" below
 
 Repo also went through a monorepo restructure (`server/` → `apps/api` +
 new `apps/web` + `packages/shared`) between Phase 1 and Phase 2.
