@@ -2121,6 +2121,71 @@ invoice numbering, or stored Bill Number value was touched.
 - `npm run typecheck`, `npm run build`, and `npm test` all clean —
   298/298 API tests (3 net new/updated), 61/61 shared tests (3 new).
 
+## Invoice Detail Metadata Reorganization (Phase 39)
+
+Pure UI/presentation phase on `InvoiceDetails.tsx` only — no
+calculation, invoice data, database field, formula, ledger, payment,
+or API behavior changed. This is the internal business-facing detail
+panel (distinct from the 5 customer-facing print templates), and
+remains the one place that always shows every field regardless of any
+`show*` display toggle — that precedent (set back in Phase 30) is
+unchanged here, this phase only restyles how those always-shown
+fields are laid out.
+
+- **Old layout**: a single `<p>` with every metadatum joined by " · "
+  — `{invoice.customerName} · {invoice.invoiceDate} · {invoice.status}`
+  then each optional field appended the same way when present. Hard to
+  scan, and wrapped unpredictably at narrow widths.
+- **New layout**: a bordered, padded "Invoice Information" card
+  (`rounded-md border border-slate-200 bg-slate-50 p-3`) placed right
+  below the header row, containing three `MetaGroup`s rendered via
+  `space-y-3`:
+  - **Invoice** (always rendered, nothing in it is ever empty):
+    Invoice No., Date, Status (status string capitalized for display
+    only — `invoice.status` itself, 'draft'/'issued'/etc., is never
+    touched).
+  - **References** (the whole group — title included — skipped
+    entirely when none of its four fields have a value): Bill Number,
+    Internal Lot, Customer Lot, Gate Pass — each individual field
+    still only renders when its own value is non-empty, so a partial
+    set (e.g. only Bill Number) shows just that one field, never an
+    empty dash for the others.
+  - **Quantity** (same whole-group skip when both are empty): General
+    Quantity (via the existing `formatQuantity` helper, unchanged),
+    Sets (via the existing `calculateSets`, unchanged).
+  Each group is a `MetaGroup` (small uppercase muted title + a
+  `grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3` of
+  `MetaField`s) and each `MetaField` is a label/value pair (`text-xs
+  text-slate-500` label over `text-sm font-medium text-slate-900`
+  value) — matching the "small muted label, bold readable value"
+  requirement and the existing `StatRow` convention already used
+  lower on the same page for the balance figures, so the new section
+  looks native to the page rather than bolted on.
+- **Customer name**: moved from the metadata line into its own
+  subtitle (`text-xs text-slate-500`) directly under the invoice
+  number in the header — it's about *which invoice this is*, not
+  reference/quantity metadata, so it stays with the title rather than
+  joining a group.
+- **Actions stay separate**: Edit/View·Print/Back were already in
+  their own `flex items-center gap-3` div on the right of the header
+  row, entirely untouched by this change — never mixed into the
+  metadata grid.
+- **Responsive**: `grid-cols-1` (mobile) → `sm:grid-cols-2` (tablet)
+  → `lg:grid-cols-4` (desktop), per field group independently (so
+  References' 4 fields and Quantity's 2 fields each reflow on their
+  own row pattern rather than sharing one giant grid). Verified live
+  at 360/768/1024/1366px: the metadata card itself never causes
+  horizontal scroll at any of the four — 1 column at 360, 2 at
+  768/the narrow end of desktop, 4 at 1366. (A pre-existing, unrelated
+  horizontal scroll on the item table itself at 360px — that table has
+  7 fixed columns and was explicitly out of scope, "do not alter the
+  invoice item table... unless required for spacing" — was confirmed
+  present before this change too and is not something this phase
+  introduced or was asked to fix.)
+- `npm run typecheck` and `npm run build` clean; `npm test` unaffected
+  (298/298 API tests, 61/61 shared — this phase touches no backend
+  code, so no test changes were needed).
+
 ## Known gotchas / things to check before starting work
 
 - **Postgres cluster is often stopped** when a session starts:
@@ -2529,6 +2594,28 @@ invoice numbering, or stored Bill Number value was touched.
     type (not the gated view model), so it stays visible, editable,
     and searchable inside the app regardless of the print preference.
     See "Optional Bill Number Visibility on Print/PDF (Phase 38)"
+    below
+
+44. Invoice Detail Metadata Reorganization: `InvoiceDetails.tsx`'s
+    header metadata — previously one long middot-joined text line
+    (Customer · Date · Status · Bill # · Internal Lot # · Customer
+    Lot # · Gate Pass # · General Quantity · Sets) — replaced with a
+    bordered "Invoice Information" card containing a responsive grid
+    (`grid-cols-1 sm:grid-cols-2 lg:grid-cols-4`) split into three
+    logical groups (Invoice: Invoice No./Date/Status, always shown;
+    References: Bill Number/Internal Lot/Customer Lot/Gate Pass;
+    Quantity: General Quantity/Sets), each field a small muted label
+    over a bold value via new `MetaGroup`/`MetaField` components. An
+    empty optional field is never rendered at all (no "Internal Lot:
+    —"), and an entirely-empty group (no References/Quantity data) is
+    skipped as a whole — verified live with a minimal invoice showing
+    only the always-present Invoice group. Customer name moved to a
+    subtitle under the invoice number; Edit/View·Print/Back stay in
+    their own separate top-right row, untouched. Pure presentation —
+    no calculation, data, database field, formula, ledger, payment, or
+    API behavior changed; the item table/totals below were untouched
+    except where this reorganization added a card the table flows
+    below. See "Invoice Detail Metadata Reorganization (Phase 39)"
     below
 
 Repo also went through a monorepo restructure (`server/` → `apps/api` +

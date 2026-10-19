@@ -17,6 +17,9 @@ export function InvoiceDetails({ invoice, permissions, onBack, onViewTemplate, o
   const [showPaymentForm, setShowPaymentForm] = useState(false);
   const canEdit = invoice.status === 'draft' && permissions.includes('invoice.edit');
   const sets = calculateSets(invoice.generalQuantity);
+  const formattedGeneralQuantity = formatQuantity(invoice.generalQuantity);
+  const hasReferences = Boolean(invoice.billNumber || invoice.lotNumber || invoice.customerLotNumber || invoice.gatePassNumber);
+  const hasQuantity = Boolean(formattedGeneralQuantity || sets);
 
   async function refresh() {
     onInvoiceUpdated(await invoicesApi.getInvoice(invoice.id));
@@ -27,15 +30,7 @@ export function InvoiceDetails({ invoice, permissions, onBack, onViewTemplate, o
       <div className="flex items-start justify-between">
         <div>
           <h3 className="text-sm font-semibold text-slate-900">{invoice.invoiceNumber}</h3>
-          <p className="text-xs text-slate-500">
-            {invoice.customerName} · {invoice.invoiceDate} · {invoice.status}
-            {invoice.billNumber && <> · Bill #: {invoice.billNumber}</>}
-            {invoice.lotNumber && <> · Internal Lot #: {invoice.lotNumber}</>}
-            {invoice.customerLotNumber && <> · Customer Lot #: {invoice.customerLotNumber}</>}
-            {invoice.gatePassNumber && <> · Gate Pass #: {invoice.gatePassNumber}</>}
-            {invoice.generalQuantity && <> · General Quantity: {formatQuantity(invoice.generalQuantity)}</>}
-            {sets && <> · Sets: {sets}</>}
-          </p>
+          <p className="text-xs text-slate-500">{invoice.customerName}</p>
         </div>
         <div className="flex items-center gap-3">
           {canEdit && (
@@ -53,6 +48,33 @@ export function InvoiceDetails({ invoice, permissions, onBack, onViewTemplate, o
       </div>
 
       {invoice.notes && <p className="mt-1 text-sm text-slate-600">Notes: {invoice.notes}</p>}
+
+      <div className="mt-3 rounded-md border border-slate-200 bg-slate-50 p-3">
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Invoice Information</p>
+        <div className="mt-2 space-y-3">
+          <MetaGroup title="Invoice">
+            <MetaField label="Invoice No." value={invoice.invoiceNumber} />
+            <MetaField label="Date" value={invoice.invoiceDate} />
+            <MetaField label="Status" value={capitalize(invoice.status)} />
+          </MetaGroup>
+
+          {hasReferences && (
+            <MetaGroup title="References">
+              {invoice.billNumber && <MetaField label="Bill Number" value={invoice.billNumber} />}
+              {invoice.lotNumber && <MetaField label="Internal Lot" value={invoice.lotNumber} />}
+              {invoice.customerLotNumber && <MetaField label="Customer Lot" value={invoice.customerLotNumber} />}
+              {invoice.gatePassNumber && <MetaField label="Gate Pass" value={invoice.gatePassNumber} />}
+            </MetaGroup>
+          )}
+
+          {hasQuantity && (
+            <MetaGroup title="Quantity">
+              {formattedGeneralQuantity && <MetaField label="General Quantity" value={formattedGeneralQuantity} />}
+              {sets && <MetaField label="Sets" value={sets} />}
+            </MetaGroup>
+          )}
+        </div>
+      </div>
 
       <table className="mt-4 w-full text-sm">
         <thead>
@@ -143,4 +165,28 @@ function StatRow({ label, value, emphasize }: { label: string; value: string; em
       <dd className={emphasize ? 'font-semibold text-slate-900' : 'text-slate-700'}>{value}</dd>
     </div>
   );
+}
+
+/** One labeled group inside the Invoice Information card — e.g. Invoice / References / Quantity. */
+function MetaGroup({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <p className="text-[11px] font-medium uppercase tracking-wide text-slate-400">{title}</p>
+      <dl className="mt-1.5 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">{children}</dl>
+    </div>
+  );
+}
+
+/** A single label/value pair inside a MetaGroup — the caller is responsible for not rendering this at all when the value is empty, so no field ever shows as a blank dash. */
+function MetaField({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <dt className="text-xs text-slate-500">{label}</dt>
+      <dd className="text-sm font-medium text-slate-900">{value}</dd>
+    </div>
+  );
+}
+
+function capitalize(value: string): string {
+  return value.length > 0 ? value[0].toUpperCase() + value.slice(1) : value;
 }
