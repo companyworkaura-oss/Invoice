@@ -63,6 +63,7 @@ export function CreateInvoiceForm({ invoice, onSaved, onCancel }: Props) {
   const [showUnitAmount, setShowUnitAmount] = useState(invoice?.showUnitAmount ?? true);
   const [showItemQuantity, setShowItemQuantity] = useState(invoice?.showItemQuantity ?? true);
   const [showItemAmount, setShowItemAmount] = useState(invoice?.showItemAmount ?? true);
+  const [showBillNumber, setShowBillNumber] = useState(invoice?.showBillNumber ?? true);
   const [discountType, setDiscountType] = useState<DiscountType | ''>(invoice?.discountType ?? '');
   const [discountValue, setDiscountValue] = useState(invoice?.discountType ? formatNumber(invoice.discountValue) : '');
   const [items, setItems] = useState<ItemRow[]>(() => (invoice ? invoice.items.map(itemRowFromInvoice) : [newRow()]));
@@ -196,6 +197,7 @@ export function CreateInvoiceForm({ invoice, onSaved, onCancel }: Props) {
         showUnitAmount,
         showItemQuantity,
         showItemAmount,
+        showBillNumber,
         discountType: discountType || undefined,
         discountValue: discountType ? discountValue || '0' : undefined,
         items: items.map((row) => ({
@@ -329,6 +331,14 @@ export function CreateInvoiceForm({ invoice, onSaved, onCancel }: Props) {
         <div className="mt-3">
           <p className="text-xs font-medium text-slate-500">Invoice Display</p>
           <div className="mt-1 flex flex-wrap gap-4">
+            <label className="flex items-center gap-1.5 text-sm text-slate-700">
+              <input
+                type="checkbox"
+                checked={showBillNumber}
+                onChange={(e) => setShowBillNumber(e.target.checked)}
+              />
+              Show Bill Number
+            </label>
             <label className="flex items-center gap-1.5 text-sm text-slate-700">
               <input
                 type="checkbox"

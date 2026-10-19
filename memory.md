@@ -2042,6 +2042,85 @@ third display toggle, built as an exact sibling of Phase 30's
 - `npm run typecheck`, `npm run build`, and `npm test` all clean —
   295/295 API tests (12 net new/updated), 58/58 shared tests.
 
+## Optional Bill Number Visibility on Print/PDF (Phase 38)
+
+A customer-facing print preference, deliberately built with the
+smallest possible mechanism rather than a straight copy of Phase 37's
+per-template-flag pattern. No calculation, formula, ledger, payment,
+invoice numbering, or stored Bill Number value was touched.
+
+- **Migration `019_show_bill_number.sql`**: `ALTER TABLE invoices ADD
+  COLUMN show_bill_number boolean NOT NULL DEFAULT true;` — the
+  default alone keeps every existing invoice printing Bill Number
+  exactly as it always has.
+- **Backend plumbing**: `showBillNumber` added to `Invoice`/
+  `InvoiceInput` (`entities.ts`, `invoice.service.ts`), both
+  SELECT column lists, `createInvoice`'s default (`input.showBillNumber
+  ?? true`)/INSERT/return, `duplicateInvoice` (carries the *preference*
+  over, same as its three siblings — but never the bill number value
+  itself, unchanged from Phase 29), `updateInvoice`'s UPDATE/params,
+  and `invoice.routes.ts`'s shared `parseDiscountAndLot` validator —
+  exactly the same places Phase 37's `showItemAmount` touched.
+- **The key design choice — gate the data, not the data consumers**:
+  rather than exposing a `showBillNumber` boolean on `InvoiceViewModel`
+  and editing the "Bill #:" conditional in all 5 templates plus
+  `render-html.ts` (6 files), `buildInvoiceViewModel`
+  (`invoice-view-model.ts`) does the gating once, at the source:
+  `billNumber: invoice.showBillNumber ? invoice.billNumber : null`.
+  Every template already renders `{invoice.billNumber && <p>Bill #:
+  ...}` (needed since day one, to hide the row when no bill number was
+  ever set) — Industrial Blue's dynamic `infoGridClass` cell count is
+  also already computed from `invoice.billNumber ? 1 : 0`. Nulling the
+  view-model field makes "toggled off" behave identically to "never
+  set" everywhere data already flows, for every one of the 5 templates
+  and the PDF renderer, with **zero template files touched** and no
+  risk of one template's gating logic drifting from another's. Chosen
+  over the per-template-flag approach specifically because this field
+  (unlike `showItemAmount`'s per-row Amount column) has exactly one
+  consumer shape — a single optional "Bill #: X" line — so there was
+  no second piece of information (like a quantity figure) that still
+  needed to render independently of the flag.
+- **Inside the app, nothing changed**: `InvoiceList.tsx`,
+  `InvoiceDetails.tsx`, `CreateInvoiceForm.tsx`, and invoice search all
+  read `Invoice.billNumber` directly off the raw API response — never
+  through `InvoiceViewModel` — so none of them saw any change; Bill
+  Number stays visible, editable, and searchable regardless of the
+  toggle. Verified live: an invoice created with `showBillNumber:
+  false` still showed "Bill #: 7777" in `InvoiceDetails`, in the
+  invoice list's Bill # column, and remained findable through search
+  — only its *template/PDF* output ever hides it.
+- **UI**: a fourth "Show Bill Number" checkbox added to
+  `CreateInvoiceForm`'s existing Invoice Display section, placed first
+  (ahead of Show Item Quantity/Unit Amount/Item Amount) per the task's
+  requested ordering — same `useState(invoice?.showBillNumber ?? true)`
+  pattern, included in the save payload.
+- **Tests**: `packages/shared/test/invoice-view-model.test.ts` gained
+  dedicated show/hide/no-other-field-changed tests for the new
+  gating line. `apps/api/test/invoice-display-metadata.test.ts`
+  gained a save/read-back test, a dedicated "stays saved, visible,
+  editable, and searchable inside the app even when hidden from
+  print" test (the task's core requirement, exercised end-to-end
+  through real create/edit/search API calls), and a calculation-
+  safety test; its existing edit/duplicate/backward-compat tests
+  extended from three toggles to four, with the edit test also
+  re-fetching the invoice afterward to prove the preference survives
+  reopening. `invoice-pdf-html.test.ts` needed no new test — its
+  pre-existing "hides the Bill # row entirely when billNumber is
+  null, across every theme" test already proves the exact behavior
+  this toggle produces once `buildInvoiceViewModel` nulls the field.
+- **Verified live** (Playwright, dev DB): two invoices on one
+  customer, Bill # 4587 (toggle on) and 4588 (toggle off) — both show
+  correctly in the Invoices list and search by number regardless of
+  their toggle; the toggle-off invoice's template view shows no
+  "Bill #:" line and no blank gap in Classic Navy, Industrial Blue
+  (confirmed its info-grid drops from 4 cells to 3, not 4-with-one-
+  empty), Modern Curve, Minimal Clean, and Premium Modern; its
+  `InvoiceDetails` panel still shows "Bill #: 7777" in the header
+  line. Dev DB reset after verification, no stray dev-server
+  processes left running.
+- `npm run typecheck`, `npm run build`, and `npm test` all clean —
+  298/298 API tests (3 net new/updated), 61/61 shared tests (3 new).
+
 ## Known gotchas / things to check before starting work
 
 - **Postgres cluster is often stopped** when a session starts:
@@ -2430,6 +2509,27 @@ third display toggle, built as an exact sibling of Phase 30's
     compatible: an old invoice with no column has the migration's
     default (true/shown), identical to today's behavior. See "Totals
     Box Redesign + Show Item Amount (Phase 37)" below
+
+43. Optional Bill Number Visibility on Print/PDF: `showBillNumber`/
+    `show_bill_number` (migration `019_show_bill_number.sql`, `NOT
+    NULL DEFAULT true`) — a fourth display toggle, same backend
+    plumbing pattern as Phase 37's `showItemAmount`, but implemented
+    with a different, more minimal mechanism than a per-template flag:
+    `buildInvoiceViewModel` nulls out the view model's own `billNumber`
+    field whenever the toggle is off (`invoice.showBillNumber ?
+    invoice.billNumber : null`), so all 5 templates and `render-
+    html.ts` need zero individual edits — every one of them already
+    hides the "Bill #: ..." row (and, for Industrial Blue, drops it
+    from its dynamic info-cell grid column count) whenever
+    `invoice.billNumber` is null, the same convention
+    customerLotNumber/gatePassNumber/generalQuantity already use. The
+    stored `Invoice.billNumber` column itself is completely untouched
+    by this toggle — never cleared, and InvoiceList/InvoiceDetails/
+    CreateInvoiceForm/search all read it directly from the Invoice
+    type (not the gated view model), so it stays visible, editable,
+    and searchable inside the app regardless of the print preference.
+    See "Optional Bill Number Visibility on Print/PDF (Phase 38)"
+    below
 
 Repo also went through a monorepo restructure (`server/` → `apps/api` +
 new `apps/web` + `packages/shared`) between Phase 1 and Phase 2.

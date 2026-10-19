@@ -119,6 +119,13 @@ export interface InvoiceInput {
    * regardless). Defaults to true (shown) when omitted.
    */
   showItemAmount?: boolean;
+  /**
+   * Display-only toggle for whether "Bill #: ..." appears on
+   * customer-facing print/PDF/WhatsApp — never clears or affects the
+   * saved billNumber itself, which stays visible/editable/searchable
+   * inside the app either way. Defaults to true (shown) when omitted.
+   */
+  showBillNumber?: boolean;
   /** Omitted/undefined means no discount — same as passing 'percentage'/'fixed' with a value of "0.00". */
   discountType?: DiscountType;
   discountValue?: string;
@@ -242,6 +249,8 @@ export interface Invoice {
   showItemQuantity: boolean;
   /** Display-only: whether the customer-facing per-item Amount column is shown. Saved per invoice so an old invoice always prints the same way. */
   showItemAmount: boolean;
+  /** Display-only: whether "Bill #: ..." appears on customer-facing print/PDF/WhatsApp. Never affects the stored billNumber itself. */
+  showBillNumber: boolean;
   discountType: DiscountType | null;
   discountValue: string;
   discountAmount: string;
@@ -305,7 +314,7 @@ const INVOICE_HEADER_COLUMNS = `
   i.lot_number AS "lotNumber", i.customer_lot_number AS "customerLotNumber",
   i.bill_number AS "billNumber", i.gate_pass_number AS "gatePassNumber", i.general_quantity AS "generalQuantity",
   i.show_unit_amount AS "showUnitAmount", i.show_item_quantity AS "showItemQuantity",
-  i.show_item_amount AS "showItemAmount",
+  i.show_item_amount AS "showItemAmount", i.show_bill_number AS "showBillNumber",
   i.discount_type AS "discountType",
   i.discount_value AS "discountValue", i.discount_amount AS "discountAmount"
 `;
@@ -552,10 +561,11 @@ export async function createInvoice(
     // its DEFAULT 1 (migration 011) is all that satisfies the column now.
     // Display toggles default to true (shown) when omitted, so an
     // existing caller that never sends them gets today's exact
-    // behavior back — see InvoiceInput.showUnitAmount/showItemQuantity/showItemAmount.
+    // behavior back — see InvoiceInput.showUnitAmount/showItemQuantity/showItemAmount/showBillNumber.
     const showUnitAmount = input.showUnitAmount ?? true;
     const showItemQuantity = input.showItemQuantity ?? true;
     const showItemAmount = input.showItemAmount ?? true;
+    const showBillNumber = input.showBillNumber ?? true;
     // Derived from the items actually being saved, not accepted from
     // the client — see invoiceModeFromItems. This is what decides which
     // editor (CreateInvoiceForm vs QuickInvoiceForm) the invoice reopens
@@ -566,8 +576,9 @@ export async function createInvoice(
     const invoiceRes = await client.query<{ id: string; invoiceDate: string; createdAt: string }>(
       `INSERT INTO invoices
          (company_id, customer_id, invoice_number, invoice_date, notes, status, lot_number, customer_lot_number,
-          bill_number, gate_pass_number, general_quantity, show_unit_amount, show_item_quantity, show_item_amount, invoice_mode)
-       VALUES ($1, $2, $3, COALESCE($4::date, CURRENT_DATE), $5, COALESCE($6, 'draft'), $7, $8, $9, $10, $11, $12, $13, $14, $15)
+          bill_number, gate_pass_number, general_quantity, show_unit_amount, show_item_quantity, show_item_amount,
+          show_bill_number, invoice_mode)
+       VALUES ($1, $2, $3, COALESCE($4::date, CURRENT_DATE), $5, COALESCE($6, 'draft'), $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
        RETURNING id, invoice_date AS "invoiceDate", created_at AS "createdAt"`,
       [
         companyId,
@@ -584,6 +595,7 @@ export async function createInvoice(
         showUnitAmount,
         showItemQuantity,
         showItemAmount,
+        showBillNumber,
         invoiceMode,
       ],
     );
@@ -657,6 +669,7 @@ export async function createInvoice(
       showUnitAmount,
       showItemQuantity,
       showItemAmount,
+      showBillNumber,
       discountType: discount.discountType,
       discountValue: discount.discountValue,
       discountAmount: discount.discountAmount,
@@ -759,7 +772,7 @@ export async function listInvoices(companyId: string, filter: InvoiceListFilter)
          i.lot_number AS "lotNumber", i.customer_lot_number AS "customerLotNumber",
          i.bill_number AS "billNumber", i.gate_pass_number AS "gatePassNumber", i.general_quantity AS "generalQuantity",
          i.show_unit_amount AS "showUnitAmount", i.show_item_quantity AS "showItemQuantity",
-         i.show_item_amount AS "showItemAmount",
+         i.show_item_amount AS "showItemAmount", i.show_bill_number AS "showBillNumber",
          i.discount_type AS "discountType",
          i.discount_value AS "discountValue", i.discount_amount AS "discountAmount",
          COALESCE(items.total, 0) AS "totalAmount",
@@ -856,6 +869,7 @@ export async function duplicateInvoice(companyId: string, userId: string, invoic
       showUnitAmount: original.showUnitAmount,
       showItemQuantity: original.showItemQuantity,
       showItemAmount: original.showItemAmount,
+      showBillNumber: original.showBillNumber,
       discountType: original.discountType ?? undefined,
       discountValue: original.discountType ? original.discountValue : undefined,
       items: original.items.map((item) => ({
@@ -929,7 +943,8 @@ export async function updateInvoice(
               show_unit_amount = $10,
               show_item_quantity = $11,
               show_item_amount = $12,
-              invoice_mode = $13,
+              show_bill_number = $13,
+              invoice_mode = $14,
               updated_at = now()
         WHERE id = $1 AND company_id = $2
         RETURNING invoice_date AS "invoiceDate"`,
@@ -946,6 +961,7 @@ export async function updateInvoice(
         input.showUnitAmount ?? true,
         input.showItemQuantity ?? true,
         input.showItemAmount ?? true,
+        input.showBillNumber ?? true,
         invoiceMode,
       ],
     );

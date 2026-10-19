@@ -44,6 +44,8 @@ export interface InvoiceInput {
   showItemQuantity?: boolean;
   /** Display-only toggle for the customer-facing per-item Amount column. Defaults to true (shown) when omitted. */
   showItemAmount?: boolean;
+  /** Display-only toggle for whether "Bill #: ..." appears on customer-facing print/PDF/WhatsApp. Never clears the stored billNumber. Defaults to true (shown) when omitted. */
+  showBillNumber?: boolean;
   discountType?: DiscountType;
   discountValue?: string;
   items: InvoiceItemInput[];

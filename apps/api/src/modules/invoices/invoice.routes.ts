@@ -66,7 +66,7 @@ function parseItems(body: Record<string, unknown>): service.InvoiceItemInput[] {
 /**
  * discountType/discountValue/lotNumber/customerLotNumber/billNumber/
  * gatePassNumber/generalQuantity/showUnitAmount/showItemQuantity/
- * showItemAmount — shared by create (POST /) and edit (PATCH /:id).
+ * showItemAmount/showBillNumber — shared by create (POST /) and edit (PATCH /:id).
  */
 function parseDiscountAndLot(body: Record<string, unknown>) {
   const discountType = optionalString(body, 'discountType', { max: 20 });
@@ -88,6 +88,7 @@ function parseDiscountAndLot(body: Record<string, unknown>) {
     showUnitAmount: optionalBoolean(body, 'showUnitAmount'),
     showItemQuantity: optionalBoolean(body, 'showItemQuantity'),
     showItemAmount: optionalBoolean(body, 'showItemAmount'),
+    showBillNumber: optionalBoolean(body, 'showBillNumber'),
     discountType: discountType as service.InvoiceInput['discountType'],
     discountValue: optionalMoney(body, 'discountValue'),
   };

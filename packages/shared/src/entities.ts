@@ -160,7 +160,7 @@ export interface Invoice {
    * entirely when this is null, never falling back to lotNumber.
    */
   customerLotNumber: string | null;
-  /** A second, business-assigned number — separate from invoiceNumber — shown on customer-facing print/PDF/WhatsApp. */
+  /** A second, business-assigned number — separate from invoiceNumber — shown on customer-facing print/PDF/WhatsApp. Always stored, visible, editable, and searchable inside the app regardless of showBillNumber below. */
   billNumber: string | null;
   /** The gate pass number that came with the client's material — manual, free text — shown on customer-facing print/PDF/WhatsApp. */
   gatePassNumber: string | null;
@@ -178,6 +178,8 @@ export interface Invoice {
   showItemQuantity: boolean;
   /** Display-only: whether the customer-facing per-item Amount column is shown. Saved per invoice so an old invoice always prints the same way, regardless of any later global UI default change. Subtotal/Grand Total/etc. are never affected — only the per-item column. */
   showItemAmount: boolean;
+  /** Display-only: whether "Bill #: ..." appears on customer-facing print/PDF/WhatsApp. Never affects the stored billNumber itself, which stays visible/editable/searchable inside the app either way. */
+  showBillNumber: boolean;
   /**
    * Invoice-level discount (never per-item). `discountType` null means no
    * discount at all — `discountValue`/`discountAmount` are then always

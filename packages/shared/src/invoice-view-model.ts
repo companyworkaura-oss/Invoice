@@ -43,7 +43,15 @@ export interface InvoiceViewModel {
    * to it here even when this is empty.
    */
   customerLotNumber: string | null;
-  /** A second, business-assigned number — null when not set, in which case a template must hide the Bill # row entirely. */
+  /**
+   * A second, business-assigned number — null when not set, OR when
+   * the invoice's own `showBillNumber` is off, in which case a
+   * template must hide the Bill # row entirely. This field is already
+   * the gated, print-ready value (see buildInvoiceViewModel) — a
+   * template renders it exactly like any other optional metadata
+   * field (`invoice.billNumber && ...`) and never needs its own
+   * separate visibility check.
+   */
   billNumber: string | null;
   /** The gate pass number that came with the client's material — null when not set, in which case a template must hide the Gate Pass # row entirely. */
   gatePassNumber: string | null;
@@ -166,7 +174,13 @@ export function buildInvoiceViewModel(
     invoiceNumber: invoice.invoiceNumber,
     invoiceDate: invoice.invoiceDate,
     customerLotNumber: invoice.customerLotNumber,
-    billNumber: invoice.billNumber,
+    // Gated here, once, rather than exposing a separate showBillNumber
+    // flag to every template — every template already hides the Bill #
+    // row whenever this field is null (same convention customerLotNumber/
+    // gatePassNumber/generalQuantity already use), so this is the single
+    // point that makes "toggle off" and "never set" behave identically,
+    // with no per-template edit needed and no empty gap left behind.
+    billNumber: invoice.showBillNumber ? invoice.billNumber : null,
     gatePassNumber: invoice.gatePassNumber,
     generalQuantity: formatQuantity(invoice.generalQuantity),
     sets: calculateSets(invoice.generalQuantity),

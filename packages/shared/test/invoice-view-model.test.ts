@@ -53,6 +53,7 @@ function baseInvoice(overrides: Partial<InvoiceWithItems> = {}): InvoiceWithItem
     showUnitAmount: true,
     showItemQuantity: true,
     showItemAmount: true,
+    showBillNumber: true,
     discountType: null,
     discountValue: '0.00',
     discountAmount: '0.00',
@@ -114,6 +115,27 @@ test('buildInvoiceViewModel maps a saved bill number through to the view model',
 test('buildInvoiceViewModel maps a null bill number as null', () => {
   const viewModel = buildInvoiceViewModel(baseInvoice({ billNumber: null }), company, customer);
   assert.equal(viewModel.billNumber, null);
+});
+
+test('buildInvoiceViewModel shows the bill number when showBillNumber is true', () => {
+  const viewModel = buildInvoiceViewModel(baseInvoice({ billNumber: '4587', showBillNumber: true }), company, customer);
+  assert.equal(viewModel.billNumber, '4587');
+});
+
+test('buildInvoiceViewModel hides a saved bill number when showBillNumber is false — same as null, so a template never shows an empty Bill # row/gap', () => {
+  const viewModel = buildInvoiceViewModel(baseInvoice({ billNumber: '4587', showBillNumber: false }), company, customer);
+  assert.equal(viewModel.billNumber, null);
+});
+
+test('toggling showBillNumber never changes any other field — display-only', () => {
+  const shown = buildInvoiceViewModel(baseInvoice({ billNumber: '4587', showBillNumber: true }), company, customer);
+  const hidden = buildInvoiceViewModel(baseInvoice({ billNumber: '4587', showBillNumber: false }), company, customer);
+  assert.equal(shown.subtotal, hidden.subtotal);
+  assert.equal(shown.grandTotal, hidden.grandTotal);
+  assert.equal(shown.previousBalance, hidden.previousBalance);
+  assert.equal(shown.amountPaid, hidden.amountPaid);
+  assert.equal(shown.currentBalance, hidden.currentBalance);
+  assert.equal(shown.invoiceNumber, hidden.invoiceNumber);
 });
 
 test('buildInvoiceViewModel maps a saved gate pass number through to the view model', () => {

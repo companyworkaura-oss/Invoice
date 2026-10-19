@@ -57,6 +57,7 @@ interface InvoiceBody {
   showUnitAmount?: boolean;
   showItemQuantity?: boolean;
   showItemAmount?: boolean;
+  showBillNumber?: boolean;
   items?: { categoryId: string; stitches: number }[];
 }
 
@@ -109,6 +110,70 @@ test('Bill Number appears on print/PDF (the invoice view model) when set', async
   assert.equal(pdf.status, 200);
   assert.equal(pdf.headers['content-type'], 'application/pdf');
   assert.ok(pdf.body.length > 500, 'expected a real PDF, not an empty/near-empty buffer');
+});
+
+test('Show Bill Number OFF/ON is saved with the invoice and returned on read, defaulting to true', async () => {
+  const agent = await registeredOwner('Show Bill Number Co');
+  const customerId = await createCustomer(agent, 'Show Bill Number Customer');
+  const categoryId = await createCategory(agent);
+
+  const defaulted = await createInvoice(agent, customerId, categoryId, { billNumber: '4587' });
+  assert.equal(defaulted.status, 201);
+  assert.equal(defaulted.body.showBillNumber, true, 'defaults to true/shown, preserving existing behavior');
+
+  const off = await createInvoice(agent, customerId, categoryId, { billNumber: '4588', showBillNumber: false });
+  assert.equal(off.status, 201);
+  assert.equal(off.body.showBillNumber, false);
+
+  const details = await agent.get(`/api/invoices/${off.body.id}`);
+  assert.equal(details.body.showBillNumber, false);
+});
+
+test('Bill Number stays saved, visible, editable, and searchable inside the app even when showBillNumber is false', async () => {
+  const agent = await registeredOwner('Bill Number Still Visible Co');
+  const customerId = await createCustomer(agent, 'Bill Number Still Visible Customer');
+  const categoryId = await createCategory(agent);
+
+  const created = await createInvoice(agent, customerId, categoryId, { billNumber: '4587', showBillNumber: false });
+  assert.equal(created.status, 201);
+  // The stored value itself is completely untouched — never cleared.
+  assert.equal(created.body.billNumber, '4587');
+  assert.equal(created.body.showBillNumber, false);
+
+  // Still visible on a direct read.
+  const details = await agent.get(`/api/invoices/${created.body.id}`);
+  assert.equal(details.body.billNumber, '4587');
+
+  // Still searchable.
+  const search = await agent.get('/api/invoices').query({ search: '4587' });
+  assert.equal(search.status, 200);
+  assert.ok(search.body.some((i: { id: string }) => i.id === created.body.id), 'must still be searchable by bill number when hidden from print');
+
+  // Still editable — changing it while the toggle stays off keeps the new value.
+  const edited = await agent.patch(`/api/invoices/${created.body.id}`).send({
+    billNumber: '9999',
+    showBillNumber: false,
+    items: [{ categoryId, stitches: 12000, quantity: '10' }],
+  });
+  assert.equal(edited.status, 200);
+  assert.equal(edited.body.billNumber, '9999');
+  assert.equal(edited.body.showBillNumber, false);
+});
+
+test('toggling showBillNumber never changes any calculation or the ledger', async () => {
+  const agent = await registeredOwner('Bill Number Calc Safety Co');
+  const customerId = await createCustomer(agent, 'Bill Number Calc Safety Customer');
+  const categoryId = await createCategory(agent);
+
+  const shown = await createInvoice(agent, customerId, categoryId, { billNumber: '4587', showBillNumber: true });
+  const hidden = await createInvoice(agent, customerId, categoryId, { billNumber: '4588', showBillNumber: false });
+  assert.equal(shown.status, 201);
+  assert.equal(hidden.status, 201);
+  assert.equal(shown.body.totalAmount, hidden.body.totalAmount);
+  assert.equal(shown.body.grandTotal, hidden.body.grandTotal);
+
+  const ledger = await agent.get(`/api/customers/${customerId}/ledger`);
+  assert.equal(ledger.body.balance, '288.00');
 });
 
 test('General Quantity saves and is returned independently of each item\'s own quantity', async () => {
@@ -265,7 +330,7 @@ test('General Quantity and Sets never multiply into subtotal/discount/grand tota
   assert.equal(created.body.grandTotal, '129.60');
 });
 
-test('editing a draft invoice can change Bill Number, General Quantity, and all three display toggles independently', async () => {
+test('editing a draft invoice can change Bill Number, General Quantity, and all four display toggles independently', async () => {
   const agent = await registeredOwner('Edit Display Metadata Co');
   const customerId = await createCustomer(agent, 'Edit Display Metadata Customer');
   const categoryId = await createCategory(agent);
@@ -276,6 +341,7 @@ test('editing a draft invoice can change Bill Number, General Quantity, and all 
     showUnitAmount: true,
     showItemQuantity: true,
     showItemAmount: true,
+    showBillNumber: true,
   });
   assert.equal(created.status, 201);
 
@@ -285,6 +351,7 @@ test('editing a draft invoice can change Bill Number, General Quantity, and all 
     showUnitAmount: false,
     showItemQuantity: false,
     showItemAmount: false,
+    showBillNumber: false,
     items: [{ categoryId, stitches: 12000, quantity: '10' }],
   });
   assert.equal(edited.status, 200);
@@ -293,9 +360,15 @@ test('editing a draft invoice can change Bill Number, General Quantity, and all 
   assert.equal(edited.body.showUnitAmount, false);
   assert.equal(edited.body.showItemQuantity, false);
   assert.equal(edited.body.showItemAmount, false);
+  assert.equal(edited.body.showBillNumber, false);
+
+  // Reopening the invoice (a fresh GET, same as navigating away and back) preserves the preference.
+  const reopened = await agent.get(`/api/invoices/${created.body.id}`);
+  assert.equal(reopened.body.showBillNumber, false);
+  assert.equal(reopened.body.billNumber, '2000', 'the stored value itself is still there even though print-hidden');
 });
 
-test('duplicating an invoice carries over General Quantity and all three display toggles, but never Bill Number', async () => {
+test('duplicating an invoice carries over General Quantity and all four display toggles, but never Bill Number', async () => {
   const agent = await registeredOwner('Duplicate Metadata Co');
   const customerId = await createCustomer(agent, 'Duplicate Metadata Customer');
   const categoryId = await createCategory(agent);
@@ -306,6 +379,7 @@ test('duplicating an invoice carries over General Quantity and all three display
     showUnitAmount: false,
     showItemQuantity: false,
     showItemAmount: false,
+    showBillNumber: false,
   });
   assert.equal(original.status, 201);
 
@@ -316,9 +390,10 @@ test('duplicating an invoice carries over General Quantity and all three display
   assert.equal(duplicate.body.showUnitAmount, false);
   assert.equal(duplicate.body.showItemQuantity, false);
   assert.equal(duplicate.body.showItemAmount, false);
+  assert.equal(duplicate.body.showBillNumber, false);
 });
 
-test('an invoice created before this feature (no bill number, no general quantity) remains fully compatible: defaults to shown/shown/shown, null bill number and general quantity', async () => {
+test('an invoice created before this feature (no bill number, no general quantity) remains fully compatible: defaults to shown/shown/shown/shown, null bill number and general quantity', async () => {
   const agent = await registeredOwner('Backward Compat Co');
   const customerId = await createCustomer(agent, 'Backward Compat Customer');
   const categoryId = await createCategory(agent);
@@ -331,6 +406,7 @@ test('an invoice created before this feature (no bill number, no general quantit
   assert.equal(created.body.showUnitAmount, true);
   assert.equal(created.body.showItemQuantity, true);
   assert.equal(created.body.showItemAmount, true);
+  assert.equal(created.body.showBillNumber, true);
 
   const details = await agent.get(`/api/invoices/${created.body.id}`);
   assert.equal(details.body.billNumber, null);
@@ -338,6 +414,7 @@ test('an invoice created before this feature (no bill number, no general quantit
   assert.equal(details.body.showUnitAmount, true);
   assert.equal(details.body.showItemQuantity, true);
   assert.equal(details.body.showItemAmount, true);
+  assert.equal(details.body.showBillNumber, true);
 });
 
 test('tenant isolation: an invoice with a bill number is invisible to another company, including by search', async () => {
