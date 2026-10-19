@@ -1884,6 +1884,62 @@ edit in this phase is wrapping an already-final numeric string in
 - `npm run typecheck`, `npm run build`, and `npm test` all clean —
   292/292 API tests, 58/58 shared tests (56 pre-existing + 2 new).
 
+## Responsive Main App Container (Phase 36)
+
+Pure layout/CSS phase — no navigation behavior, calculation, Quick/
+Normal Invoice, PDF/print, payment, ledger, or customer logic touched.
+Only `App.tsx` changed.
+
+- **Old width**: the post-login shell was one `mx-auto max-w-5xl`
+  card (flat 1024px) with a fixed `p-6` on both the outer page `<div>`
+  and the card itself, at every viewport from phone to 4K monitor.
+- **New strategy**: `w-full max-w-[1400px] mx-auto` on the card — on
+  a narrow viewport `w-full` just fills the available width (the
+  `max-w` never engages), and past ~1432px (1400 + the outer page
+  padding) the card stops growing and centers, so a 1920px screen
+  doesn't stretch the invoice table edge-to-edge. Chose a literal
+  `max-w-[1400px]` over the `max-w-7xl` (1280px) alternative floated
+  in the task — it's inside the requested ~1200-1500px band and a
+  closer match to "much more of available screen width" than 7xl
+  would've been. Padding on both the outer page div and the card
+  itself became responsive (`p-2 sm:p-3 md:p-4 lg:p-6` outer, `p-3
+  sm:p-4 lg:p-6` card) instead of a flat `p-6` — small side padding on
+  phone, full padding back by desktop.
+- **Real mobile bug found and fixed along the way**: verifying at
+  360/390px (required by this task) showed the *page itself*
+  scrolling horizontally — not the invoice table (already fixed in
+  Phase 34), but the top tab nav row (`flex gap-4`, 6-7 tabs
+  Dashboard/Overview/Customers/Categories/Invoices/Payments/Audit, no
+  wrap, no overflow handling) pushing wider than the viewport. This
+  was pre-existing and unrelated to the card-width change itself — a
+  flat `max-w-5xl` card would've had the exact same nav overflow at
+  360px, it just happened to surface while checking this task's
+  explicit breakpoint list. Fixed with `overflow-x-auto` on the nav
+  row and `shrink-0` on each tab button, so the nav scrolls within its
+  own row (same pattern the invoice table's wrapper already uses)
+  instead of forcing the whole page wider. Tab click behavior/active-
+  tab styling is byte-for-byte unchanged — only overflow handling.
+- **Print/PDF untouched**: every `print:*` class on the shell
+  (`print:max-w-none print:rounded-none print:border-0 print:p-0
+  print:shadow-none` on the card, `print:min-h-0 print:bg-white
+  print:p-0` on the outer div, `print:hidden` on the header/nav rows)
+  is exactly as it was — confirmed via diff. Print/PDF sizing lives
+  entirely inside the invoice templates and the statement print
+  document, several component layers below this shell, so it was
+  never affected by the card's on-screen width either way.
+- **Verified live** (Playwright, dev DB, 4 seeded invoices): measured
+  `document.scrollingElement.scrollWidth` vs `clientWidth` (zero
+  page-level horizontal scroll) and the card's actual rendered width
+  at all 6 required breakpoints — 360px (344px card, nav scrolls
+  internally), 390px (374px), 768px (736px), 1024px (976px), 1366px
+  (1318px), 1920px (1400px — capped, centered, confirming the max-
+  width engages exactly where expected). Screenshotted each width;
+  the invoice list/filters/action menu fit cleanly with the new room
+  at 1366/1920, and the mobile layout still stacks/wraps sensibly.
+- `npm run typecheck`, `npm run build`, and `npm test` (292/292 API
+  tests, unaffected — this phase touches no backend or business-logic
+  code) all clean.
+
 ## Known gotchas / things to check before starting work
 
 - **Postgres cluster is often stopped** when a session starts:
@@ -2215,6 +2271,35 @@ edit in this phase is wrapping an already-final numeric string in
     amount side by side on one invoice — and confirmed the PDF
     download endpoint still returns 200 with a valid PDF. See
     "Display Number Format (Phase 35)" below
+
+41. Responsive Main App Container: `App.tsx`'s one shared post-login
+    shell (`max-w-5xl`, a flat 1024px, `p-6` fixed everywhere) widened
+    to `w-full max-w-[1400px] mx-auto` with responsive padding
+    (`p-2 sm:p-3 md:p-4 lg:p-6` on the outer page, `p-3 sm:p-4 lg:p-6`
+    on the card itself) — desktop/large-desktop (1366/1920px) now get
+    real room for the invoice table/filters/action menus instead of
+    being squeezed into 1024px, while phone/tablet still shrink to
+    fill the viewport edge-to-edge (minus the outer padding) and the
+    card never grows unbounded on a huge monitor (caps at 1400px,
+    centered). Also found and fixed a real mobile bug surfaced while
+    verifying this at 360/390px: the top tab nav (`flex gap-4`, 6-7
+    items, no wrap) was pushing the page itself wider than the
+    viewport — added `overflow-x-auto` to the nav row and `shrink-0`
+    on each tab button so the nav scrolls horizontally within its own
+    row instead of blowing out the page. Every `print:*` class on the
+    shell (`print:max-w-none print:p-0 print:border-0 print:shadow-
+    none`, etc.) is untouched, so print/PDF sizing — which lives
+    entirely in the invoice templates/statement document, several
+    layers below this shell — is unaffected either way. No navigation
+    behavior, invoice calculation, Quick/Normal Invoice, PDF/print,
+    payment, ledger, or customer logic touched — layout/CSS only.
+    Verified live (Playwright) at all 6 required widths (360/390/768/
+    1024/1366/1920px): zero page-level horizontal scroll at any of
+    them (360/390 only fixed by the nav-bar change above — the
+    container width change alone didn't cause it, but didn't fix it
+    either), card width measured 1400px (capped) at 1920, ~1318px at
+    1366, full-width-minus-padding at 1024/768/390/360. See
+    "Responsive Main App Container (Phase 36)" below
 
 Repo also went through a monorepo restructure (`server/` → `apps/api` +
 new `apps/web` + `packages/shared`) between Phase 1 and Phase 2.

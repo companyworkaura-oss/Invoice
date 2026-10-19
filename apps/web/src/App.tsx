@@ -73,7 +73,7 @@ function App() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 p-6 print:min-h-0 print:bg-white print:p-0">
+    <div className="min-h-screen bg-slate-50 p-2 sm:p-3 md:p-4 lg:p-6 print:min-h-0 print:bg-white print:p-0">
       {/*
         This whole shell — header, tabs, card framing — is the app
         chrome, never the printable document itself: every "Print" or
@@ -85,8 +85,15 @@ function App() {
         it. The card's padding/border/shadow/max-width are print-reset
         too — on screen they frame the app, but printed they'd just be
         extra blank margin around the actual A4 page.
+
+        The card's width is deliberately responsive, not a flat
+        max-w-5xl (1024px): max-w-[1400px] gives wide desktop/large-
+        desktop screens (1366/1920px) real room for the invoice table,
+        filters, and action menus, while w-full + mx-auto still lets it
+        shrink to fill a phone/tablet viewport edge-to-edge (minus the
+        outer page padding) instead of ever overflowing it.
       */}
-      <div className="mx-auto max-w-5xl rounded-lg border border-slate-200 bg-white p-6 shadow-sm print:max-w-none print:rounded-none print:border-0 print:p-0 print:shadow-none">
+      <div className="mx-auto w-full max-w-[1400px] rounded-lg border border-slate-200 bg-white p-3 sm:p-4 lg:p-6 shadow-sm print:max-w-none print:rounded-none print:border-0 print:p-0 print:shadow-none">
         <div className="flex items-start justify-between print:hidden">
           <div>
             <h1 className="text-lg font-semibold text-slate-900">{me.company.name}</h1>
@@ -103,7 +110,7 @@ function App() {
           </button>
         </div>
 
-        <div className="mt-4 flex gap-4 border-b border-slate-200 print:hidden">
+        <div className="mt-4 flex gap-4 overflow-x-auto border-b border-slate-200 print:hidden">
           {(
             [
               'dashboard',
@@ -119,7 +126,7 @@ function App() {
               key={t}
               type="button"
               onClick={() => setTab(t)}
-              className={`-mb-px border-b-2 px-1 pb-2 text-sm font-medium capitalize ${
+              className={`-mb-px shrink-0 border-b-2 px-1 pb-2 text-sm font-medium capitalize ${
                 tab === t ? 'border-slate-900 text-slate-900' : 'border-transparent text-slate-500 hover:text-slate-700'
               }`}
             >
