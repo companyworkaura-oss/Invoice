@@ -176,6 +176,8 @@ export interface Invoice {
   showUnitAmount: boolean;
   /** Display-only: whether the customer-facing per-item Quantity column is shown. Saved per invoice so an old invoice always prints the same way, regardless of any later global UI default change. */
   showItemQuantity: boolean;
+  /** Display-only: whether the customer-facing per-item Amount column is shown. Saved per invoice so an old invoice always prints the same way, regardless of any later global UI default change. Subtotal/Grand Total/etc. are never affected — only the per-item column. */
+  showItemAmount: boolean;
   /**
    * Invoice-level discount (never per-item). `discountType` null means no
    * discount at all — `discountValue`/`discountAmount` are then always

@@ -1940,6 +1940,108 @@ Only `App.tsx` changed.
   tests, unaffected — this phase touches no backend or business-logic
   code) all clean.
 
+## Totals Box Redesign + Show Item Amount (Phase 37)
+
+Customer-facing presentation feature. No calculation, formula,
+database numeric precision, ledger, or payment code was touched —
+confirmed by a dedicated test in each of the three test files this
+phase changed, asserting the same figures either way.
+
+**Totals box redesign** — every template's totals panel went from a
+single top border with no padding to a real bordered box:
+- `ClassicNavyTemplate` / `MinimalCleanTemplate` / `PremiumModernTemplate`:
+  `rounded-md border` (their own accent/slate color) wrapped around
+  `px-3/4 py-2/3` padding and `space-y-1/1.5` row spacing, with a
+  `border-t` separator directly above the Current Balance row.
+- `IndustrialBlueTemplate`: already had a bold filled Current Balance
+  bar — wrapped the whole panel (rows + bar) in one `border-2
+  rounded-md` box so it reads as a single unit instead of a bar
+  floating under an unrelated top border.
+- `ModernCurveTemplate`: already a filled rounded violet panel — added
+  a `border border-violet-400/40` ring for definition and bumped
+  padding/spacing slightly; its existing `border-t border-white/30`
+  separator before Current Balance was kept as-is.
+- All five keep `vs(compact, ...)` (Phase 27's Large-mode print-safety
+  helper) on every new padding/spacing value, so the box doesn't push
+  a normal invoice onto a second A5 page under Large text — verified
+  live at Small/Medium/Large.
+
+**Show Item Amount** (`showItemAmount` / `show_item_amount`) — a
+third display toggle, built as an exact sibling of Phase 30's
+`showUnitAmount`/`showItemQuantity`:
+- Migration `018_show_item_amount.sql`: `ALTER TABLE invoices ADD
+  COLUMN show_item_amount boolean NOT NULL DEFAULT true;` — the
+  default alone makes every existing invoice backward compatible
+  (keeps showing Amount exactly as it always has).
+- `packages/shared/src/entities.ts` (`Invoice.showItemAmount`) and
+  `invoice-view-model.ts` (`InvoiceViewModel.showItemAmount`, wired
+  into `buildInvoiceViewModel`) — same place `showUnitAmount` already
+  lived in both.
+- `apps/api/.../invoice.service.ts`: added to `InvoiceInput`, the
+  `Invoice` return type, both `INVOICE_HEADER_COLUMNS`-style SELECT
+  column lists (`createInvoice`'s header fetch and `listInvoices`'s
+  CTE), `createInvoice`'s default (`input.showItemAmount ?? true`)/
+  INSERT/return, `duplicateInvoice` (carries it over, like its two
+  siblings), and `updateInvoice`'s UPDATE/params.
+- `apps/api/.../invoice.routes.ts`: `showItemAmount:
+  optionalBoolean(body, 'showItemAmount')` added to the shared
+  `parseDiscountAndLot` helper (used by both POST and PATCH).
+- `apps/api/.../pdf/render-html.ts`: the `<th>`/`<td>` for the Amount
+  column — previously unconditional, unlike Quantity/Unit Amount which
+  already had their own toggle — now gated behind
+  `invoice.showItemAmount`, both in the header row and every item row.
+- All 5 web templates: same gating added around their own `<th>
+  Amount</th>` / `<td>{item.amount}</td>`, right after the existing
+  `showUnitAmount` conditional. Column order/behavior for every
+  on/off combination exactly matches the task's spec (e.g. Item
+  Amount OFF alone -> `Description | Quantity | Stitches | Unit
+  Amount`; all three OFF -> `Description | Stitches`) — plain
+  conditional `<th>`/`<td>` rendering means the table naturally
+  resizes to whatever columns remain, no extra width logic needed.
+- `apps/web/src/features/invoices/api.ts` (`InvoiceInput.showItemAmount`)
+  and `CreateInvoiceForm.tsx` (state init from `invoice?.showItemAmount
+  ?? true`, included in the save payload, and a third "Show item
+  amount" checkbox added next to the existing two in the Invoice
+  Display section). `QuickInvoiceForm.tsx` was deliberately left
+  unchanged — `showUnitAmount`/`showItemQuantity` were never exposed
+  there either (CreateInvoiceForm-only toggles today), so a Quick
+  Invoice simply keeps the migration's default (shown) with no UI
+  control, exactly like its two siblings already do.
+- **Totals never disappear**: `showItemAmount` only ever gates the
+  per-item `<th>Amount</th>`/`<td>{item.amount}</td>` pair — Subtotal/
+  Grand Total/Previous Balance/Amount Paid/Current Balance are
+  separate `InvoiceViewModel` fields/template `<Row>`s that this
+  toggle's conditionals never touch, so they unconditionally render
+  regardless of the per-item column's visibility (verified directly:
+  a dedicated backend test renders every theme with the toggle off
+  and asserts all five total labels are still present in the HTML).
+- **Tests**: `apps/api/test/invoice-display-metadata.test.ts` gained a
+  dedicated Show-Item-Amount save/read-back test and had its existing
+  combos/calculation-safety/edit/duplicate/backward-compat tests
+  extended from two toggles to three. `apps/api/test/
+  invoice-pdf-html.test.ts` gained column-presence tests for every
+  on/off combination (matching the task's exact spec table) plus a
+  dedicated "hiding Amount never hides any total" test across every
+  theme. `packages/shared/test/invoice-view-model.test.ts`'s pass-
+  through and calculation-safety tests extended to all three toggles,
+  now also asserting previousBalance/amountPaid/currentBalance are
+  identical shown vs. hidden (stricter than before, which only checked
+  item/subtotal/grandTotal figures).
+- **Verified live** (Playwright, dev DB): created invoices with
+  `showItemAmount` true (default) and false via direct API calls, then
+  viewed each through every one of the 5 templates in the real print-
+  preview UI — screenshotted all 5 with Amount shown, confirming each
+  template's own new bordered-box style; screenshotted Classic Navy
+  and Industrial Blue with Amount hidden, confirming the Amount column
+  disappears from the item table while Subtotal/Grand Total/Previous
+  Balance/Amount Paid/Current Balance all still render exactly as
+  before; also screenshotted `CreateInvoiceForm`'s Invoice Display
+  section showing all three checkboxes (item quantity/unit amount/item
+  amount) side by side, all checked by default. Dev DB reset after
+  verification, no stray dev-server processes left running.
+- `npm run typecheck`, `npm run build`, and `npm test` all clean —
+  295/295 API tests (12 net new/updated), 58/58 shared tests.
+
 ## Known gotchas / things to check before starting work
 
 - **Postgres cluster is often stopped** when a session starts:
@@ -2300,6 +2402,34 @@ Only `App.tsx` changed.
     either), card width measured 1400px (capped) at 1920, ~1318px at
     1366, full-width-minus-padding at 1024/768/390/360. See
     "Responsive Main App Container (Phase 36)" below
+
+42. Totals Box Redesign + Show Item Amount: two related customer-
+    facing presentation improvements, no calculation/formula/ledger/
+    payment/database-amount change anywhere. (1) Every template's
+    totals panel (Subtotal/Grand Total/Previous Balance/Amount Paid/
+    Current Balance) redesigned from a bare top-border list into an
+    actual bordered/padded box with comfortable row spacing and a
+    separator line before the emphasized Current Balance row — each of
+    the 5 templates keeps its own accent color/identity (navy serif
+    border, bold industrial block, minimalist slate border, violet
+    filled panel with a definition ring, premium slate border), none
+    homogenized into identical "floating blue block" labels. (2) A
+    third display toggle, `showItemAmount`/`show_item_amount`
+    (migration `018_show_item_amount.sql`, `NOT NULL DEFAULT true`),
+    added as a straight sibling of Phase 30's `showUnitAmount`/
+    `showItemQuantity` — same backend plumbing (InvoiceInput/Invoice
+    types, INVOICE_HEADER_COLUMNS, create/update/duplicate, route
+    validation), same InvoiceViewModel field, same template gating
+    pattern (`invoice.showItemAmount && <th>/<td>Amount</th>/</td>`)
+    across all 5 templates and `render-html.ts` (PDF), same
+    "Show item amount" checkbox next to the other two in
+    CreateInvoiceForm's Invoice Display section. Hiding it only drops
+    the per-item Amount column — every total row (Subtotal included)
+    always still renders, since those read off separate
+    `InvoiceViewModel` fields the toggle never touches. Backward
+    compatible: an old invoice with no column has the migration's
+    default (true/shown), identical to today's behavior. See "Totals
+    Box Redesign + Show Item Amount (Phase 37)" below
 
 Repo also went through a monorepo restructure (`server/` → `apps/api` +
 new `apps/web` + `packages/shared`) between Phase 1 and Phase 2.

@@ -35,6 +35,7 @@ const viewModel: InvoiceViewModel = {
   sets: '6',
   showItemQuantity: true,
   showUnitAmount: true,
+  showItemAmount: true,
   items: [
     {
       id: 'item-1',
@@ -170,29 +171,56 @@ test('Show Item Quantity OFF hides the Quantity column entirely (header and ever
   }
 });
 
-test('both toggles ON: Description | Quantity | Stitches | Unit Amount | Amount', () => {
-  const html = renderInvoiceHtml(getPdfTheme('classic-navy'), { ...viewModel, showItemQuantity: true, showUnitAmount: true }, null);
+test('Show Item Amount OFF hides the Amount column entirely (header and every row), across every theme — Subtotal/Grand Total/Previous Balance/Amount Paid/Current Balance all still render', () => {
+  const noItemAmount = { ...viewModel, showItemAmount: false };
+  for (const id of Object.keys(PDF_THEMES)) {
+    const html = renderInvoiceHtml(getPdfTheme(id), noItemAmount, null);
+    assert.ok(!html.includes('<th class="num">Amount</th>'), `${id} theme must not show an Amount column when showItemAmount is false`);
+    // The per-item amount VALUE must also be gone from the table, not just relabeled.
+    assert.ok(!html.includes('<td class="num">144.00</td>'), `${id} theme must not render the per-item amount value when hidden`);
+    // Every total row must still be present regardless.
+    assert.match(html, /Subtotal/, `${id} theme must still show Subtotal`);
+    assert.match(html, /Grand Total/, `${id} theme must still show Grand Total`);
+    assert.match(html, /Previous Balance/, `${id} theme must still show Previous Balance`);
+    assert.match(html, /Amount Paid/, `${id} theme must still show Amount Paid`);
+    assert.match(html, /Current Balance/, `${id} theme must still show Current Balance`);
+    assert.match(html, /144\.00/, `${id} theme's Subtotal/Grand Total figures must still render somewhere`);
+  }
+});
+
+test('all three toggles ON: Description | Quantity | Stitches | Unit Amount | Amount', () => {
+  const html = renderInvoiceHtml(getPdfTheme('classic-navy'), { ...viewModel, showItemQuantity: true, showUnitAmount: true, showItemAmount: true }, null);
   assert.match(html, /<th>Description<\/th>\s*<th class="num">Quantity<\/th>\s*<th class="num">Stitches<\/th>\s*<th class="num">Unit Amount<\/th>\s*<th class="num">Amount<\/th>/);
 });
 
 test('Unit Amount OFF only: Description | Quantity | Stitches | Amount', () => {
-  const html = renderInvoiceHtml(getPdfTheme('classic-navy'), { ...viewModel, showItemQuantity: true, showUnitAmount: false }, null);
+  const html = renderInvoiceHtml(getPdfTheme('classic-navy'), { ...viewModel, showItemQuantity: true, showUnitAmount: false, showItemAmount: true }, null);
   assert.match(html, /<th>Description<\/th>\s*<th class="num">Quantity<\/th>\s*<th class="num">Stitches<\/th>\s*<th class="num">Amount<\/th>/);
 });
 
 test('Item Quantity OFF only: Description | Stitches | Unit Amount | Amount', () => {
-  const html = renderInvoiceHtml(getPdfTheme('classic-navy'), { ...viewModel, showItemQuantity: false, showUnitAmount: true }, null);
+  const html = renderInvoiceHtml(getPdfTheme('classic-navy'), { ...viewModel, showItemQuantity: false, showUnitAmount: true, showItemAmount: true }, null);
   assert.match(html, /<th>Description<\/th>\s*<th class="num">Stitches<\/th>\s*<th class="num">Unit Amount<\/th>\s*<th class="num">Amount<\/th>/);
 });
 
-test('both toggles OFF: Description | Stitches | Amount', () => {
-  const html = renderInvoiceHtml(getPdfTheme('classic-navy'), { ...viewModel, showItemQuantity: false, showUnitAmount: false }, null);
-  assert.match(html, /<th>Description<\/th>\s*<th class="num">Stitches<\/th>\s*<th class="num">Amount<\/th>/);
+test('Item Amount OFF only: Description | Quantity | Stitches | Unit Amount', () => {
+  const html = renderInvoiceHtml(getPdfTheme('classic-navy'), { ...viewModel, showItemQuantity: true, showUnitAmount: true, showItemAmount: false }, null);
+  assert.match(html, /<th>Description<\/th>\s*<th class="num">Quantity<\/th>\s*<th class="num">Stitches<\/th>\s*<th class="num">Unit Amount<\/th>/);
+  assert.ok(!html.includes('<th class="num">Amount</th>'));
 });
 
-test('toggling either display flag never changes any item or total figure — display-only, calculations are identical', () => {
-  const shown = renderInvoiceHtml(getPdfTheme('classic-navy'), { ...viewModel, showItemQuantity: true, showUnitAmount: true }, null);
-  const hidden = renderInvoiceHtml(getPdfTheme('classic-navy'), { ...viewModel, showItemQuantity: false, showUnitAmount: false }, null);
+test('all optional columns OFF: Description | Stitches', () => {
+  const html = renderInvoiceHtml(
+    getPdfTheme('classic-navy'),
+    { ...viewModel, showItemQuantity: false, showUnitAmount: false, showItemAmount: false },
+    null,
+  );
+  assert.match(html, /<th>Description<\/th>\s*<th class="num">Stitches<\/th>\s*<\/tr>/);
+});
+
+test('toggling any display flag never changes any item or total figure — display-only, calculations are identical', () => {
+  const shown = renderInvoiceHtml(getPdfTheme('classic-navy'), { ...viewModel, showItemQuantity: true, showUnitAmount: true, showItemAmount: true }, null);
+  const hidden = renderInvoiceHtml(getPdfTheme('classic-navy'), { ...viewModel, showItemQuantity: false, showUnitAmount: false, showItemAmount: false }, null);
   for (const html of [shown, hidden]) {
     assert.match(html, /144\.00/); // subtotal/amount unchanged regardless of what's visible
     assert.match(html, /Grand Total/);

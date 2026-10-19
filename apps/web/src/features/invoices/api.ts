@@ -42,6 +42,8 @@ export interface InvoiceInput {
   showUnitAmount?: boolean;
   /** Display-only toggle for the customer-facing per-item Quantity column. Defaults to true (shown) when omitted. */
   showItemQuantity?: boolean;
+  /** Display-only toggle for the customer-facing per-item Amount column. Defaults to true (shown) when omitted. */
+  showItemAmount?: boolean;
   discountType?: DiscountType;
   discountValue?: string;
   items: InvoiceItemInput[];

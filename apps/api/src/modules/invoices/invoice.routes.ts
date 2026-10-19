@@ -65,8 +65,8 @@ function parseItems(body: Record<string, unknown>): service.InvoiceItemInput[] {
 
 /**
  * discountType/discountValue/lotNumber/customerLotNumber/billNumber/
- * gatePassNumber/generalQuantity/showUnitAmount/showItemQuantity —
- * shared by create (POST /) and edit (PATCH /:id).
+ * gatePassNumber/generalQuantity/showUnitAmount/showItemQuantity/
+ * showItemAmount — shared by create (POST /) and edit (PATCH /:id).
  */
 function parseDiscountAndLot(body: Record<string, unknown>) {
   const discountType = optionalString(body, 'discountType', { max: 20 });
@@ -87,6 +87,7 @@ function parseDiscountAndLot(body: Record<string, unknown>) {
     // Display-only toggles for the customer-facing table columns — see InvoiceInput.
     showUnitAmount: optionalBoolean(body, 'showUnitAmount'),
     showItemQuantity: optionalBoolean(body, 'showItemQuantity'),
+    showItemAmount: optionalBoolean(body, 'showItemAmount'),
     discountType: discountType as service.InvoiceInput['discountType'],
     discountValue: optionalMoney(body, 'discountValue'),
   };

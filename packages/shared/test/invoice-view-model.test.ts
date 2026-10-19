@@ -52,6 +52,7 @@ function baseInvoice(overrides: Partial<InvoiceWithItems> = {}): InvoiceWithItem
     generalQuantity: null,
     showUnitAmount: true,
     showItemQuantity: true,
+    showItemAmount: true,
     discountType: null,
     discountValue: '0.00',
     discountAmount: '0.00',
@@ -142,24 +143,45 @@ test('buildInvoiceViewModel leaves generalQuantity and sets null when no general
   assert.equal(viewModel.sets, null);
 });
 
-test('buildInvoiceViewModel passes the showUnitAmount/showItemQuantity display toggles through unchanged', () => {
-  const bothOn = buildInvoiceViewModel(baseInvoice({ showUnitAmount: true, showItemQuantity: true }), company, customer);
-  assert.equal(bothOn.showUnitAmount, true);
-  assert.equal(bothOn.showItemQuantity, true);
+test('buildInvoiceViewModel passes the showUnitAmount/showItemQuantity/showItemAmount display toggles through unchanged', () => {
+  const allOn = buildInvoiceViewModel(
+    baseInvoice({ showUnitAmount: true, showItemQuantity: true, showItemAmount: true }),
+    company,
+    customer,
+  );
+  assert.equal(allOn.showUnitAmount, true);
+  assert.equal(allOn.showItemQuantity, true);
+  assert.equal(allOn.showItemAmount, true);
 
-  const bothOff = buildInvoiceViewModel(baseInvoice({ showUnitAmount: false, showItemQuantity: false }), company, customer);
-  assert.equal(bothOff.showUnitAmount, false);
-  assert.equal(bothOff.showItemQuantity, false);
+  const allOff = buildInvoiceViewModel(
+    baseInvoice({ showUnitAmount: false, showItemQuantity: false, showItemAmount: false }),
+    company,
+    customer,
+  );
+  assert.equal(allOff.showUnitAmount, false);
+  assert.equal(allOff.showItemQuantity, false);
+  assert.equal(allOff.showItemAmount, false);
 });
 
-test('hiding showUnitAmount/showItemQuantity never changes any item or total figure — display-only', () => {
-  const shown = buildInvoiceViewModel(baseInvoice({ showUnitAmount: true, showItemQuantity: true }), company, customer);
-  const hidden = buildInvoiceViewModel(baseInvoice({ showUnitAmount: false, showItemQuantity: false }), company, customer);
+test('hiding showUnitAmount/showItemQuantity/showItemAmount never changes any item or total figure — display-only', () => {
+  const shown = buildInvoiceViewModel(
+    baseInvoice({ showUnitAmount: true, showItemQuantity: true, showItemAmount: true }),
+    company,
+    customer,
+  );
+  const hidden = buildInvoiceViewModel(
+    baseInvoice({ showUnitAmount: false, showItemQuantity: false, showItemAmount: false }),
+    company,
+    customer,
+  );
   assert.equal(shown.items[0].unitAmount, hidden.items[0].unitAmount);
   assert.equal(shown.items[0].quantity, hidden.items[0].quantity);
   assert.equal(shown.items[0].amount, hidden.items[0].amount);
   assert.equal(shown.subtotal, hidden.subtotal);
   assert.equal(shown.grandTotal, hidden.grandTotal);
+  assert.equal(shown.previousBalance, hidden.previousBalance);
+  assert.equal(shown.amountPaid, hidden.amountPaid);
+  assert.equal(shown.currentBalance, hidden.currentBalance);
 });
 
 test('buildInvoiceViewModel maps the saved calculatedUnitAmount as unitAmount, not a re-derived value', () => {

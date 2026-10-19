@@ -56,6 +56,7 @@ interface InvoiceBody {
   generalQuantity?: string;
   showUnitAmount?: boolean;
   showItemQuantity?: boolean;
+  showItemAmount?: boolean;
   items?: { categoryId: string; stitches: number }[];
 }
 
@@ -179,31 +180,58 @@ test('Show Item Quantity OFF/ON is saved with the invoice and returned on read',
   assert.equal(off.body.showItemQuantity, false);
 });
 
-test('combinations of both toggles all save and read back correctly', async () => {
+test('Show Item Amount OFF/ON is saved with the invoice and returned on read', async () => {
+  const agent = await registeredOwner('Show Item Amount Co');
+  const customerId = await createCustomer(agent, 'Show Item Amount Customer');
+  const categoryId = await createCategory(agent);
+
+  const defaulted = await createInvoice(agent, customerId, categoryId);
+  assert.equal(defaulted.status, 201);
+  assert.equal(defaulted.body.showItemAmount, true, 'defaults to true/shown, preserving existing behavior');
+
+  const off = await createInvoice(agent, customerId, categoryId, { showItemAmount: false });
+  assert.equal(off.status, 201);
+  assert.equal(off.body.showItemAmount, false);
+
+  const details = await agent.get(`/api/invoices/${off.body.id}`);
+  assert.equal(details.body.showItemAmount, false);
+});
+
+test('combinations of all three toggles all save and read back correctly', async () => {
   const agent = await registeredOwner('Toggle Combos Co');
   const customerId = await createCustomer(agent, 'Toggle Combos Customer');
   const categoryId = await createCategory(agent);
 
-  for (const [showUnitAmount, showItemQuantity] of [
-    [true, true],
-    [true, false],
-    [false, true],
-    [false, false],
+  for (const [showUnitAmount, showItemQuantity, showItemAmount] of [
+    [true, true, true],
+    [true, false, true],
+    [false, true, false],
+    [false, false, false],
+    [true, true, false],
   ] as const) {
-    const created = await createInvoice(agent, customerId, categoryId, { showUnitAmount, showItemQuantity });
+    const created = await createInvoice(agent, customerId, categoryId, { showUnitAmount, showItemQuantity, showItemAmount });
     assert.equal(created.status, 201);
     assert.equal(created.body.showUnitAmount, showUnitAmount);
     assert.equal(created.body.showItemQuantity, showItemQuantity);
+    assert.equal(created.body.showItemAmount, showItemAmount);
   }
 });
 
-test('hiding either/both display columns never changes any calculation: unit amount, line amount, subtotal, grand total, and the ledger are all identical regardless of the toggles', async () => {
+test('hiding any/all display columns never changes any calculation: unit amount, line amount, subtotal, grand total, and the ledger are all identical regardless of the toggles', async () => {
   const agent = await registeredOwner('Toggle Calculation Safety Co');
   const customerId = await createCustomer(agent, 'Toggle Calc Customer');
   const categoryId = await createCategory(agent);
 
-  const shown = await createInvoice(agent, customerId, categoryId, { showUnitAmount: true, showItemQuantity: true });
-  const hidden = await createInvoice(agent, customerId, categoryId, { showUnitAmount: false, showItemQuantity: false });
+  const shown = await createInvoice(agent, customerId, categoryId, {
+    showUnitAmount: true,
+    showItemQuantity: true,
+    showItemAmount: true,
+  });
+  const hidden = await createInvoice(agent, customerId, categoryId, {
+    showUnitAmount: false,
+    showItemQuantity: false,
+    showItemAmount: false,
+  });
   assert.equal(shown.status, 201);
   assert.equal(hidden.status, 201);
 
@@ -237,7 +265,7 @@ test('General Quantity and Sets never multiply into subtotal/discount/grand tota
   assert.equal(created.body.grandTotal, '129.60');
 });
 
-test('editing a draft invoice can change Bill Number, General Quantity, and both display toggles independently', async () => {
+test('editing a draft invoice can change Bill Number, General Quantity, and all three display toggles independently', async () => {
   const agent = await registeredOwner('Edit Display Metadata Co');
   const customerId = await createCustomer(agent, 'Edit Display Metadata Customer');
   const categoryId = await createCategory(agent);
@@ -247,6 +275,7 @@ test('editing a draft invoice can change Bill Number, General Quantity, and both
     generalQuantity: '84',
     showUnitAmount: true,
     showItemQuantity: true,
+    showItemAmount: true,
   });
   assert.equal(created.status, 201);
 
@@ -255,6 +284,7 @@ test('editing a draft invoice can change Bill Number, General Quantity, and both
     generalQuantity: '168',
     showUnitAmount: false,
     showItemQuantity: false,
+    showItemAmount: false,
     items: [{ categoryId, stitches: 12000, quantity: '10' }],
   });
   assert.equal(edited.status, 200);
@@ -262,9 +292,10 @@ test('editing a draft invoice can change Bill Number, General Quantity, and both
   assert.equal(edited.body.generalQuantity, '168.00');
   assert.equal(edited.body.showUnitAmount, false);
   assert.equal(edited.body.showItemQuantity, false);
+  assert.equal(edited.body.showItemAmount, false);
 });
 
-test('duplicating an invoice carries over General Quantity and the display toggles, but never Bill Number', async () => {
+test('duplicating an invoice carries over General Quantity and all three display toggles, but never Bill Number', async () => {
   const agent = await registeredOwner('Duplicate Metadata Co');
   const customerId = await createCustomer(agent, 'Duplicate Metadata Customer');
   const categoryId = await createCategory(agent);
@@ -274,6 +305,7 @@ test('duplicating an invoice carries over General Quantity and the display toggl
     generalQuantity: '252',
     showUnitAmount: false,
     showItemQuantity: false,
+    showItemAmount: false,
   });
   assert.equal(original.status, 201);
 
@@ -283,9 +315,10 @@ test('duplicating an invoice carries over General Quantity and the display toggl
   assert.equal(duplicate.body.generalQuantity, '252.00');
   assert.equal(duplicate.body.showUnitAmount, false);
   assert.equal(duplicate.body.showItemQuantity, false);
+  assert.equal(duplicate.body.showItemAmount, false);
 });
 
-test('an invoice created before this feature (no bill number, no general quantity) remains fully compatible: defaults to shown/shown, null bill number and general quantity', async () => {
+test('an invoice created before this feature (no bill number, no general quantity) remains fully compatible: defaults to shown/shown/shown, null bill number and general quantity', async () => {
   const agent = await registeredOwner('Backward Compat Co');
   const customerId = await createCustomer(agent, 'Backward Compat Customer');
   const categoryId = await createCategory(agent);
@@ -297,12 +330,14 @@ test('an invoice created before this feature (no bill number, no general quantit
   assert.equal(created.body.generalQuantity, null);
   assert.equal(created.body.showUnitAmount, true);
   assert.equal(created.body.showItemQuantity, true);
+  assert.equal(created.body.showItemAmount, true);
 
   const details = await agent.get(`/api/invoices/${created.body.id}`);
   assert.equal(details.body.billNumber, null);
   assert.equal(details.body.generalQuantity, null);
   assert.equal(details.body.showUnitAmount, true);
   assert.equal(details.body.showItemQuantity, true);
+  assert.equal(details.body.showItemAmount, true);
 });
 
 test('tenant isolation: an invoice with a bill number is invisible to another company, including by search', async () => {

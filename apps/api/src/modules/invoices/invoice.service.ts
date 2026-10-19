@@ -112,6 +112,13 @@ export interface InvoiceInput {
    * calculation that uses it. Defaults to true (shown) when omitted.
    */
   showItemQuantity?: boolean;
+  /**
+   * Display-only toggle for the customer-facing per-item Amount
+   * column — never affects the saved per-item line amount or any
+   * total derived from it (Subtotal/Grand Total/etc. always render
+   * regardless). Defaults to true (shown) when omitted.
+   */
+  showItemAmount?: boolean;
   /** Omitted/undefined means no discount — same as passing 'percentage'/'fixed' with a value of "0.00". */
   discountType?: DiscountType;
   discountValue?: string;
@@ -233,6 +240,8 @@ export interface Invoice {
   showUnitAmount: boolean;
   /** Display-only: whether the customer-facing per-item Quantity column is shown. Saved per invoice so an old invoice always prints the same way. */
   showItemQuantity: boolean;
+  /** Display-only: whether the customer-facing per-item Amount column is shown. Saved per invoice so an old invoice always prints the same way. */
+  showItemAmount: boolean;
   discountType: DiscountType | null;
   discountValue: string;
   discountAmount: string;
@@ -296,6 +305,7 @@ const INVOICE_HEADER_COLUMNS = `
   i.lot_number AS "lotNumber", i.customer_lot_number AS "customerLotNumber",
   i.bill_number AS "billNumber", i.gate_pass_number AS "gatePassNumber", i.general_quantity AS "generalQuantity",
   i.show_unit_amount AS "showUnitAmount", i.show_item_quantity AS "showItemQuantity",
+  i.show_item_amount AS "showItemAmount",
   i.discount_type AS "discountType",
   i.discount_value AS "discountValue", i.discount_amount AS "discountAmount"
 `;
@@ -542,9 +552,10 @@ export async function createInvoice(
     // its DEFAULT 1 (migration 011) is all that satisfies the column now.
     // Display toggles default to true (shown) when omitted, so an
     // existing caller that never sends them gets today's exact
-    // behavior back — see InvoiceInput.showUnitAmount/showItemQuantity.
+    // behavior back — see InvoiceInput.showUnitAmount/showItemQuantity/showItemAmount.
     const showUnitAmount = input.showUnitAmount ?? true;
     const showItemQuantity = input.showItemQuantity ?? true;
+    const showItemAmount = input.showItemAmount ?? true;
     // Derived from the items actually being saved, not accepted from
     // the client — see invoiceModeFromItems. This is what decides which
     // editor (CreateInvoiceForm vs QuickInvoiceForm) the invoice reopens
@@ -555,8 +566,8 @@ export async function createInvoice(
     const invoiceRes = await client.query<{ id: string; invoiceDate: string; createdAt: string }>(
       `INSERT INTO invoices
          (company_id, customer_id, invoice_number, invoice_date, notes, status, lot_number, customer_lot_number,
-          bill_number, gate_pass_number, general_quantity, show_unit_amount, show_item_quantity, invoice_mode)
-       VALUES ($1, $2, $3, COALESCE($4::date, CURRENT_DATE), $5, COALESCE($6, 'draft'), $7, $8, $9, $10, $11, $12, $13, $14)
+          bill_number, gate_pass_number, general_quantity, show_unit_amount, show_item_quantity, show_item_amount, invoice_mode)
+       VALUES ($1, $2, $3, COALESCE($4::date, CURRENT_DATE), $5, COALESCE($6, 'draft'), $7, $8, $9, $10, $11, $12, $13, $14, $15)
        RETURNING id, invoice_date AS "invoiceDate", created_at AS "createdAt"`,
       [
         companyId,
@@ -572,6 +583,7 @@ export async function createInvoice(
         input.generalQuantity ?? null,
         showUnitAmount,
         showItemQuantity,
+        showItemAmount,
         invoiceMode,
       ],
     );
@@ -644,6 +656,7 @@ export async function createInvoice(
       generalQuantity: input.generalQuantity ? roundMoney(new Decimal(input.generalQuantity)) : null,
       showUnitAmount,
       showItemQuantity,
+      showItemAmount,
       discountType: discount.discountType,
       discountValue: discount.discountValue,
       discountAmount: discount.discountAmount,
@@ -746,6 +759,7 @@ export async function listInvoices(companyId: string, filter: InvoiceListFilter)
          i.lot_number AS "lotNumber", i.customer_lot_number AS "customerLotNumber",
          i.bill_number AS "billNumber", i.gate_pass_number AS "gatePassNumber", i.general_quantity AS "generalQuantity",
          i.show_unit_amount AS "showUnitAmount", i.show_item_quantity AS "showItemQuantity",
+         i.show_item_amount AS "showItemAmount",
          i.discount_type AS "discountType",
          i.discount_value AS "discountValue", i.discount_amount AS "discountAmount",
          COALESCE(items.total, 0) AS "totalAmount",
@@ -841,6 +855,7 @@ export async function duplicateInvoice(companyId: string, userId: string, invoic
       generalQuantity: original.generalQuantity ?? undefined,
       showUnitAmount: original.showUnitAmount,
       showItemQuantity: original.showItemQuantity,
+      showItemAmount: original.showItemAmount,
       discountType: original.discountType ?? undefined,
       discountValue: original.discountType ? original.discountValue : undefined,
       items: original.items.map((item) => ({
@@ -913,7 +928,8 @@ export async function updateInvoice(
               general_quantity = $9,
               show_unit_amount = $10,
               show_item_quantity = $11,
-              invoice_mode = $12,
+              show_item_amount = $12,
+              invoice_mode = $13,
               updated_at = now()
         WHERE id = $1 AND company_id = $2
         RETURNING invoice_date AS "invoiceDate"`,
@@ -929,6 +945,7 @@ export async function updateInvoice(
         input.generalQuantity ?? null,
         input.showUnitAmount ?? true,
         input.showItemQuantity ?? true,
+        input.showItemAmount ?? true,
         invoiceMode,
       ],
     );

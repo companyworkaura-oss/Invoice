@@ -53,7 +53,7 @@ export function IndustrialBlueTemplate({ invoice, compact }: { invoice: InvoiceV
             {invoice.showItemQuantity && <th className={`px-3 ${vs(compact, 'py-2', 'py-1')} text-right`}>Quantity</th>}
             <th className={`px-3 ${vs(compact, 'py-2', 'py-1')} text-right`}>Stitches</th>
             {invoice.showUnitAmount && <th className={`px-3 ${vs(compact, 'py-2', 'py-1')} text-right`}>Unit Amount</th>}
-            <th className={`px-4 ${vs(compact, 'py-2', 'py-1')} text-right`}>Amount</th>
+            {invoice.showItemAmount && <th className={`px-4 ${vs(compact, 'py-2', 'py-1')} text-right`}>Amount</th>}
           </tr>
         </thead>
         <tbody>
@@ -63,20 +63,22 @@ export function IndustrialBlueTemplate({ invoice, compact }: { invoice: InvoiceV
               {invoice.showItemQuantity && <td className={`px-3 ${vs(compact, 'py-2', 'py-1')} text-right`}>{item.quantity}</td>}
               <td className={`px-3 ${vs(compact, 'py-2', 'py-1')} text-right`}>{item.stitches}</td>
               {invoice.showUnitAmount && <td className={`px-3 ${vs(compact, 'py-2', 'py-1')} text-right`}>{item.unitAmount}</td>}
-              <td className={`px-4 ${vs(compact, 'py-2', 'py-1')} text-right font-semibold`}>{item.amount}</td>
+              {invoice.showItemAmount && <td className={`px-4 ${vs(compact, 'py-2', 'py-1')} text-right font-semibold`}>{item.amount}</td>}
             </tr>
           ))}
         </tbody>
       </table>
 
       <div className={`totals-section flex break-inside-avoid justify-end border-t-2 border-blue-800 px-6 ${vs(compact, 'py-4', 'py-2')}`}>
-        <div className={`w-64 ${vs(compact, 'space-y-1', 'space-y-0.5')} text-[length:calc(0.875rem*var(--inv-scale,1))]`}>
-          <Row label="Subtotal" value={invoice.subtotal} />
-          {invoice.discountType && <Row label={invoice.discountLabel} value={`-${invoice.discountAmount}`} />}
-          <Row label="Grand Total" value={invoice.grandTotal} />
-          <Row label="Previous Balance" value={invoice.previousBalance} />
-          <Row label="Amount Paid" value={invoice.amountPaid} />
-          <div className={`mt-1 flex justify-between bg-blue-800 px-2 ${vs(compact, 'py-1.5', 'py-1')} font-black text-white`}>
+        <div className={`w-64 overflow-hidden rounded-md border-2 border-blue-800 text-[length:calc(0.875rem*var(--inv-scale,1))]`}>
+          <div className={`${vs(compact, 'space-y-1 px-4 py-3', 'space-y-0.5 px-3 py-2')}`}>
+            <Row label="Subtotal" value={invoice.subtotal} />
+            {invoice.discountType && <Row label={invoice.discountLabel} value={`-${invoice.discountAmount}`} />}
+            <Row label="Grand Total" value={invoice.grandTotal} />
+            <Row label="Previous Balance" value={invoice.previousBalance} />
+            <Row label="Amount Paid" value={invoice.amountPaid} />
+          </div>
+          <div className={`flex justify-between border-t-2 border-blue-800 bg-blue-800 px-4 ${vs(compact, 'py-2', 'py-1.5')} font-black text-white`}>
             <span>Current Balance</span>
             <span>{invoice.currentBalance}</span>
           </div>

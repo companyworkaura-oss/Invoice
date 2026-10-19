@@ -73,6 +73,8 @@ export interface InvoiceViewModel {
   showItemQuantity: boolean;
   /** Whether a template should render the per-item Unit Amount column — display-only, see Invoice.showUnitAmount. */
   showUnitAmount: boolean;
+  /** Whether a template should render the per-item Amount column — display-only, see Invoice.showItemAmount. Never hides Subtotal/Grand Total/any other total — those always render. */
+  showItemAmount: boolean;
   items: {
     id: string;
     description: string;
@@ -82,6 +84,7 @@ export interface InvoiceViewModel {
     stitches: number | null;
     /** Price of a single unit/piece, after the formula calculation — never the internal rate. See unitAmount() below. Always present even when showUnitAmount is false. */
     unitAmount: string;
+    /** This line's total (unitAmount × quantity). Always present even when showItemAmount is false — hiding it is the template's job, not this shape's. */
     amount: string;
   }[];
   /** Sum of the items above, before discount. */
@@ -169,6 +172,7 @@ export function buildInvoiceViewModel(
     sets: calculateSets(invoice.generalQuantity),
     showItemQuantity: invoice.showItemQuantity,
     showUnitAmount: invoice.showUnitAmount,
+    showItemAmount: invoice.showItemAmount,
     items: invoice.items.map((item) => ({
       id: item.id,
       description: itemDescription(item),

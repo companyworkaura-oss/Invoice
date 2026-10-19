@@ -48,7 +48,7 @@ export function PremiumModernTemplate({ invoice, compact }: { invoice: InvoiceVi
               {invoice.showItemQuantity && <th className={`${vs(compact, 'pb-2', 'pb-1')} text-right font-medium`}>Quantity</th>}
               <th className={`${vs(compact, 'pb-2', 'pb-1')} text-right font-medium`}>Stitches</th>
               {invoice.showUnitAmount && <th className={`${vs(compact, 'pb-2', 'pb-1')} text-right font-medium`}>Unit Amount</th>}
-              <th className={`${vs(compact, 'pb-2', 'pb-1')} text-right font-medium`}>Amount</th>
+              {invoice.showItemAmount && <th className={`${vs(compact, 'pb-2', 'pb-1')} text-right font-medium`}>Amount</th>}
             </tr>
           </thead>
           <tbody>
@@ -58,20 +58,22 @@ export function PremiumModernTemplate({ invoice, compact }: { invoice: InvoiceVi
                 {invoice.showItemQuantity && <td className={`${vs(compact, 'py-2.5', 'py-1')} text-right`}>{item.quantity}</td>}
                 <td className={`${vs(compact, 'py-2.5', 'py-1')} text-right`}>{item.stitches}</td>
                 {invoice.showUnitAmount && <td className={`${vs(compact, 'py-2.5', 'py-1')} text-right`}>{item.unitAmount}</td>}
-                <td className={`${vs(compact, 'py-2.5', 'py-1')} text-right`}>{item.amount}</td>
+                {invoice.showItemAmount && <td className={`${vs(compact, 'py-2.5', 'py-1')} text-right`}>{item.amount}</td>}
               </tr>
             ))}
           </tbody>
         </table>
 
         <div className={`${vs(compact, 'mt-6', 'mt-3')} totals-section flex justify-end break-inside-avoid`}>
-          <div className={`w-64 ${vs(compact, 'space-y-1.5', 'space-y-0.5')} text-[length:calc(0.875rem*var(--inv-scale,1))]`}>
+          <div
+            className={`w-64 rounded-md border border-slate-200 ${vs(compact, 'space-y-1.5 px-4 py-3', 'space-y-0.5 px-3 py-2')} text-[length:calc(0.875rem*var(--inv-scale,1))]`}
+          >
             <Row label="Subtotal" value={invoice.subtotal} />
             {invoice.discountType && <Row label={invoice.discountLabel} value={`-${invoice.discountAmount}`} />}
             <Row label="Grand Total" value={invoice.grandTotal} />
             <Row label="Previous Balance" value={invoice.previousBalance} />
             <Row label="Amount Paid" value={invoice.amountPaid} />
-            <div className={`${vs(compact, 'mt-2', 'mt-1')} flex justify-between border-t-2 border-slate-900 ${vs(compact, 'pt-2', 'pt-1')} text-[length:calc(1rem*var(--inv-scale,1))] font-semibold text-slate-900`}>
+            <div className={`${vs(compact, 'mt-2 pt-2', 'mt-1 pt-1')} flex justify-between border-t-2 border-slate-900 text-[length:calc(1rem*var(--inv-scale,1))] font-semibold text-slate-900`}>
               <span>Current Balance</span>
               <span>{invoice.currentBalance}</span>
             </div>

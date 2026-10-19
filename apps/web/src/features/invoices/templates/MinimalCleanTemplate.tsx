@@ -45,7 +45,7 @@ export function MinimalCleanTemplate({ invoice, compact }: { invoice: InvoiceVie
             {invoice.showItemQuantity && <th className={`${vs(compact, 'pb-2', 'pb-1')} text-right font-normal`}>Quantity</th>}
             <th className={`${vs(compact, 'pb-2', 'pb-1')} text-right font-normal`}>Stitches</th>
             {invoice.showUnitAmount && <th className={`${vs(compact, 'pb-2', 'pb-1')} text-right font-normal`}>Unit Amount</th>}
-            <th className={`${vs(compact, 'pb-2', 'pb-1')} text-right font-normal`}>Amount</th>
+            {invoice.showItemAmount && <th className={`${vs(compact, 'pb-2', 'pb-1')} text-right font-normal`}>Amount</th>}
           </tr>
         </thead>
         <tbody>
@@ -55,20 +55,22 @@ export function MinimalCleanTemplate({ invoice, compact }: { invoice: InvoiceVie
               {invoice.showItemQuantity && <td className={`${vs(compact, 'py-2', 'py-1')} text-right font-mono`}>{item.quantity}</td>}
               <td className={`${vs(compact, 'py-2', 'py-1')} text-right font-mono`}>{item.stitches}</td>
               {invoice.showUnitAmount && <td className={`${vs(compact, 'py-2', 'py-1')} text-right font-mono`}>{item.unitAmount}</td>}
-              <td className={`${vs(compact, 'py-2', 'py-1')} text-right font-mono`}>{item.amount}</td>
+              {invoice.showItemAmount && <td className={`${vs(compact, 'py-2', 'py-1')} text-right font-mono`}>{item.amount}</td>}
             </tr>
           ))}
         </tbody>
       </table>
 
       <div className={`${vs(compact, 'mt-8', 'mt-3')} totals-section flex justify-end break-inside-avoid`}>
-        <div className={`w-56 ${vs(compact, 'space-y-1.5', 'space-y-0.5')} text-[length:calc(0.875rem*var(--inv-scale,1))]`}>
+        <div
+          className={`w-60 rounded-md border border-slate-200 ${vs(compact, 'space-y-1.5 px-4 py-3', 'space-y-0.5 px-3 py-2')} text-[length:calc(0.875rem*var(--inv-scale,1))]`}
+        >
           <Row label="Subtotal" value={invoice.subtotal} />
           {invoice.discountType && <Row label={invoice.discountLabel} value={`-${invoice.discountAmount}`} />}
           <Row label="Grand Total" value={invoice.grandTotal} />
           <Row label="Previous Balance" value={invoice.previousBalance} />
           <Row label="Amount Paid" value={invoice.amountPaid} />
-          <div className={`flex justify-between border-t border-slate-900 ${vs(compact, 'pt-1.5', 'pt-1')} font-medium`}>
+          <div className={`flex justify-between border-t border-slate-900 ${vs(compact, 'mt-1.5 pt-1.5', 'mt-1 pt-1')} font-medium`}>
             <span>Current Balance</span>
             <span className="font-mono">{invoice.currentBalance}</span>
           </div>

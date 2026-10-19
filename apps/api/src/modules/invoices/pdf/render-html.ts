@@ -35,7 +35,7 @@ export function renderInvoiceHtml(theme: PdfTheme, invoice: InvoiceViewModel, lo
         ${invoice.showItemQuantity ? `<td class="num">${escapeHtml(item.quantity)}</td>` : ''}
         <td class="num">${item.stitches ?? ''}</td>
         ${invoice.showUnitAmount ? `<td class="num">${escapeHtml(item.unitAmount)}</td>` : ''}
-        <td class="num">${escapeHtml(item.amount)}</td>
+        ${invoice.showItemAmount ? `<td class="num">${escapeHtml(item.amount)}</td>` : ''}
       </tr>`,
     )
     .join('');
@@ -132,7 +132,7 @@ export function renderInvoiceHtml(theme: PdfTheme, invoice: InvoiceViewModel, lo
             ${invoice.showItemQuantity ? '<th class="num">Quantity</th>' : ''}
             <th class="num">Stitches</th>
             ${invoice.showUnitAmount ? '<th class="num">Unit Amount</th>' : ''}
-            <th class="num">Amount</th>
+            ${invoice.showItemAmount ? '<th class="num">Amount</th>' : ''}
           </tr>
         </thead>
         <tbody>${itemRows}</tbody>

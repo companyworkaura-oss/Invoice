@@ -46,7 +46,7 @@ export function ModernCurveTemplate({ invoice, compact }: { invoice: InvoiceView
                 {invoice.showItemQuantity && <th className={`px-2 ${vs(compact, 'py-2', 'py-1')} text-right`}>Quantity</th>}
                 <th className={`px-2 ${vs(compact, 'py-2', 'py-1')} text-right`}>Stitches</th>
                 {invoice.showUnitAmount && <th className={`px-2 ${vs(compact, 'py-2', 'py-1')} text-right`}>Unit Amount</th>}
-                <th className={`px-3 ${vs(compact, 'py-2', 'py-1')} text-right`}>Amount</th>
+                {invoice.showItemAmount && <th className={`px-3 ${vs(compact, 'py-2', 'py-1')} text-right`}>Amount</th>}
               </tr>
             </thead>
             <tbody>
@@ -56,7 +56,7 @@ export function ModernCurveTemplate({ invoice, compact }: { invoice: InvoiceView
                   {invoice.showItemQuantity && <td className={`px-2 ${vs(compact, 'py-2', 'py-1')} text-right`}>{item.quantity}</td>}
                   <td className={`px-2 ${vs(compact, 'py-2', 'py-1')} text-right`}>{item.stitches}</td>
                   {invoice.showUnitAmount && <td className={`px-2 ${vs(compact, 'py-2', 'py-1')} text-right`}>{item.unitAmount}</td>}
-                  <td className={`px-3 ${vs(compact, 'py-2', 'py-1')} text-right`}>{item.amount}</td>
+                  {invoice.showItemAmount && <td className={`px-3 ${vs(compact, 'py-2', 'py-1')} text-right`}>{item.amount}</td>}
                 </tr>
               ))}
             </tbody>
@@ -64,13 +64,15 @@ export function ModernCurveTemplate({ invoice, compact }: { invoice: InvoiceView
         </div>
 
         <div className={`${vs(compact, 'mt-6', 'mt-3')} totals-section flex justify-end break-inside-avoid`}>
-          <div className={`w-64 ${vs(compact, 'space-y-1', 'space-y-0.5')} rounded-2xl bg-violet-600 px-4 ${vs(compact, 'py-4', 'py-2')} text-[length:calc(0.875rem*var(--inv-scale,1))] text-white`}>
+          <div
+            className={`w-64 ${vs(compact, 'space-y-1.5', 'space-y-0.5')} rounded-2xl border border-violet-400/40 bg-violet-600 px-4 ${vs(compact, 'py-4', 'py-2')} text-[length:calc(0.875rem*var(--inv-scale,1))] text-white`}
+          >
             <Row label="Subtotal" value={invoice.subtotal} />
             {invoice.discountType && <Row label={invoice.discountLabel} value={`-${invoice.discountAmount}`} />}
             <Row label="Grand Total" value={invoice.grandTotal} />
             <Row label="Previous Balance" value={invoice.previousBalance} />
             <Row label="Amount Paid" value={invoice.amountPaid} />
-            <div className="mt-1 flex justify-between border-t border-white/30 pt-1 text-[length:calc(1rem*var(--inv-scale,1))] font-semibold">
+            <div className={`${vs(compact, 'mt-1.5 pt-1.5', 'mt-1 pt-1')} flex justify-between border-t border-white/30 text-[length:calc(1rem*var(--inv-scale,1))] font-semibold`}>
               <span>Current Balance</span>
               <span>{invoice.currentBalance}</span>
             </div>
