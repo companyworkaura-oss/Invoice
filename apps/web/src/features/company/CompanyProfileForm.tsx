@@ -3,14 +3,13 @@ import { useState } from 'react';
 import { ApiError } from '../../lib/api';
 import { INVOICE_TEMPLATES } from '../invoices/templates/registry';
 import * as companyApi from './api';
+import { buildProfilePatch, type FormState } from './profile-patch';
 
 interface Props {
   profile: CompanyProfile;
   canEdit: boolean;
   onSaved: (profile: CompanyProfile) => void;
 }
-
-type FormState = Record<string, string>;
 
 const FIELDS: {
   key: keyof companyApi.ProfilePatch;
@@ -45,6 +44,13 @@ function toFormState(profile: CompanyProfile): FormState {
 
 export function CompanyProfileForm({ profile, canEdit, onSaved }: Props) {
   const [form, setForm] = useState<FormState>(() => toFormState(profile));
+  // F08: the snapshot `form` started from — the one thing that tells
+  // "this field is still blank because nobody touched it" (omit, leave
+  // unchanged server-side) apart from "this field used to have a value
+  // and the user just cleared it" (send null, so the server actually
+  // clears it). Updated alongside `form` after every successful save,
+  // same lifecycle as `form` itself.
+  const [original, setOriginal] = useState<FormState>(() => toFormState(profile));
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -55,16 +61,10 @@ export function CompanyProfileForm({ profile, canEdit, onSaved }: Props) {
     setSaved(false);
     setSaving(true);
     try {
-      // Only send fields that actually have a value. The server treats a
-      // present-but-blank optional field (e.g. email: "") as someone
-      // trying to set it to that, which fails validation — an untouched
-      // blank field should mean "leave it as is", not "clear it".
-      const patch: companyApi.ProfilePatch = {};
-      for (const [key, value] of Object.entries(form)) {
-        if (value.trim() !== '') patch[key as keyof companyApi.ProfilePatch] = value;
-      }
+      const patch = buildProfilePatch(form, original);
       const updated = await companyApi.updateProfile(patch);
       setForm(toFormState(updated));
+      setOriginal(toFormState(updated));
       onSaved(updated);
       setSaved(true);
     } catch (err) {

@@ -4,7 +4,7 @@ import { config } from '../../config.js';
 import { badRequest } from '../../lib/http-error.js';
 import { detectImageSignature } from '../../lib/storage/image-signature.js';
 import { getLogoStorage } from '../../lib/storage/index.js';
-import { asBody, optionalEmail, optionalString, requireString } from '../../lib/validate.js';
+import { asBody, optionalClearableEmail, optionalClearableString, optionalString, requireString } from '../../lib/validate.js';
 import { auth, requireAuth } from '../../middleware/auth.js';
 import { requirePermission } from '../../middleware/permissions.js';
 import * as lifecycle from './company-lifecycle.service.js';
@@ -43,19 +43,27 @@ companyRouter.patch('/', requirePermission('company.manage'), async (req, res) =
     throw badRequest('Validation failed', { defaultCurrency: 'Must be a 3-letter ISO code' });
   }
 
+  // F08: name/defaultCurrency/invoicePrefix/defaultInvoiceTemplate are
+  // NOT NULL columns — optionalString still rejects a present-but-blank
+  // value for those (there's nothing to "clear" them to). Every other
+  // field below is a nullable column, so it uses optionalClearableString/
+  // Email instead: omitted stays omitted (undefined), but an explicit
+  // null/empty value now comes through as `null` — the signal
+  // updateCompany needs to actually clear it — rather than being
+  // rejected as invalid or silently discarded.
   const patch: service.CompanyProfilePatch = {
     name: optionalString(body, 'name'),
     defaultCurrency,
-    factoryName: optionalString(body, 'factoryName', { max: 200 }),
-    ownerName: optionalString(body, 'ownerName', { max: 200 }),
-    phone: optionalString(body, 'phone', { max: 40 }),
-    whatsapp: optionalString(body, 'whatsapp', { max: 40 }),
-    email: optionalEmail(body, 'email'),
-    address: optionalString(body, 'address', { max: 500 }),
-    taxNumber: optionalString(body, 'taxNumber', { max: 100 }),
+    factoryName: optionalClearableString(body, 'factoryName', { max: 200 }),
+    ownerName: optionalClearableString(body, 'ownerName', { max: 200 }),
+    phone: optionalClearableString(body, 'phone', { max: 40 }),
+    whatsapp: optionalClearableString(body, 'whatsapp', { max: 40 }),
+    email: optionalClearableEmail(body, 'email'),
+    address: optionalClearableString(body, 'address', { max: 500 }),
+    taxNumber: optionalClearableString(body, 'taxNumber', { max: 100 }),
     invoicePrefix: optionalString(body, 'invoicePrefix', { max: 20 }),
     defaultInvoiceTemplate: optionalString(body, 'defaultInvoiceTemplate', { max: 100 }),
-    invoiceTerms: optionalString(body, 'invoiceTerms', { max: 5000 }),
+    invoiceTerms: optionalClearableString(body, 'invoiceTerms', { max: 5000 }),
   };
   res.json(await service.updateCompany(auth(req).companyId, auth(req).userId, patch));
 });

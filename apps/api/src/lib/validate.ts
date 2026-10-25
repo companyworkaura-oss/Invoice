@@ -32,6 +32,42 @@ export function optionalEmail(body: Body, key: string): string | undefined {
   return requireEmail(body, key);
 }
 
+/**
+ * For a PATCH field on a nullable column where the caller must be
+ * able to tell "omitted" (leave unchanged) apart from "explicitly
+ * cleared" (F08) — unlike optionalString, which rejects an empty
+ * value outright, this treats one as the clear signal:
+ *   - key absent from the body at all           -> undefined (omit)
+ *   - present as null, "", or whitespace-only    -> null (clear)
+ *   - present as a non-blank string              -> the trimmed value
+ * The caller (e.g. updateCompany) is expected to apply undefined vs.
+ * null vs. a string differently — never collapse them with `?? null`
+ * the way a plain optional field can.
+ */
+export function optionalClearableString(body: Body, key: string, opts: { max?: number } = {}): string | null | undefined {
+  if (!(key in body)) return undefined;
+  const raw = body[key];
+  if (raw !== null && typeof raw !== 'string') {
+    throw badRequest('Validation failed', { [key]: 'Must be a string or null' });
+  }
+  const trimmed = typeof raw === 'string' ? raw.trim() : '';
+  if (trimmed === '') return null;
+  const max = opts.max ?? 200;
+  if (trimmed.length > max) {
+    throw badRequest('Validation failed', { [key]: `Must be at most ${max} characters` });
+  }
+  return trimmed;
+}
+
+/** Same contract as optionalClearableString, but validates a non-blank value as an email address. */
+export function optionalClearableEmail(body: Body, key = 'email'): string | null | undefined {
+  const value = optionalClearableString(body, key, { max: 254 });
+  if (value === undefined || value === null) return value;
+  const lower = value.toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(lower)) throw badRequest('Validation failed', { [key]: 'Invalid email' });
+  return lower;
+}
+
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // `unknown`, not `string`: Express types req.params values as `string | string[]`

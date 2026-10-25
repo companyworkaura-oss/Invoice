@@ -2720,6 +2720,87 @@ changed.
   pre-existing `membership.service.ts` failure aside, confirmed
   untouched; `@invoice/web`'s lint run separately is clean).
 
+## F08 — Company Optional Fields Must Be Clearable (Phase 48)
+
+A correctness fix spanning all three layers the task asked to align:
+the frontend payload (`CompanyProfileForm.tsx`/new `profile-patch.ts`),
+backend validation (`validate.ts`), and the SQL update logic
+(`company.service.ts`).
+
+- **The bug, three layers deep**:
+  1. **Frontend**: `CompanyProfileForm`'s submit handler only included
+     a field in the patch `if (value.trim() !== '')` — so blanking a
+     field in the UI and saving just... omitted it, identical to never
+     having touched it at all. The old code's own comment said as
+     much: "an untouched blank field should mean leave it as is, not
+     clear it" — true, but it had no way to tell "untouched" apart
+     from "the user just cleared it", so it always guessed
+     "untouched".
+  2. **Validation**: even if the frontend had sent `phone: ''` or
+     `phone: null`, `optionalString` (via `requireString`, `min`
+     defaulting to 1) rejected it outright with "Must be 1-200
+     characters" — there was no validation path that accepted an
+     empty/null value as legitimate input at all.
+  3. **SQL**: `updateCompany` used `COALESCE($N, column)` with
+     `patch.phone ?? null` — so even a field that *did* make it
+     through as `null` collapsed to the same NULL parameter an omitted
+     field would, and COALESCE always fell back to the existing value
+     either way. There was no way to clear a column through this
+     query, period.
+- **The fix, one per layer**:
+  1. **Frontend**: new `buildProfilePatch(form, original)`
+     (`apps/web/src/features/company/profile-patch.ts`, extracted out
+     of the component as its own pure, testable module — same
+     "`only-export-components` lint warning avoided by giving logic
+     its own file" pattern as `preview.ts`/`quick-save.ts`) diffs the
+     current form state against an `original` snapshot (new
+     `useState`, updated alongside `form` after every successful
+     save). A field equal to its original value is omitted entirely;
+     a changed field that's now blank is sent as `null`; a changed,
+     non-blank field is sent as-is.
+  2. **Validation**: new `optionalClearableString`/
+     `optionalClearableEmail` (`apps/api/src/lib/validate.ts`) —
+     unlike `optionalString`, these treat `null`/empty/whitespace-only
+     as the valid "clear" signal (returning `null`) rather than
+     rejecting it, while still returning `undefined` when the key is
+     absent from the body at all and still validating/trimming a
+     non-blank value exactly like before. Wired into
+     `company.routes.ts` for every *nullable* profile column
+     (`factoryName`, `ownerName`, `phone`, `whatsapp`, `email`,
+     `address`, `taxNumber`, `invoiceTerms`); `name`,
+     `defaultCurrency`, `invoicePrefix`, and `defaultInvoiceTemplate`
+     stay on `optionalString` since their columns are `NOT NULL` —
+     there's no "clear" state for them, so blanking one is correctly
+     still a 400.
+  3. **SQL**: `updateCompany` no longer builds one fixed `COALESCE`
+     statement — it now builds the `SET` clause dynamically from a
+     new `PATCH_COLUMNS` list of `[column, patchKey]` pairs, including
+     a column only when its key is actually present in `patch`
+     (`!== undefined`) and assigning its value directly (a string, or
+     `null`) rather than through `COALESCE`. A key missing from the
+     patch is left out of the `SET` clause entirely, so that column is
+     untouched — not "coalesced with itself", genuinely never
+     mentioned in the query.
+- **Tests**: `apps/api/test/company-profile.test.ts` (4 new) — an
+  explicit `null` clears phone/address while an omitted `invoiceTerms`/
+  `factoryName` in the same patch stays unchanged (checked via both
+  the PATCH response and a fresh GET refetch); an explicit empty
+  string clears a field the same as `null`; clearing one field doesn't
+  touch untouched sibling fields in the same patch; and `name`/
+  `defaultCurrency`/`invoicePrefix`/`defaultInvoiceTemplate` still
+  reject an attempt to blank them (400), confirming the NOT NULL
+  columns were deliberately left out of the "clearable" contract.
+  `apps/web/test/profile-patch.test.ts` (7 new, pure-function tests —
+  no DOM/React needed) — every omitted/changed/cleared/blank-vs-
+  untouched combination `buildProfilePatch` has to get right,
+  including whitespace-only input counting as a clear and one field's
+  clear never pulling in an untouched sibling.
+- `npm run typecheck`, `npm run build`, `npm test` (shared 61/61 + api
+  329/329 + web 21/21, all clean), and `npm run lint` (the one
+  pre-existing `membership.service.ts` failure aside, confirmed
+  untouched; `@invoice/web`'s lint run separately is clean — same two
+  pre-existing unrelated warnings as before, no new ones).
+
 ## Known gotchas / things to check before starting work
 
 - **Postgres cluster is often stopped** when a session starts:
@@ -3285,6 +3366,26 @@ changed.
     item's `calculatedUnitAmount`) instead of the category-item shape;
     the category-item path itself is unchanged. See "F07 — Quick
     Invoice Duplicate (Phase 47)" below
+
+53. F08 — Company Optional Fields Must Be Clearable (correctness fix):
+    three layers each independently made it impossible to clear an
+    optional company field (phone/address/invoiceTerms/etc.) — the
+    frontend only sent a field when non-blank, `optionalString`
+    rejected an empty value as invalid, and `updateCompany`'s
+    `COALESCE($N, column)` always fell back to the existing value for
+    a NULL parameter regardless of why it was NULL. Fixed at each
+    layer: new `buildProfilePatch()` (`apps/web/.../profile-patch.ts`)
+    diffs against an `original` snapshot so only a truly-changed field
+    is sent, blank-if-changed as explicit `null`; new
+    `optionalClearableString`/`Email` (`validate.ts`) accept
+    null/empty as a valid "clear" signal instead of rejecting it;
+    `updateCompany` now builds its `SET` clause dynamically from
+    whichever keys are actually present in the patch, assigning
+    directly rather than through `COALESCE`, so an omitted key is
+    truly left out of the query and a `null` value truly clears. The
+    NOT NULL columns (name, defaultCurrency, invoicePrefix,
+    defaultInvoiceTemplate) deliberately stay non-clearable. See "F08
+    — Company Optional Fields Must Be Clearable (Phase 48)" below
 
 Repo also went through a monorepo restructure (`server/` → `apps/api` +
 new `apps/web` + `packages/shared`) between Phase 1 and Phase 2.

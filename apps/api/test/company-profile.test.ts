@@ -79,6 +79,74 @@ test('rejects a malformed contact email in the profile', async () => {
   assert.equal(res.status, 400);
 });
 
+// F08: an omitted field must leave the persisted value unchanged; an
+// explicit null/empty value must clear it. The two used to be
+// indistinguishable by the time they reached the database (COALESCE
+// over a SQL NULL parameter either way) — see company.service.ts's
+// updateCompany.
+test('F08: an explicit null clears phone, address, and invoice terms; an omitted field leaves them unchanged', async () => {
+  const agent = await registeredOwner('Clearable Fields Co');
+  const seeded = await agent.patch('/api/company').send({
+    phone: '+1 555 0100',
+    address: '12 Thread St, Mumbai',
+    invoiceTerms: 'Net 30.',
+    factoryName: 'Golden Needle Factory',
+  });
+  assert.equal(seeded.status, 200);
+  assert.equal(seeded.body.phone, '+1 555 0100');
+  assert.equal(seeded.body.address, '12 Thread St, Mumbai');
+  assert.equal(seeded.body.invoiceTerms, 'Net 30.');
+
+  // Clear phone and address explicitly with null; leave invoiceTerms
+  // and factoryName out of this patch entirely.
+  const cleared = await agent.patch('/api/company').send({ phone: null, address: null });
+  assert.equal(cleared.status, 200);
+  assert.equal(cleared.body.phone, null, 'explicit null must persist as cleared');
+  assert.equal(cleared.body.address, null, 'explicit null must persist as cleared');
+  assert.equal(cleared.body.invoiceTerms, 'Net 30.', 'omitted field must be left unchanged');
+  assert.equal(cleared.body.factoryName, 'Golden Needle Factory', 'omitted field must be left unchanged');
+
+  // Re-fetching confirms it was actually persisted, not just echoed back.
+  const refetched = await agent.get('/api/company');
+  assert.equal(refetched.body.phone, null);
+  assert.equal(refetched.body.address, null);
+  assert.equal(refetched.body.invoiceTerms, 'Net 30.');
+});
+
+test('F08: an explicit empty string also clears a nullable field, same as null', async () => {
+  const agent = await registeredOwner('Clearable Empty String Co');
+  await agent.patch('/api/company').send({ whatsapp: '+1 555 0177', taxNumber: 'TAX-1' });
+
+  const cleared = await agent.patch('/api/company').send({ whatsapp: '', taxNumber: '' });
+  assert.equal(cleared.status, 200);
+  assert.equal(cleared.body.whatsapp, null);
+  assert.equal(cleared.body.taxNumber, null);
+});
+
+test('F08: clearing one field in a patch does not clear or touch fields omitted from that same patch', async () => {
+  const agent = await registeredOwner('Clearable Partial Co');
+  await agent.patch('/api/company').send({
+    phone: '+1 555 0100',
+    ownerName: 'Priya Shah',
+    email: 'contact@goldenneedle.example',
+  });
+
+  const res = await agent.patch('/api/company').send({ phone: null });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.phone, null);
+  assert.equal(res.body.ownerName, 'Priya Shah', 'untouched field must survive a sibling field being cleared');
+  assert.equal(res.body.email, 'contact@goldenneedle.example', 'untouched field must survive a sibling field being cleared');
+});
+
+test('F08: name, defaultCurrency, invoicePrefix, and defaultInvoiceTemplate cannot be cleared — they are required', async () => {
+  const agent = await registeredOwner('Required Fields Co');
+  const res = await agent.patch('/api/company').send({ name: '' });
+  assert.equal(res.status, 400);
+
+  const stillThere = await agent.get('/api/company');
+  assert.equal(stillThere.body.name, 'Required Fields Co');
+});
+
 test('uploading a logo stores it, updates logoUrl, and serves it back', async () => {
   const agent = await registeredOwner('Logo Co');
   const png = readFileSync(path.join(here, 'fixtures', 'tiny.png'));
