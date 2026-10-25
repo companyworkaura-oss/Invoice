@@ -261,8 +261,28 @@ export interface Invoice {
  *   previousBalance   — customer's balance immediately before this invoice was posted
  *   totalReceivable    — previousBalance + this invoice's grandTotal (post-discount)
  *   currentBalance      — the customer's live balance right now (total debit - total credit, overall)
- *   amountPaid          — totalReceivable - currentBalance
- * All five are generated from ledger_entries on every read, never stored.
+ *   amountPaid          — this invoice's own FIFO-allocated paid amount (see getInvoicePaidAmount)
+ * All four are generated from ledger_entries on every read, never stored.
+ *
+ * F03: amountPaid used to be computed as `totalReceivable -
+ * currentBalance` — but currentBalance is the customer's *overall*
+ * live balance, which moves every time ANY invoice is created or
+ * paid, anywhere in the customer's history. A later invoice's own
+ * debit lowered currentBalance's "room" for a strictly-older invoice
+ * with nothing paid against it at all, making that older invoice's
+ * amountPaid go negative (e.g. invoice A=100, invoice B=50, no
+ * payment at all: currentBalance=150, totalReceivable=100, so
+ * amountPaid computed as 100-150 = -50 — a negative "amount paid" on
+ * an invoice nobody has paid anything toward). amountPaid is now the
+ * same FIFO-allocated figure the invoice list and delete-safety check
+ * already used (getInvoicePaidAmount) — invariant under later
+ * invoices by construction, since it's keyed to this invoice's own
+ * ledger entry and FIFO-ordered strictly among debits, never derived
+ * from a whole-customer snapshot that moves for unrelated reasons.
+ * currentBalance's own meaning (the customer's real overall balance)
+ * is intentionally unchanged — it's still useful, correct information
+ * in its own right, just no longer the thing amountPaid is derived
+ * from.
  */
 export interface InvoiceLedgerSummary {
   previousBalance: string;
@@ -336,13 +356,16 @@ async function buildLedgerSummary(
   client: Queryable,
   companyId: string,
   customerId: string,
+  invoiceId: string,
   invoiceAmount: string,
   invoiceLedgerCreatedAt: string,
 ): Promise<InvoiceLedgerSummary> {
   const previousBalance = await getBalanceBefore(client, companyId, customerId, invoiceLedgerCreatedAt);
   const totalReceivable = roundMoney(new Decimal(previousBalance).plus(invoiceAmount));
   const currentBalance = await getCustomerBalance(client, companyId, customerId);
-  const amountPaid = roundMoney(new Decimal(totalReceivable).minus(currentBalance));
+  // F03: this invoice's own FIFO-allocated paid amount — never derived
+  // from currentBalance (see this function's doc comment above).
+  const amountPaid = await getInvoicePaidAmount(client, companyId, customerId, invoiceId);
   return { previousBalance, totalReceivable, amountPaid, currentBalance };
 }
 
@@ -635,7 +658,7 @@ export async function createInvoice(
             notes: `Invoice ${invoiceNumber}`,
           })
         ).createdAt;
-    const summary = await buildLedgerSummary(client, companyId, input.customerId, discount.grandTotal, ledgerCreatedAt);
+    const summary = await buildLedgerSummary(client, companyId, input.customerId, invoiceId, discount.grandTotal, ledgerCreatedAt);
 
     await postAuditLog(client, {
       companyId,
@@ -826,7 +849,7 @@ export async function getInvoice(companyId: string, invoiceId: string): Promise<
   // createInvoice), so this should always be found; fall back to "now"
   // defensively rather than fail the whole read if it somehow isn't.
   const ledgerCreatedAt = ledgerRes.rows[0]?.createdAt ?? new Date().toISOString();
-  const summary = await buildLedgerSummary(pool, companyId, header.customerId, grandTotal, ledgerCreatedAt);
+  const summary = await buildLedgerSummary(pool, companyId, header.customerId, invoiceId, grandTotal, ledgerCreatedAt);
 
   return { ...header, items: itemsRes.rows, totalAmount, grandTotal, ...summary };
 }
@@ -1028,9 +1051,15 @@ export async function updateInvoice(
  * This one invoice's own FIFO-allocated paid amount — the exact same
  * "oldest debt gets paid first" rule listInvoices applies per row (see
  * its paid_amounts CTE above), just scoped to a single invoice instead
- * of a whole company. Used by deleteInvoice to decide whether any
- * payment has actually reached this invoice before allowing a hard
- * delete — never by anything that touches balances themselves.
+ * of a whole company. This is the single authoritative definition of
+ * "how much of this invoice has actually been paid" — used by
+ * deleteInvoice (to decide whether any payment has reached this
+ * invoice before allowing a hard delete) and by buildLedgerSummary's
+ * amountPaid (F03: a later invoice's own debit must never change an
+ * earlier invoice's paid amount — see buildLedgerSummary's comment).
+ * Never used to derive a balance that gets written back to the
+ * database; it's purely a read-time computation, same as every other
+ * ledger-derived figure in this file.
  */
 async function getInvoicePaidAmount(
   client: Queryable,

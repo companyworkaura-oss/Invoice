@@ -2400,6 +2400,80 @@ logic (`membership.service.ts`) are untouched.
   monorepo lint script's one pre-existing failure, in
   `membership.service.ts`, is confirmed untouched by this change).
 
+## F03 — Historical Invoice Amount Paid Must Never Go Negative (Phase 43)
+
+A correctness fix, scoped to `invoice.service.ts` and
+`apps/api/test/ledger.test.ts` only — the authoritative backend
+calculation, not any of its downstream consumers (which all already
+read the fixed value through, requiring no changes themselves).
+
+- **The bug**: `buildLedgerSummary`'s `amountPaid` field (which feeds
+  `InvoiceWithItems` — invoice detail, PDF, WhatsApp, and every
+  printable template via `buildInvoiceViewModel`) was computed as
+  `totalReceivable - currentBalance`, where `currentBalance` is the
+  customer's *overall* live balance (every debit minus every credit
+  across the customer's entire history). Because `currentBalance`
+  moves whenever *any* invoice is created anywhere in the customer's
+  history, an older invoice's derived `amountPaid` could go negative
+  purely because a *later* invoice raised the customer's overall
+  balance — even though nothing was ever paid toward the older
+  invoice specifically. Example from the task: invoice A = 100,
+  invoice B = 50, no payment at all → old code: `currentBalance =
+  150`, `totalReceivable = 100` (for A), `amountPaid = 100 - 150 =
+  -50`. A's paid amount must be `0`, not `-50`.
+- **The fix**: `buildLedgerSummary` now takes an `invoiceId` parameter
+  and computes `amountPaid` by calling the pre-existing
+  `getInvoicePaidAmount(client, companyId, customerId, invoiceId)`
+  instead of subtracting from `currentBalance`. `getInvoicePaidAmount`
+  already existed (used by `listInvoices`'s `paid_amounts` CTE and by
+  `deleteInvoice`'s hard-delete safety check) and already implements
+  the one authoritative "how much of this specific invoice has been
+  paid" rule: a FIFO allocation where payments are recorded at the
+  customer level (never tied to an invoiceId) and applied against the
+  customer's oldest outstanding debt first, via a
+  `SUM(...) OVER (ORDER BY created_at DESC, id DESC ROWS BETWEEN
+  UNBOUNDED PRECEDING AND 1 PRECEDING)` window function. Because this
+  figure is keyed to the invoice's own ledger entry and FIFO-ordered
+  strictly among debits, it is invariant under later invoices by
+  construction — a later invoice's debit can never change it.
+  `currentBalance`'s own meaning (the customer's real overall live
+  balance) is deliberately left unchanged — it's still correct,
+  useful information in its own right (matches the customer ledger
+  page's own balance); the task's bug report and goal are specifically
+  about "Amount Paid," not "Current Balance," and there is no longer
+  an arithmetic identity between the two (intentional — they are now
+  two independently-meaningful figures).
+- **Consistency across surfaces, with zero extra code changes**:
+  `whatsapp-share.service.ts` and the PDF renderer (`render-html.ts`)
+  both read `invoice.amountPaid` straight off the already-fixed
+  `InvoiceWithItems`/`InvoiceViewModel` object — never recomputing it
+  themselves — so fixing `buildLedgerSummary` alone makes invoice
+  detail, PDF, WhatsApp, and the invoice list agree by construction.
+  `dashboard.service.ts`'s unpaid/partial invoice count was checked
+  and confirmed to already use the identical FIFO `cumulative_before`
+  window-function pattern — no separate bug there, no changes needed.
+- **Tests** (`apps/api/test/ledger.test.ts`): 4 new, matching the
+  task's own checklist verbatim — two invoices, no payment, older one
+  shows `amountPaid: '0.00'` (not `-50.00`), confirmed via both the
+  detail endpoint and the list endpoint's `paid`/`paymentStatus`
+  fields; a 40.00 partial payment allocates FIFO to the older invoice
+  only, with detail and list agreeing exactly; a 100.00 payment fully
+  pays the older invoice (`paymentStatus: 'PAID'`) while the newer one
+  stays `'UNPAID'`; creating a second, later invoice is proven not to
+  change the first invoice's already-read `amountPaid` at all. One
+  pre-existing test (`'a full customer statement: opening balance,
+  invoice, and a partial payment'`) had its hardcoded expectation
+  corrected from `'200.00'` to `'150.00'` — that scenario has an
+  opening balance *older* than the invoice, so under correct FIFO the
+  first 50.00 of a 200.00 payment pays off the opening balance before
+  any of it reaches the invoice; the old number was the old buggy
+  formula's coincidental output, not a correct expectation.
+- `npm run typecheck`, `npm run build`, `npm test` (320/320), all
+  clean. `npm run lint` has the same one pre-existing, unrelated
+  failure in `membership.service.ts` (`'_status'`/`'_deactivatedAt'`
+  unused) that predates this session's work and is confirmed
+  untouched by this change.
+
 ## Known gotchas / things to check before starting work
 
 - **Postgres cluster is often stopped** when a session starts:
@@ -2884,6 +2958,22 @@ logic (`membership.service.ts`) are untouched.
     so the second racing transaction always sees the first's already-
     committed result. See "F02 — Prevent Last Active Company Lockout
     (Phase 42)" below
+
+48. F03 — Historical Invoice Amount Paid Must Never Go Negative
+    (correctness fix): `buildLedgerSummary`'s `amountPaid` was derived
+    as `totalReceivable - currentBalance`, where `currentBalance` is
+    the customer's *overall* live balance — so a later invoice's own
+    debit could push an older, completely unpaid invoice's derived
+    `amountPaid` negative (invoice A=100, invoice B=50, no payment at
+    all: `100 - 150 = -50`). Fixed by making `amountPaid` call the
+    pre-existing `getInvoicePaidAmount` FIFO function instead (already
+    used by `listInvoices` and `deleteInvoice`'s safety check) —
+    invariant under later invoices by construction, since it's keyed
+    to this invoice's own ledger entry and FIFO-ordered strictly among
+    debits, never derived from a whole-customer snapshot that moves
+    for unrelated reasons. `currentBalance` itself is intentionally
+    unchanged. See "F03 — Historical Invoice Amount Paid Must Never Go
+    Negative (Phase 43)" below
 
 Repo also went through a monorepo restructure (`server/` → `apps/api` +
 new `apps/web` + `packages/shared`) between Phase 1 and Phase 2.

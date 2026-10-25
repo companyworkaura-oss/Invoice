@@ -145,8 +145,13 @@ test('a full customer statement: opening balance, invoice, and a partial payment
   assert.equal(reread.status, 200);
   assert.equal(reread.body.previousBalance, '50.00'); // fixed — unaffected by later payment
   assert.equal(reread.body.totalReceivable, '680.00'); // fixed
-  assert.equal(reread.body.currentBalance, '480.00'); // 680 - 200 paid since
-  assert.equal(reread.body.amountPaid, '200.00');
+  assert.equal(reread.body.currentBalance, '480.00'); // the customer's overall balance — 680 - 200 paid since
+  // amountPaid is this invoice's own FIFO-allocated share of the 200.00
+  // payment (F03) — not "total receivable minus overall balance". FIFO
+  // pays the oldest debt first: the 50.00 opening balance is older than
+  // this invoice, so it's paid off first, leaving only 150.00 of the
+  // 200.00 payment actually reaching this invoice.
+  assert.equal(reread.body.amountPaid, '150.00');
 
   const ledger = await agent.get(`/api/customers/${customer.body.id}/ledger`);
   assert.equal(ledger.body.entries.length, 3); // OPENING_BALANCE, INVOICE, PAYMENT
@@ -210,4 +215,122 @@ test('PATCH /api/customers/:id no longer accepts openingBalance — it is fixed 
 test('ledger routes require authentication', async () => {
   const res = await request(app).get('/api/customers/00000000-0000-0000-0000-000000000000/ledger');
   assert.equal(res.status, 401);
+});
+
+// F03: amountPaid is this invoice's own FIFO-allocated paid amount — a
+// later invoice's debit must never make an earlier, unpaid invoice's
+// amountPaid go negative. See buildLedgerSummary's doc comment.
+test('F03: invoice A=100, invoice B=50, no payment at all -> A shows amountPaid 0, not -50', async () => {
+  const agent = await registeredOwner('F03 No Payment Co');
+  const customer = await agent.post('/api/customers').send({ name: 'F03 Customer' });
+  const categoryId = await createCategory(agent, 'HS/HP', '1.00', 'stitches / 1000 * rate');
+
+  const invoiceA = await agent.post('/api/invoices').send({
+    customerId: customer.body.id,
+    items: [{ categoryId, stitches: 100000, quantity: '1' }], // 100.00
+  });
+  assert.equal(invoiceA.body.totalAmount, '100.00');
+
+  const invoiceB = await agent.post('/api/invoices').send({
+    customerId: customer.body.id,
+    items: [{ categoryId, stitches: 50000, quantity: '1' }], // 50.00
+  });
+  assert.equal(invoiceB.body.totalAmount, '50.00');
+
+  const rereadA = await agent.get(`/api/invoices/${invoiceA.body.id}`);
+  assert.equal(rereadA.status, 200);
+  assert.equal(rereadA.body.amountPaid, '0.00'); // never -50.00
+
+  const list = await agent.get('/api/invoices');
+  const listedA = list.body.find((row: { id: string }) => row.id === invoiceA.body.id);
+  assert.equal(listedA.paid, '0.00');
+  assert.equal(listedA.paymentStatus, 'UNPAID');
+});
+
+test('F03: a partial payment allocates FIFO across two invoices consistently', async () => {
+  const agent = await registeredOwner('F03 Partial Co');
+  const customer = await agent.post('/api/customers').send({ name: 'F03 Partial Customer' });
+  const categoryId = await createCategory(agent, 'HS/HP', '1.00', 'stitches / 1000 * rate');
+
+  const invoiceA = await agent.post('/api/invoices').send({
+    customerId: customer.body.id,
+    items: [{ categoryId, stitches: 100000, quantity: '1' }], // 100.00
+  });
+  const invoiceB = await agent.post('/api/invoices').send({
+    customerId: customer.body.id,
+    items: [{ categoryId, stitches: 50000, quantity: '1' }], // 50.00
+  });
+
+  await agent.post('/api/payments').send({ customerId: customer.body.id, amount: '40.00', paymentMethod: 'cash' });
+
+  // FIFO pays the oldest debt first: invoice A is older than invoice B,
+  // so all 40.00 goes to A, and B stays untouched.
+  const rereadA = await agent.get(`/api/invoices/${invoiceA.body.id}`);
+  assert.equal(rereadA.body.amountPaid, '40.00');
+  assert.equal(rereadA.body.currentBalance, '110.00'); // 150 total - 40 paid
+
+  const rereadB = await agent.get(`/api/invoices/${invoiceB.body.id}`);
+  assert.equal(rereadB.body.amountPaid, '0.00');
+
+  const list = await agent.get('/api/invoices');
+  const listedA = list.body.find((row: { id: string }) => row.id === invoiceA.body.id);
+  const listedB = list.body.find((row: { id: string }) => row.id === invoiceB.body.id);
+  // detail view and list view must agree exactly
+  assert.equal(listedA.paid, rereadA.body.amountPaid);
+  assert.equal(listedB.paid, rereadB.body.amountPaid);
+  assert.equal(listedA.paymentStatus, 'PARTIAL');
+  assert.equal(listedB.paymentStatus, 'UNPAID');
+});
+
+test('F03: paying the full amount of the oldest invoice marks it PAID and leaves the newer one untouched', async () => {
+  const agent = await registeredOwner('F03 Full Pay Co');
+  const customer = await agent.post('/api/customers').send({ name: 'F03 Full Pay Customer' });
+  const categoryId = await createCategory(agent, 'HS/HP', '1.00', 'stitches / 1000 * rate');
+
+  const invoiceA = await agent.post('/api/invoices').send({
+    customerId: customer.body.id,
+    items: [{ categoryId, stitches: 100000, quantity: '1' }], // 100.00
+  });
+  const invoiceB = await agent.post('/api/invoices').send({
+    customerId: customer.body.id,
+    items: [{ categoryId, stitches: 50000, quantity: '1' }], // 50.00
+  });
+
+  await agent.post('/api/payments').send({ customerId: customer.body.id, amount: '100.00', paymentMethod: 'cash' });
+
+  const rereadA = await agent.get(`/api/invoices/${invoiceA.body.id}`);
+  assert.equal(rereadA.body.amountPaid, '100.00');
+
+  const rereadB = await agent.get(`/api/invoices/${invoiceB.body.id}`);
+  assert.equal(rereadB.body.amountPaid, '0.00');
+
+  const list = await agent.get('/api/invoices');
+  const listedA = list.body.find((row: { id: string }) => row.id === invoiceA.body.id);
+  const listedB = list.body.find((row: { id: string }) => row.id === invoiceB.body.id);
+  assert.equal(listedA.paymentStatus, 'PAID');
+  assert.equal(listedB.paymentStatus, 'UNPAID');
+});
+
+test('F03: creating a later invoice never mutates an earlier invoice\'s already-read amountPaid', async () => {
+  const agent = await registeredOwner('F03 Immutable Co');
+  const customer = await agent.post('/api/customers').send({ name: 'F03 Immutable Customer' });
+  const categoryId = await createCategory(agent, 'HS/HP', '1.00', 'stitches / 1000 * rate');
+
+  const invoiceA = await agent.post('/api/invoices').send({
+    customerId: customer.body.id,
+    items: [{ categoryId, stitches: 100000, quantity: '1' }], // 100.00
+  });
+
+  const before = await agent.get(`/api/invoices/${invoiceA.body.id}`);
+  assert.equal(before.body.amountPaid, '0.00');
+
+  // A second, later invoice must not change invoice A's paid amount at all.
+  await agent.post('/api/invoices').send({
+    customerId: customer.body.id,
+    items: [{ categoryId, stitches: 50000, quantity: '1' }], // 50.00
+  });
+
+  const after = await agent.get(`/api/invoices/${invoiceA.body.id}`);
+  assert.equal(after.body.amountPaid, before.body.amountPaid);
+  assert.equal(after.body.amountPaid, '0.00');
 });
