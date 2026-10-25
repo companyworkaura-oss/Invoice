@@ -2262,6 +2262,68 @@ calculation, formula engine, or existing behavior changed.
 - `npm run typecheck`, `npm run build`, and `npm test` all clean —
   304/304 API tests (6 new), 61/61 shared tests (unaffected).
 
+## F01 — SVG Logo Upload Stored XSS (Phase 41)
+
+A security-review fix, scoped tightly to the logo upload path only —
+no other company profile behavior touched.
+
+- **The vulnerability**: `companyRouter.post('/logo')` accepted
+  `image/svg+xml` based solely on the client-supplied `Content-Type`
+  header (`LOGO_MIME_TO_EXT` keyed by MIME type), stored the raw bytes
+  via `LocalLogoStorage`, and served them back same-origin at
+  `/uploads/logos/<companyId>/<uuid>.svg` through `express.static`
+  (which sets `Content-Type: image/svg+xml` from the extension). SVG
+  is markup, not a flat image format — a `<script>` tag or an
+  `onload=`/`onerror=` handler inside it executes if that URL is ever
+  opened directly (or embedded via `<object>`/`<iframe>`). The app has
+  no SVG sanitizer anywhere, so sanitizing on the way in wasn't a safe
+  option — the fix is to never accept or store an SVG at all.
+- **`apps/api/src/lib/storage/image-signature.ts`** (new):
+  `detectImageSignature(buffer)` checks the buffer's actual leading
+  bytes against the three allowed raster formats' magic numbers (PNG:
+  `89 50 4E 47 0D 0A 1A 0A`; JPEG: `FF D8 FF`; WEBP: `RIFF....WEBP`)
+  and returns `null` for anything else — a well-formed SVG, a renamed
+  non-image file, or garbage. This is the authoritative check, run
+  against the fully-buffered upload in the route handler itself —
+  never just the client's `Content-Type`/filename, which are
+  trivially spoofable (an attacker renaming `evil.svg` to `logo.png`
+  with `Content-Type: image/png` is exactly what this catches).
+- **`apps/api/src/modules/company/company.routes.ts`**: `multer`'s
+  `fileFilter` now only allows `image/png`/`image/jpeg`/`image/webp`
+  (SVG removed outright) as a cheap first-pass rejection; the route
+  handler then calls `detectImageSignature()` on `req.file.buffer` and
+  throws a clear `badRequest` with a `logo` field either way (missing/
+  wrong-Content-Type file, or a file whose real bytes don't match any
+  allowed signature). The saved file's extension now comes from the
+  *detected* signature, not the client's claimed MIME type. Auth
+  (`requireAuth` + `requirePermission('company.manage')`) on the route
+  is completely unchanged — this is a payload-validation fix, not an
+  access-control change.
+- **`apps/web/src/features/company/LogoUploader.tsx`**: the file
+  picker's `accept` list dropped `image/svg+xml` to match (cosmetic —
+  the server-side check is the real boundary, a browser file picker's
+  `accept` attribute is only ever a UX hint).
+- **Tests** (`apps/api/test/company-profile.test.ts`, 6 new, 13/13 in
+  the file total): PNG/JPEG/WEBP each accepted and signature-validated
+  (new `tiny.jpg`/`tiny.webp` fixtures, generated via ImageMagick,
+  alongside the pre-existing `tiny.png`); a benign SVG (`logo.svg`)
+  rejected outright even with a legitimate `image/svg+xml`
+  Content-Type, and confirms no `logoUrl` was ever saved; a
+  script-bearing SVG (`logo-xss.svg` — contains a literal `<script>`
+  tag, the actual payload shape F01 describes) rejected the same way;
+  an SVG disguised with a spoofed `image/png` Content-Type and
+  `logo.png` filename still rejected by the signature check
+  specifically (the exact spoofing scenario the fix targets); and
+  plain garbage bytes claiming to be a PNG rejected too. The
+  pre-existing "uploading a logo stores it, updates logoUrl, and
+  serves it back" test (PNG, with replace/cleanup) passes unchanged,
+  confirming safe raster logos still work exactly as before.
+- `npm run typecheck`, `npm run build`, `npm test` (311/311), and
+  `npm run lint` all clean for every file this phase touched (the
+  monorepo lint script's one failure, in `membership.service.ts`, is
+  pre-existing and untouched by this change — confirmed via `git
+  status`/`git diff` showing zero modifications to that file).
+
 ## Known gotchas / things to check before starting work
 
 - **Postgres cluster is often stopped** when a session starts:
@@ -2714,6 +2776,19 @@ calculation, formula engine, or existing behavior changed.
     overridden per invoice item"), and a `title` tooltip on the
     invoice form's own Rate input saying the same. See "Per-Invoice
     Rate Override (Phase 40)" below
+
+46. F01 — SVG Logo Upload Stored XSS (security fix): the company logo
+    upload accepted `image/svg+xml` and served it raw, same-origin,
+    from `/uploads/logos/...` — a malicious SVG's `<script>` or
+    `onload=` executes if the raw file URL is ever opened directly.
+    With no SVG sanitizer in the app, the fix removes SVG from the
+    allowlist entirely (PNG/JPEG/WEBP only) and adds a new
+    `detectImageSignature()` helper (`apps/api/src/lib/storage/
+    image-signature.ts`) that sniffs the file's actual magic-number
+    bytes as the authoritative check — never trusting the client's
+    Content-Type/filename alone, so an SVG renamed to `logo.png` is
+    still rejected. See "F01 — SVG Logo Upload Stored XSS (Phase 41)"
+    below
 
 Repo also went through a monorepo restructure (`server/` → `apps/api` +
 new `apps/web` + `packages/shared`) between Phase 1 and Phase 2.
