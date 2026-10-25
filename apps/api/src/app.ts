@@ -12,6 +12,7 @@ import { companyRouter } from './modules/company/company.routes.js';
 import { customersRouter } from './modules/customers/customer.routes.js';
 import { dashboardRouter } from './modules/dashboard/dashboard.routes.js';
 import { categoriesRouter } from './modules/formulas/category.routes.js';
+import { invoiceShareRouter } from './modules/invoices/invoice-share.routes.js';
 import { invoicesRouter } from './modules/invoices/invoice.routes.js';
 import { ledgerRouter } from './modules/ledger/ledger.routes.js';
 import { paymentsRouter } from './modules/payments/payment.routes.js';
@@ -53,6 +54,11 @@ export function createApp() {
   app.use('/api/categories', categoriesRouter);
   app.use('/api/invoices', invoicesRouter);
   app.use('/api/payments', paymentsRouter);
+  // F09: the one deliberately public (no requireAuth) surface in this
+  // app — see invoice-share.routes.ts's doc comment. Mounted at its
+  // own path, never under /api/invoices, so it is never reachable by
+  // accidentally loosening that router's auth middleware later.
+  app.use('/api/public', invoiceShareRouter);
 
   // Single-process deployment option: this API can also serve the built
   // frontend (apps/web/dist), rather than requiring it be hosted

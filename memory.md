@@ -2801,6 +2801,95 @@ backend validation (`validate.ts`), and the SQL update logic
   untouched; `@invoice/web`'s lint run separately is clean — same two
   pre-existing unrelated warnings as before, no new ones).
 
+## F09 — WhatsApp Customer PDF Access (Phase 49)
+
+A security fix adding one new, deliberately public surface — every
+other invoice route, including the PDF download route itself, is
+completely unchanged and stays exactly as authenticated as before.
+
+- **The vulnerability**: the WhatsApp share message's PDF link
+  (`buildPublicPdfUrl`, in the old `whatsapp-share.service.ts`) pointed
+  straight at `GET /api/invoices/:id/pdf` — the normal, authenticated,
+  `requirePermission('invoice.view')`-gated download route. A customer
+  following that link from WhatsApp has no company login or session
+  cookie at all, so the link was simply unopenable by its intended
+  recipient; the only way it could ever resolve to a PDF was if the
+  customer happened to already be logged into the company's own
+  account, which defeats the purpose of sending it to them.
+- **The fix — a new, invoice-specific, expiring, unguessable public
+  link**, modeled directly on this app's existing login-session
+  pattern (see `auth.service.ts`/migration 001):
+  - New table `invoice_pdf_share_tokens` (migration 020): `company_id`,
+    `invoice_id`, `token_hash` (SHA-256 of the real token — never the
+    token itself), `expires_at`. `ON DELETE CASCADE` on both foreign
+    keys, so a deleted invoice or company takes its share tokens with
+    it.
+  - New `apps/api/src/modules/invoices/invoice-share.service.ts`:
+    `createInvoicePdfShare(companyId, invoiceId)` mints a 32-random-byte
+    `newToken()` (lib/token.ts — already used for sessions), stores
+    only its hash, and sets `expires_at` from the new
+    `config.invoicePdfShareTtlHours` (default 168h/7 days, same style
+    as `sessionTtlHours`). `resolveInvoicePdfShare(token)` hashes the
+    presented token and looks it up with `expires_at > now()` —an
+    unknown token, an expired one, and one for an invoice that's since
+    been deleted all produce the exact same `notFound` (never
+    distinguished, so a public caller can't learn anything from the
+    difference). `buildCustomerPdfShareUrl(base, companyId, invoiceId)`
+    replaces the old `buildPublicPdfUrl`: same "omit the link entirely
+    when there's no usable public base URL" guard (no point minting a
+    token nobody could ever use), but when there is one, it mints a
+    real token and builds `${base}/api/public/invoice-pdf/${token}`.
+  - New `invoice-share.routes.ts`, mounted at `/api/public` in
+    `app.ts` (its own path, deliberately never nested under
+    `/api/invoices`, so it can never become reachable by someone
+    loosening that router's auth middleware later) — one route,
+    `GET /invoice-pdf/:token`, with **no `requireAuth`, no
+    `requirePermission`, and no invoice id anywhere in the URL at
+    all**: the token is the sole identifier, resolved to exactly the
+    one invoice (and company) it was minted for, then served through
+    the exact same `generateInvoicePdf` the authenticated route uses.
+    A basic shape check (new `requireTokenParam`, matching
+    `newToken`'s base64url alphabet) rejects an obviously-malformed
+    token before ever touching the database. A new, generous
+    `invoicePdfShareRateLimiter` (60 requests/15 min per IP) adds
+    defense-in-depth against an automated guessing sweep, on top of
+    the token's own 256 bits of entropy.
+  - `buildInvoiceWhatsAppShare` (`whatsapp-share.service.ts`) now
+    calls `buildCustomerPdfShareUrl` instead of the removed
+    `buildPublicPdfUrl` — the only change to that file.
+- **Security properties satisfied directly by this shape, not by
+  extra checks bolted on**: the private route
+  (`GET /api/invoices/:id/pdf`) is untouched and still fully
+  authenticated — there is no new "public mode" flag on it, just an
+  entirely separate route; a share link can only ever reach the one
+  invoice its token was minted for, because there is no second
+  identifier (an invoice id) anywhere in the public route's URL for
+  anyone to tamper with — "changing the ID" isn't a thing this URL
+  shape has; the token is 32 cryptographically random bytes
+  (`node:crypto`'s `randomBytes`), stored only as a hash, so
+  guessing or reading it back out of a compromised database are both
+  infeasible; and every token carries its own `expires_at`, enforced
+  on every resolution.
+- **Tests** (`apps/api/test/invoice-share.test.ts`, 7 new, plus one
+  updated in `whatsapp-business-cloud-api.test.ts` for the renamed
+  pure-function cases): a valid token opens the right PDF with a bare
+  unauthenticated request (no cookie at all); an unknown token and an
+  explicitly-expired one (its `expires_at` force-set into the past)
+  are both rejected with 404; a token minted for invoice A is proven,
+  via both the resolved `invoiceId` and the served PDF's filename, to
+  never reach invoice B (there being no id in the URL to change); a
+  token is scoped to its own `companyId`, confirmed distinct from a
+  second company's; the private PDF route is confirmed still 401
+  without login and 200 with it, completely unchanged; and
+  `buildCustomerPdfShareUrl` is confirmed to never embed the raw
+  invoice id in the URL it builds, and the token it does produce
+  resolves back to the correct invoice.
+- `npm run typecheck`, `npm run build`, `npm test` (shared 61/61 + api
+  336/336 + web 21/21, all clean), and `npm run lint` (the one
+  pre-existing `membership.service.ts` failure aside, confirmed
+  untouched; `@invoice/web`'s lint run separately is clean — this
+  phase touched no frontend code at all).
+
 ## Known gotchas / things to check before starting work
 
 - **Postgres cluster is often stopped** when a session starts:
@@ -3386,6 +3475,23 @@ backend validation (`validate.ts`), and the SQL update logic
     NOT NULL columns (name, defaultCurrency, invoicePrefix,
     defaultInvoiceTemplate) deliberately stay non-clearable. See "F08
     — Company Optional Fields Must Be Clearable (Phase 48)" below
+
+54. F09 — WhatsApp Customer PDF Access (security fix): the WhatsApp
+    share message's PDF link pointed straight at the authenticated
+    GET /api/invoices/:id/pdf — unopenable by a customer with no
+    company login. Added a new, deliberately public route,
+    GET /api/public/invoice-pdf/:token (invoice-share.routes.ts,
+    mounted at its own /api/public path, never under /api/invoices),
+    gated only by an unguessable (32 random bytes), expiring,
+    invoice-specific token — new table `invoice_pdf_share_tokens`
+    (migration 020, hash-only storage, same shape as `sessions`), new
+    invoice-share.service.ts (createInvoicePdfShare/
+    resolveInvoicePdfShare/buildCustomerPdfShareUrl, replacing the old
+    buildPublicPdfUrl). The route takes no invoice id at all — only
+    the token — so there is no second identifier for anyone to swap to
+    reach a different invoice; the private PDF route itself is
+    completely unchanged and still fully authenticated. See "F09 —
+    WhatsApp Customer PDF Access (Phase 49)" below
 
 Repo also went through a monorepo restructure (`server/` → `apps/api` +
 new `apps/web` + `packages/shared`) between Phase 1 and Phase 2.

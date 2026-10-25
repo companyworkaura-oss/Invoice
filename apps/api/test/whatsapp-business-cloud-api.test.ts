@@ -137,19 +137,18 @@ test('BusinessCloudApiWhatsAppService reports status: failed when no PDF was gen
   assert.equal(share.error, 'No invoice PDF was generated to send.');
 });
 
-test('buildPublicPdfUrl omits localhost/127.0.0.1 base URLs and builds a real link for a public HTTPS base', async () => {
-  const { buildPublicPdfUrl } = await import('../src/modules/invoices/whatsapp-share.service.js');
+// F09: buildCustomerPdfShareUrl (invoice-share.service.ts) replaced the
+// old buildPublicPdfUrl, which pointed straight at the authenticated
+// /api/invoices/:id/pdf route — unopenable by a customer with no
+// company login. These two cases return before ever touching the
+// database (no usable base URL means no link, and no link means no
+// reason to mint a token), so they belong here with the rest of this
+// file's DB-free unit tests; see invoice-share.test.ts for the cases
+// that do mint and resolve a real token.
+test('buildCustomerPdfShareUrl omits localhost/127.0.0.1 base URLs (no DB access needed)', async () => {
+  const { buildCustomerPdfShareUrl } = await import('../src/modules/invoices/invoice-share.service.js');
 
-  assert.equal(buildPublicPdfUrl(undefined, 'inv-1'), undefined);
-  assert.equal(buildPublicPdfUrl('http://localhost:4000', 'inv-1'), undefined);
-  assert.equal(buildPublicPdfUrl('http://127.0.0.1:4000', 'inv-1'), undefined);
-  assert.equal(
-    buildPublicPdfUrl('https://invoices.example.com', 'inv-1'),
-    'https://invoices.example.com/api/invoices/inv-1/pdf',
-  );
-  // trailing slash on the base doesn't produce a double slash
-  assert.equal(
-    buildPublicPdfUrl('https://invoices.example.com/', 'inv-1'),
-    'https://invoices.example.com/api/invoices/inv-1/pdf',
-  );
+  assert.equal(await buildCustomerPdfShareUrl(undefined, 'company-1', 'inv-1'), undefined);
+  assert.equal(await buildCustomerPdfShareUrl('http://localhost:4000', 'company-1', 'inv-1'), undefined);
+  assert.equal(await buildCustomerPdfShareUrl('http://127.0.0.1:4000', 'company-1', 'inv-1'), undefined);
 });

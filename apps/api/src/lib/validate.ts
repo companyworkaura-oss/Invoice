@@ -85,6 +85,21 @@ export function requireUuid(body: Body, key: string): string {
   return requireUuidParam(requireString(body, key, { max: 100 }), key);
 }
 
+// base64url, no padding — matches newToken() (lib/token.ts): 32 random
+// bytes is 43 characters. Used for a path param the caller controls
+// entirely (e.g. the public invoice-PDF-share token), so this is
+// shape validation only — an unknown/expired token is rejected later
+// by whichever lookup resolves it, the same "not found" either way
+// (see invoice-share.service.ts's resolveInvoicePdfShare).
+const SHARE_TOKEN_RE = /^[A-Za-z0-9_-]{20,100}$/;
+
+export function requireTokenParam(value: unknown, name = 'token'): string {
+  if (typeof value !== 'string' || !SHARE_TOKEN_RE.test(value)) {
+    throw badRequest('Validation failed', { [name]: 'Invalid token' });
+  }
+  return value;
+}
+
 // Up to 12 integer digits and 2 decimal places — matches the numeric(14,2) columns.
 // Kept as a string end-to-end: money is never parsed into a float.
 const MONEY_RE = /^-?\d{1,12}(\.\d{1,2})?$/;

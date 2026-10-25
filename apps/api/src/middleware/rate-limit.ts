@@ -40,3 +40,18 @@ export const registerRateLimiter = limiterOrNoop({
   legacyHeaders: false,
   message: { error: 'Too many accounts created from this address. Try again later.' },
 });
+
+// F09: the public invoice-PDF-share route (invoice-share.routes.ts)
+// takes no login at all — the unguessable token is its only gate. The
+// token's own entropy (32 random bytes) already makes guessing
+// infeasible, so this is defense in depth, not the primary defense:
+// generous enough that a customer genuinely retrying a slow download
+// never hits it, strict enough to blunt an automated token-guessing
+// sweep against this IP.
+export const invoicePdfShareRateLimiter = limiterOrNoop({
+  windowMs: 15 * 60_000,
+  limit: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests. Try again later.' },
+});

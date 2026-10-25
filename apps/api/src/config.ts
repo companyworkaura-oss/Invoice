@@ -42,6 +42,12 @@ export const config = {
   // out of a customer-facing message: a phone can never open
   // http://localhost:4000/..., so no link is included when this isn't set.
   publicBaseUrl: process.env.PUBLIC_BASE_URL || undefined,
+  // How long a customer-facing invoice PDF share link (F09 — see
+  // invoices/invoice-share.service.ts) stays valid for. A new link is
+  // minted every time a WhatsApp share is built, so this only bounds
+  // how long a given share stays usable after being sent, not how
+  // often a customer can ask for one.
+  invoicePdfShareTtlHours: Number(process.env.INVOICE_PDF_SHARE_TTL_HOURS ?? 168),
   // Optional WhatsApp Business Cloud API integration (see
   // lib/whatsapp/business-cloud-api-whatsapp-service.ts) — sends the
   // invoice PDF as an actual WhatsApp document message instead of the
