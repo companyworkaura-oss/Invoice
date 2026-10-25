@@ -2474,6 +2474,67 @@ read the fixed value through, requiring no changes themselves).
   unused) that predates this session's work and is confirmed
   untouched by this change.
 
+## F04 — Paid Draft Invoice Delete Guard (Phase 44)
+
+A correctness fix to the one shared FIFO payment-allocation rule
+itself, now extracted into `apps/api/src/lib/ledger-fifo.ts` and
+reused by all three of its consumers — `listInvoices`,
+`getInvoicePaidAmount` (invoice detail + the delete guard), and the
+dashboard's unpaid/partial count.
+
+- **The bug**: `listInvoices`'s `paid_amounts` CTE and
+  `getInvoicePaidAmount` both filtered `le.type = 'INVOICE'` *inside*
+  the window that computes `cumulative_before` (the total of every
+  ledger entry strictly newer than this one). `current_balance`
+  (from the sibling `balances` CTE) sums every debit/credit regardless
+  of type, but `cumulative_before` only summed INVOICE-type debits —
+  so a later debit ADJUSTMENT raised `current_balance` without ever
+  appearing in `cumulative_before`, making the subtraction
+  `current_balance - cumulative_before` overstate how much of an
+  older invoice was still unpaid. Reproduction from the task: draft
+  invoice 100, payment 100 (invoice fully paid), then a later, unrelated
+  debit adjustment of 100. Old code: `current_balance = 100` (100 +
+  100 - 100), `cumulative_before = 0` (no other INVOICE rows), so
+  `paid = 100 - LEAST(100, GREATEST(100-0,0)) = 0` — the already-paid
+  invoice looked completely unpaid again, and `deleteInvoice` (which
+  calls `getInvoicePaidAmount` for its delete-safety check) would have
+  wrongly allowed permanently deleting a draft invoice a payment had
+  already reached. Under correct FIFO, the adjustment is a *newer* debt
+  and sits behind the invoice in the payment queue — it must never
+  make an older, already-paid invoice look unpaid.
+  `dashboard.service.ts`'s `getUnpaidOrPartialInvoiceCount` had
+  already gotten this right (it windows over every debit-positive row,
+  filtering to `type = 'INVOICE'` only in the outer `WHERE`, after the
+  window) — confirming the correct pattern and showing the two
+  `invoice.service.ts` queries just needed to match it.
+- **The fix**: extracted the one correct pattern into a new shared
+  helper, `fifoPaidCtes(companyIdParam, customerIdParam?)` in
+  `apps/api/src/lib/ledger-fifo.ts`, that windows `cumulative_before`
+  over every positive-debit ledger entry (opening balance, invoices,
+  debit adjustments) and leaves any narrowing to `type = 'INVOICE'`
+  to the caller's outer query — never inside the CTE itself. All
+  three consumers (`listInvoices`, `getInvoicePaidAmount`, and
+  `getUnpaidOrPartialInvoiceCount`) now build their query on this one
+  fragment instead of three independent hand-rolled copies, so they
+  can never drift out of sync again (the task's "do not duplicate
+  separate payment logic in multiple places" requirement).
+  `deleteInvoice`'s guard required no changes at all — it already
+  calls `getInvoicePaidAmount`, so fixing that one function
+  automatically fixes the guard.
+- **Tests** (`apps/api/test/invoice-archive.test.ts`, 4 new): the
+  exact report scenario (draft 100, payment 100, debit adjustment 100
+  -> invoice stays `amountPaid: '100.00'`/`PAID`); the same scenario's
+  delete attempt is rejected (400, "payment" in the error detail); a
+  draft invoice with no payment toward it is still deletable even when
+  an unrelated sibling debit adjustment exists; and a combined check
+  that invoice detail's `amountPaid`, the list's `paid`/`paymentStatus`,
+  and the dashboard's `unpaidOrPartialInvoiceCount` (0, since the
+  invoice is fully paid) all agree after the same adjustment.
+- `npm run typecheck`, `npm run build`, `npm test` (324/324), all
+  clean. `npm run lint` has the same one pre-existing, unrelated
+  failure in `membership.service.ts` confirmed untouched by this
+  change.
+
 ## Known gotchas / things to check before starting work
 
 - **Postgres cluster is often stopped** when a session starts:
@@ -2974,6 +3035,22 @@ read the fixed value through, requiring no changes themselves).
     for unrelated reasons. `currentBalance` itself is intentionally
     unchanged. See "F03 — Historical Invoice Amount Paid Must Never Go
     Negative (Phase 43)" below
+
+49. F04 — Paid Draft Invoice Delete Guard (correctness fix): the FIFO
+    "how much has been paid" window in `listInvoices` and
+    `getInvoicePaidAmount` filtered `type = 'INVOICE'` *inside* the
+    window that sums newer ledger entries, so a later debit
+    ADJUSTMENT raised the customer's overall balance without ever
+    counting toward that running sum — making an already-fully-paid
+    older invoice look unpaid again, which could wrongly let
+    `deleteInvoice`'s safety check permit a hard delete. Fixed by
+    extracting the one correct pattern (already used by the
+    dashboard's unpaid/partial count) into a shared
+    `fifoPaidCtes()` helper (`apps/api/src/lib/ledger-fifo.ts`) that
+    windows over every positive-debit entry and narrows to
+    `type = 'INVOICE'` only in the outer query — reused by all three
+    consumers so they can't drift apart again. See "F04 — Paid Draft
+    Invoice Delete Guard (Phase 44)" below
 
 Repo also went through a monorepo restructure (`server/` → `apps/api` +
 new `apps/web` + `packages/shared`) between Phase 1 and Phase 2.

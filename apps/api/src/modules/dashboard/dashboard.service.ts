@@ -8,6 +8,7 @@ import type {
 } from '@invoice/shared';
 import { pool } from '../../db/pool.js';
 import { badRequest } from '../../lib/http-error.js';
+import { fifoPaidCtes } from '../../lib/ledger-fifo.js';
 
 const RECENT_LIMIT = 10;
 const OUTSTANDING_LIMIT = 20;
@@ -88,31 +89,19 @@ async function getTotalReceivable(companyId: string): Promise<string> {
 /**
  * Counts invoices that are still (fully or partially) unpaid, applying
  * payments/credits FIFO against the oldest debt first — the standard AR
- * aging rule. Concretely: per customer, walk every debit ledger entry
+ * aging rule (shared `fifoPaidCtes` fragment — see its doc comment and
+ * F04). Concretely: per customer, walk every debit ledger entry
  * (opening balance, invoices, debit adjustments) newest-first, summing
  * as we go; entries reached before that running sum hits the customer's
  * current balance are the ones still (at least partly) unpaid. Among
  * those, only INVOICE-type entries are counted here — an unpaid opening
- * balance isn't an "invoice". One SQL query, no N+1 per-customer loop.
+ * balance isn't an "invoice" — and that narrowing is applied only in
+ * this outer WHERE, after cumulative_before is already computed over
+ * every debit-positive entry. One SQL query, no N+1 per-customer loop.
  */
 async function getUnpaidOrPartialInvoiceCount(companyId: string): Promise<number> {
   const { rows } = await pool.query<{ count: string }>(
-    `WITH balances AS (
-       SELECT customer_id, SUM(debit) - SUM(credit) AS current_balance
-         FROM ledger_entries WHERE company_id = $1 GROUP BY customer_id
-     ),
-     ordered AS (
-       SELECT
-         le.customer_id,
-         le.type,
-         SUM(le.debit) OVER (
-           PARTITION BY le.customer_id
-           ORDER BY le.created_at DESC, le.id DESC
-           ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
-         ) AS cumulative_before
-       FROM ledger_entries le
-       WHERE le.company_id = $1 AND le.debit > 0
-     )
+    `WITH ${fifoPaidCtes('$1')}
      SELECT COUNT(*) AS count
        FROM ordered o
        JOIN balances b ON b.customer_id = o.customer_id

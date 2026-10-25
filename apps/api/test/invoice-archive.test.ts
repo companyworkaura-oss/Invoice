@@ -317,6 +317,120 @@ test('audit log: archive, unarchive, and delete each post their own entry', asyn
   assert.equal(deleted.metadata.totalAmount, '144.00');
 });
 
+// F04: payment allocation must account for EVERY positive-debit ledger
+// entry (opening balance, invoices, debit adjustments) when computing
+// cumulative_before, not just INVOICE rows — narrowing to INVOICE
+// before the FIFO window is computed silently drops a later debit
+// adjustment from the running sum, making an already-fully-paid draft
+// invoice look unpaid again. See fifoPaidCtes (apps/api/src/lib/
+// ledger-fifo.ts) and invoice.service.ts's getInvoicePaidAmount.
+async function createRoundInvoice(
+  agent: ReturnType<typeof request.agent>,
+  customerId: string,
+  amount: number,
+  status?: 'draft' | 'issued',
+) {
+  const categoryRes = await agent
+    .post('/api/categories')
+    .send({ name: `F04 Rate ${Date.now()}-${Math.random()}`, defaultRate: '1.00', formulaConfig: { expression: 'stitches / 1000 * rate' } });
+  assert.equal(categoryRes.status, 201);
+  const res = await agent.post('/api/invoices').send({
+    customerId,
+    status,
+    items: [{ categoryId: categoryRes.body.id, stitches: amount * 1000, quantity: '1' }],
+  });
+  assert.equal(res.status, 201);
+  assert.equal(res.body.totalAmount, amount.toFixed(2));
+  return res.body as { id: string; invoiceNumber: string; customerId: string };
+}
+
+test('F04: reproduces the exact report scenario — draft 100, payment 100, later debit adjustment 100 -> invoice stays PAID', async () => {
+  const { agent } = await registeredOwner('F04 Repro Co');
+  const customerId = await createCustomer(agent, 'F04 Repro Customer');
+  const invoice = await createRoundInvoice(agent, customerId, 100);
+
+  const payment = await agent.post('/api/payments').send({ customerId, amount: '100.00', paymentMethod: 'cash' });
+  assert.equal(payment.status, 201);
+
+  // Before the later adjustment, the invoice is already fully paid.
+  const beforeAdjustment = await agent.get(`/api/invoices/${invoice.id}`);
+  assert.equal(beforeAdjustment.body.amountPaid, '100.00');
+
+  // A later, unrelated debit adjustment raises the customer's overall
+  // balance again — this must NOT make the already-paid invoice look
+  // unpaid: the adjustment is a newer debt and sits behind the invoice
+  // in the FIFO queue, not in front of it.
+  const adjustment = await agent
+    .post(`/api/customers/${customerId}/ledger/adjustments`)
+    .send({ debit: '100.00', notes: 'F04 repro adjustment' });
+  assert.equal(adjustment.status, 201);
+
+  const after = await agent.get(`/api/invoices/${invoice.id}`);
+  assert.equal(after.body.amountPaid, '100.00'); // never falls back toward 0
+  assert.equal(after.body.currentBalance, '100.00'); // the new debt is entirely the adjustment's
+
+  const list = await agent.get('/api/invoices');
+  const listed = list.body.find((row: { id: string }) => row.id === invoice.id);
+  assert.equal(listed.paid, '100.00');
+  assert.equal(listed.paymentStatus, 'PAID');
+});
+
+test('F04: a paid draft invoice still rejects permanent delete after a later debit adjustment', async () => {
+  const { agent } = await registeredOwner('F04 Delete Paid Co');
+  const customerId = await createCustomer(agent, 'F04 Delete Paid Customer');
+  const invoice = await createRoundInvoice(agent, customerId, 100);
+
+  await agent.post('/api/payments').send({ customerId, amount: '100.00', paymentMethod: 'cash' });
+  await agent.post(`/api/customers/${customerId}/ledger/adjustments`).send({ debit: '100.00', notes: 'raises balance again' });
+
+  const del = await agent.delete(`/api/invoices/${invoice.id}`);
+  assert.equal(del.status, 400);
+  assert.match(del.body.details?.payments ?? '', /payment/i);
+
+  const stillThere = await agent.get(`/api/invoices/${invoice.id}`);
+  assert.equal(stillThere.status, 200, 'blocked delete must not remove the invoice');
+});
+
+test('F04: an unpaid draft invoice is still deletable even when a sibling debit adjustment exists', async () => {
+  const { agent } = await registeredOwner('F04 Delete Unpaid Co');
+  const customerId = await createCustomer(agent, 'F04 Delete Unpaid Customer');
+  const invoice = await createRoundInvoice(agent, customerId, 100);
+
+  // An unrelated debit adjustment exists, but nothing has ever been paid
+  // toward this invoice itself — it must remain safely deletable.
+  await agent.post(`/api/customers/${customerId}/ledger/adjustments`).send({ debit: '50.00', notes: 'unrelated debt' });
+
+  const del = await agent.delete(`/api/invoices/${invoice.id}`);
+  assert.equal(del.status, 200);
+  assert.equal(del.body.deleted, true);
+
+  const getDeleted = await agent.get(`/api/invoices/${invoice.id}`);
+  assert.equal(getDeleted.status, 404);
+});
+
+test('F04: dashboard, list, and detail all agree on a paid invoice after a later debit adjustment', async () => {
+  const { agent } = await registeredOwner('F04 Agree Co');
+  const customerId = await createCustomer(agent, 'F04 Agree Customer');
+  const invoice = await createRoundInvoice(agent, customerId, 100, 'issued');
+
+  await agent.post('/api/payments').send({ customerId, amount: '100.00', paymentMethod: 'cash' });
+  await agent.post(`/api/customers/${customerId}/ledger/adjustments`).send({ debit: '100.00', notes: 'later unrelated debt' });
+
+  const detail = await agent.get(`/api/invoices/${invoice.id}`);
+  assert.equal(detail.body.amountPaid, '100.00');
+
+  const list = await agent.get('/api/invoices');
+  const listed = list.body.find((row: { id: string }) => row.id === invoice.id);
+  assert.equal(listed.paid, detail.body.amountPaid);
+  assert.equal(listed.paymentStatus, 'PAID');
+
+  // The dashboard's unpaid/partial count must not count this invoice —
+  // it's fully paid; the outstanding balance belongs to the adjustment.
+  const dashboard = await agent.get('/api/dashboard');
+  assert.equal(dashboard.status, 200);
+  assert.equal(dashboard.body.cards.unpaidOrPartialInvoiceCount, 0);
+});
+
 test('requires authentication for archive/unarchive/delete', async () => {
   const fakeId = '00000000-0000-0000-0000-000000000000';
   assert.equal((await request(app).patch(`/api/invoices/${fakeId}/archive`)).status, 401);

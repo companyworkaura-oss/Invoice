@@ -1,5 +1,6 @@
 import { pool, withTransaction } from '../../db/pool.js';
 import { badRequest, notFound } from '../../lib/http-error.js';
+import { fifoPaidCtes } from '../../lib/ledger-fifo.js';
 import {
   ALLOWED_VARIABLES,
   Decimal,
@@ -711,10 +712,12 @@ export async function createInvoice(
  * count — see dashboard.service.ts), so an invoice already fully covered
  * by later payments shows PAID even if the customer has since run up a
  * new, unpaid balance elsewhere. This needs the customer's *entire*
- * ledger to compute correctly, so the FIFO CTEs below are scoped only by
- * company_id — every other filter (customer/date/status/search) is
- * applied in the outer WHERE, after paymentStatus is already computed,
- * never by trimming which ledger rows feed the FIFO math.
+ * ledger to compute correctly, so the FIFO CTEs below (`fifoPaidCtes`,
+ * shared with getInvoicePaidAmount and the dashboard — see F04) are
+ * scoped only by company_id — every other filter
+ * (customer/date/status/search, and the `type = 'INVOICE'` narrowing
+ * itself) is applied in the outer WHERE, after paymentStatus is already
+ * computed, never by trimming which ledger rows feed the FIFO math.
  *
  * A cancelled invoice's own ledger debit is *not* currently reversed
  * (this app has no route that actually sets status='cancelled' yet), so
@@ -763,29 +766,14 @@ export async function listInvoices(companyId: string, filter: InvoiceListFilter)
   }
 
   const { rows } = await pool.query<InvoiceListEntry>(
-    `WITH balances AS (
-       SELECT customer_id, SUM(debit) - SUM(credit) AS current_balance
-         FROM ledger_entries WHERE company_id = $1 GROUP BY customer_id
-     ),
-     ordered AS (
-       SELECT
-         le.customer_id,
-         le.reference_id AS invoice_id,
-         le.debit,
-         SUM(le.debit) OVER (
-           PARTITION BY le.customer_id
-           ORDER BY le.created_at DESC, le.id DESC
-           ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
-         ) AS cumulative_before
-       FROM ledger_entries le
-       WHERE le.company_id = $1 AND le.type = 'INVOICE' AND le.debit > 0
-     ),
+    `WITH ${fifoPaidCtes('$1')},
      paid_amounts AS (
        SELECT
          o.invoice_id,
          o.debit - LEAST(o.debit, GREATEST(b.current_balance - COALESCE(o.cumulative_before, 0), 0)) AS paid
        FROM ordered o
        JOIN balances b ON b.customer_id = o.customer_id
+      WHERE o.type = 'INVOICE'
      ),
      invoice_rows AS (
        SELECT
@@ -1050,13 +1038,22 @@ export async function updateInvoice(
 /**
  * This one invoice's own FIFO-allocated paid amount — the exact same
  * "oldest debt gets paid first" rule listInvoices applies per row (see
- * its paid_amounts CTE above), just scoped to a single invoice instead
- * of a whole company. This is the single authoritative definition of
- * "how much of this invoice has actually been paid" — used by
- * deleteInvoice (to decide whether any payment has reached this
- * invoice before allowing a hard delete) and by buildLedgerSummary's
- * amountPaid (F03: a later invoice's own debit must never change an
- * earlier invoice's paid amount — see buildLedgerSummary's comment).
+ * its paid_amounts CTE above and the shared fifoPaidCtes fragment),
+ * just scoped to a single customer instead of a whole company. This is
+ * the single authoritative definition of "how much of this invoice has
+ * actually been paid" — used by deleteInvoice (to decide whether any
+ * payment has reached this invoice before allowing a hard delete) and
+ * by buildLedgerSummary's amountPaid (F03: a later invoice's own debit
+ * must never change an earlier invoice's paid amount — see
+ * buildLedgerSummary's comment).
+ *
+ * F04: the `type = 'INVOICE'` filter below applies only to the *final*
+ * row being selected (`o.invoice_id = $3`), never inside the CTE that
+ * computes cumulative_before — see fifoPaidCtes' doc comment. Filtering
+ * to INVOICE rows before the window is computed would silently drop a
+ * later debit ADJUSTMENT from the running sum, making this invoice look
+ * unpaid again after a payment had already fully covered it.
+ *
  * Never used to derive a balance that gets written back to the
  * database; it's purely a read-time computation, same as every other
  * ledger-derived figure in this file.
@@ -1068,21 +1065,7 @@ async function getInvoicePaidAmount(
   invoiceId: string,
 ): Promise<string> {
   const { rows } = await client.query<{ paid: string | null }>(
-    `WITH balances AS (
-       SELECT COALESCE(SUM(debit) - SUM(credit), 0) AS current_balance
-         FROM ledger_entries WHERE company_id = $1 AND customer_id = $2
-     ),
-     ordered AS (
-       SELECT
-         le.reference_id AS invoice_id,
-         le.debit,
-         SUM(le.debit) OVER (
-           ORDER BY le.created_at DESC, le.id DESC
-           ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
-         ) AS cumulative_before
-       FROM ledger_entries le
-       WHERE le.company_id = $1 AND le.customer_id = $2 AND le.type = 'INVOICE' AND le.debit > 0
-     )
+    `WITH ${fifoPaidCtes('$1', '$2')}
      SELECT o.debit - LEAST(o.debit, GREATEST(b.current_balance - COALESCE(o.cumulative_before, 0), 0)) AS paid
        FROM balances b
        LEFT JOIN ordered o ON o.invoice_id = $3
