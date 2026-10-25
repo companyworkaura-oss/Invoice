@@ -450,6 +450,49 @@ test('session redirects after deletion: GET /auth/me reflects the new active com
   assert.equal(me.body.company.id, secondId, 'the very next request already resolves to the surviving company');
 });
 
+// F02 (re-verified): the report's exact reproduction was deactivate A,
+// then deactivate B, leaving newActiveCompanyId null and both
+// /api/auth/me and a *fresh* login returning 401. The two existing
+// "cannot deactivate/delete your only company" tests above already
+// prove the single-company case is rejected, and
+// 'session redirects after deletion' above proves the *same* session
+// keeps working after an allowed action — but neither tries a brand
+// new login afterward, which is the other half of the report's
+// reproduction. These two close that gap directly, for both allowed
+// lifecycle actions.
+test('F02: after an allowed deactivate, a fresh login (not just the existing session) resolves to the surviving active company', async () => {
+  const { agent, companyId: companyA, email, password } = await registeredOwner('F02 Fresh Login Deactivate Co');
+  const second = await agent.post('/api/companies').send({ name: 'F02 Fresh Login Deactivate Second Co' });
+  const companyB: string = second.body.id;
+  await agent.post(`/api/companies/${companyA}/switch`);
+
+  const deactivate = await agent.patch('/api/company/deactivate');
+  assert.equal(deactivate.status, 200);
+  assert.equal(deactivate.body.newActiveCompanyId, companyB);
+
+  // A brand new login, independent of the session that performed the
+  // deactivation — must never 401, and must land on the still-active company.
+  const fresh = await secondSession(email, password);
+  const freshMe = await fresh.get('/api/auth/me');
+  assert.equal(freshMe.status, 200);
+  assert.equal(freshMe.body.company.id, companyB);
+});
+
+test('F02: after an allowed delete, a fresh login (not just the existing session) resolves to the surviving active company', async () => {
+  const { agent, companyId: companyA, email, password } = await registeredOwner('F02 Fresh Login Delete Co');
+  const second = await agent.post('/api/companies').send({ name: 'F02 Fresh Login Delete Second Co' });
+  const companyB: string = second.body.id;
+  await agent.post(`/api/companies/${companyA}/switch`);
+
+  const del = await agent.delete('/api/company').send({ confirmName: 'F02 Fresh Login Delete Co' });
+  assert.equal(del.status, 200);
+
+  const fresh = await secondSession(email, password);
+  const freshMe = await fresh.get('/api/auth/me');
+  assert.equal(freshMe.status, 200);
+  assert.equal(freshMe.body.company.id, companyB);
+});
+
 test('deleting a nonexistent typed name on an empty company is a clean 400, not a 500', async () => {
   const { agent } = await registeredOwner('Clean Error Co');
   await agent.post('/api/companies').send({ name: 'Clean Error Second Co' });

@@ -3088,6 +3088,69 @@ genuinely effective; it was not reproducible on this branch.
   zero warnings, same as the end of the Phase 51 quality pass) all
   clean.
 
+## F02 Re-Verification + Fresh-Login Regression Coverage (Phase 53)
+
+Re-audited the Phase 42 "prevent last active company lockout" fix
+from scratch — read `company-lifecycle.service.ts` end to end, then
+independently reproduced the exact report scenario (deactivate A,
+attempt to deactivate B too) outside the existing test suite with a
+standalone script, rather than trusting the already-committed tests.
+
+- **What the audit confirmed already works, and why**: every
+  requirement in this task is already satisfied by the Phase 42
+  fix, unchanged:
+  1. `pickAnotherActiveCompany` requires *another ACTIVE* company
+     (`c.status = 'active'` in its WHERE clause) — a deactivated one
+     never counts.
+  2. Both `deactivateCompany` and `deleteCompanyPermanently` call it
+     and reject with a clear 400 (`"You have no other active
+     company. Create or reactivate another company before
+     deactivating/deleting this one."`) when it returns null.
+  3. Concurrency is handled by `lockUserForLifecycleChange` — a
+     transaction-scoped `pg_advisory_xact_lock(hashtextextended(userId,
+     0))`, taken before either the company row lock or the active-
+     company check, serializing every lifecycle action a given user
+     performs across concurrent sessions.
+  4. `requireAuth`'s session resolution and login's default-membership
+     pick (`auth.service.ts`) both independently filter on
+     `c.status = 'active'` too — consistent with
+     `pickAnotherActiveCompany`, so there's no path where one of the
+     three checks could disagree with the others.
+- **Live reproduction of the exact report scenario** (standalone
+  script, not the committed tests): registered a user (company A
+  active), created company B (auto-switches to B), switched back to
+  A, deactivated A (succeeds — B is still active, `newActiveCompanyId:
+  B`), then attempted to deactivate B too (the exact second step of
+  the report's reproduction) — **rejected with 400** ("You have no
+  other active company..."). `/api/auth/me` on the same session, and a
+  completely fresh login with the same credentials, both continued to
+  return 200 with the correct active company throughout. **The
+  reported lockout is not reproducible on this branch.**
+- **One real gap found and closed in test coverage, not in the fix
+  itself**: the task's test category E ("after an allowed lifecycle
+  action, a *fresh login* must still work") was only partially
+  covered — the existing `'session redirects after deletion'` test
+  checked `/api/auth/me` on the *same* session that performed the
+  delete, never a brand-new login afterward, which is the other half
+  of the original report's exact reproduction steps. Added two new
+  tests to close that gap precisely, for both deactivate and delete:
+  perform the allowed lifecycle action, then log in fresh (a second,
+  independent session, same credentials) and confirm it resolves to
+  the surviving active company with no 401 anywhere.
+- No code in `company-lifecycle.service.ts`, `auth.service.ts`, or
+  anywhere else needed to change — only
+  `apps/api/test/company-lifecycle.test.ts` gained the two new tests
+  above. Every other requirement/test category the task listed (A:
+  single-company rejection, B: two-active allowed-with-fallback, C:
+  one-active-one-inactive rejection for both actions, D: concurrent
+  requests never stranding, F: memberships/permissions/tenant
+  isolation/switching/auth preserved) was already exercised by the 20
+  pre-existing tests in that file, each individually re-run and
+  reconfirmed passing rather than assumed.
+- `npm run typecheck`, `npm run build`, `npm test` (shared 61/61 + api
+  339/339 + web 21/21, all clean), and `npm run lint` (zero errors,
+  zero warnings) all clean.
+
 ## Known gotchas / things to check before starting work
 
 - **Postgres cluster is often stopped** when a session starts:
@@ -3736,6 +3799,20 @@ genuinely effective; it was not reproducible on this branch.
     Added it via `express.static`'s `setHeaders` option in `app.ts`.
     New regression test proven to fail before this change and pass
     after. See "F01 Re-Verification + Serving Hardening (Phase 52)"
+    below
+
+58. F02 Re-Verification + Fresh-Login Regression Coverage:
+    independently re-audited and live-reproduced the Phase 42 "prevent
+    last active company lockout" fix — confirmed the exact reported
+    scenario (deactivate A, then attempt to deactivate B too) is NOT
+    reproducible; `pickAnotherActiveCompany`'s `status = 'active'`
+    filter, the advisory-lock concurrency guard, and `auth.service.ts`/
+    `requireAuth`'s matching active-only filters all still agree. Found
+    one gap in *test coverage* (not the fix): no existing test tried a
+    completely fresh login after an allowed deactivate/delete, only
+    the same session's `/auth/me` — added two tests closing that gap
+    for both actions. No service code changed. See "F02
+    Re-Verification + Fresh-Login Regression Coverage (Phase 53)"
     below
 
 Repo also went through a monorepo restructure (`server/` → `apps/api` +
