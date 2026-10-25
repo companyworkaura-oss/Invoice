@@ -2890,6 +2890,90 @@ completely unchanged and stays exactly as authenticated as before.
   untouched; `@invoice/web`'s lint run separately is clean — this
   phase touched no frontend code at all).
 
+## F10 — Reset Payment Customer Filter on Company Switch (Phase 50)
+
+A frontend-only correctness fix — no backend behavior change, exactly
+as the task allowed for. Two small, cooperating fixes, both needed:
+clearing the state one level up (App) isn't enough if the consumer
+(PaymentsPage) doesn't also sync to the cleared value.
+
+- **The bug**: `App.tsx`'s `paymentsCustomerFilter` state (set by
+  "View payments" from an invoice row, read by `PaymentsPage` via its
+  `initialCustomerId` prop) was never reset on a company switch or a
+  logout/login transition — it's plain `useState` with no effect
+  watching `me?.company.id` at all, unlike `showProfile` right above
+  it, which already had exactly that effect. `PaymentsPage` itself
+  does remount on a company switch (`key={me.company.id}` in App), so
+  it looked reset at a glance, but a freshly-mounted instance still
+  read its initial `customerFilter` state from whatever stale
+  `initialCustomerId` prop App handed it at that same render — Company
+  A's customer id, carried straight into Company B's fresh component
+  instance.
+- **The fix, two parts**:
+  1. New `useEffect(() => setPaymentsCustomerFilter(undefined),
+     [me?.company.id])` in `App.tsx`, placed right next to the
+     existing `showProfile` reset effect and following the exact same
+     pattern. `me?.company.id` changes on every company switch *and*
+     on every logout/login transition (it becomes `undefined` on
+     logout, then whatever the next login's company is — even
+     re-logging into the same company counts as a change, since it
+     passes through `undefined` first), so this one effect covers
+     both F10 requirements at once.
+  2. `PaymentsPage.tsx`'s own `initialCustomerId`-sync effect used to
+     only react when the prop was truthy (`if (initialCustomerId)
+     setCustomerFilter(initialCustomerId)`) — a one-way "pick this up"
+     rule written back when `initialCustomerId` could only ever go
+     from unset to set, never back down. Now that App actively clears
+     it to `undefined` on every company switch, this had to become
+     symmetric: `setCustomerFilter(initialCustomerId ?? '')`,
+     unconditionally syncing to whatever the prop now is, including
+     back to "no filter". Confirmed this doesn't fight the page's own
+     "Show all payments" button (`setCustomerFilter('')` directly) —
+     that button never touches the `initialCustomerId` prop itself, so
+     this effect's dependency never re-fires because of it.
+  - Walked through the actual React commit order (child effects fire
+    before parent effects in the same commit) to confirm there's no
+    user-visible stale-filter flash in practice: `PaymentsPage` is
+    only ever mounted while its own tab is active, and `CompanySwitcher`
+    only renders under the Overview tab — the two are never mounted at
+    the same time, so by the time a user actually clicks into Payments
+    after switching companies (necessarily a separate tab click), the
+    App-level effect has already run and `initialCustomerId` is
+    already `undefined` from that component's very first render.
+- **Verified live** (Playwright against the real dev server + browser,
+  one freshly-registered company via the actual register/login forms,
+  with a customer/invoice/payment seeded through direct API calls
+  inside that authenticated browser session — same convention as
+  prior frontend-only phases, e.g. Phase 34): registered Company A,
+  used the real "⋮ → View payments" UI action on the invoice row to
+  set the filter, confirmed the "Showing payments for one customer"
+  banner was present; created Company B through the real
+  "create another company" form (auto-switches the active company);
+  opened Payments on Company B and confirmed the banner was *not*
+  present; switched back to Company A, re-applied the filter, logged
+  out and back in through the real login form, opened Payments again
+  and confirmed the banner was again *not* present. **Regression-
+  checked the test itself**: temporarily reverted both files (`git
+  stash`) and re-ran the identical script — both scenarios then failed
+  exactly as expected (stale filter visible in both cases), proving
+  the verification actually exercises the bug rather than trivially
+  passing; restored the fix and re-ran clean before moving on.
+  `apps/web` has no dedicated test file for this change, consistent
+  with this repo's established convention for a change that is
+  fundamentally about React component-tree/effect timing (no pure
+  logic to extract the way `preview.ts`/`quick-save.ts`/
+  `profile-patch.ts` could be) — the live Playwright run, including
+  its negative control, is the coverage.
+- `npm run typecheck`, `npm run build`, and `npm test` (shared 61/61 +
+  api 336/336 + web 21/21 — unchanged counts, since this phase added
+  no new backend or pure-function code) all clean. `npm run lint`'s
+  one pre-existing `membership.service.ts` failure is confirmed
+  untouched; `@invoice/web`'s lint picked up two new instances of the
+  same `set-state-in-effect` warning oxlint already raised on the
+  pre-existing `showProfile` effect right above my new one (and on
+  `PaymentsPage`'s own pre-existing sync effect) — same idiom, same
+  warning-not-error severity, no new lint failures.
+
 ## Known gotchas / things to check before starting work
 
 - **Postgres cluster is often stopped** when a session starts:
@@ -3492,6 +3576,23 @@ completely unchanged and stays exactly as authenticated as before.
     reach a different invoice; the private PDF route itself is
     completely unchanged and still fully authenticated. See "F09 —
     WhatsApp Customer PDF Access (Phase 49)" below
+
+55. F10 — Reset Payment Customer Filter on Company Switch (correctness
+    fix): `App.tsx`'s `paymentsCustomerFilter` state survived a
+    company switch and a logout/login transition, so a freshly
+    switched-to company's Payments tab could open pre-filtered to a
+    previous company's customer. Fixed with a new effect in App
+    (`setPaymentsCustomerFilter(undefined)` on `me?.company.id`
+    change — covers both company-switch and logout/login, since the
+    latter always passes through `undefined`), plus making
+    `PaymentsPage`'s own `initialCustomerId`-sync effect symmetric
+    (sync to `undefined` too, not just a truthy value) so the cleared
+    prop actually clears the page's own filter state. Verified live
+    via Playwright against the real dev server (register, seed data
+    via API, use the real "View payments"/company-switcher/logout-
+    login UI flows), including a regression check that reverting the
+    fix made the same script fail. See "F10 — Reset Payment Customer
+    Filter on Company Switch (Phase 50)" below
 
 Repo also went through a monorepo restructure (`server/` → `apps/api` +
 new `apps/web` + `packages/shared`) between Phase 1 and Phase 2.

@@ -34,9 +34,16 @@ export function PaymentsPage({ permissions, initialCustomerId }: Props) {
 
   // initialCustomerId arrives fresh each time the invoices tab sends us here
   // (e.g. a different invoice's "View payments" link) without remounting
-  // this page, so pick it up whenever it actually changes.
+  // this page, so pick it up whenever it actually changes. F10: this must
+  // also sync back to "no filter" when initialCustomerId becomes
+  // undefined (App clears it on every company switch and logout/login
+  // transition) — a one-way "set it if truthy, otherwise leave whatever
+  // was there" used to let a previous company's customerFilter value
+  // survive inside this component's own state even after the parent's
+  // value was cleared, since nothing ever told this effect to clear it
+  // too.
   useEffect(() => {
-    if (initialCustomerId) setCustomerFilter(initialCustomerId);
+    setCustomerFilter(initialCustomerId ?? '');
   }, [initialCustomerId]);
 
   async function handleDelete(payment: Payment) {

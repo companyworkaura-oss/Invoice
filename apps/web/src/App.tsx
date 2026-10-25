@@ -43,6 +43,22 @@ function App() {
     setShowProfile(false);
   }, [me?.company.id]);
 
+  // F10: paymentsCustomerFilter is session/company-specific UI state —
+  // a shortcut from "View payments" on one customer, not something
+  // that should ever outlive the company it was set for. Without this,
+  // PaymentsPage already remounts fresh on a company switch (its own
+  // `key={me.company.id}` below), but it's immediately re-seeded with
+  // whatever customer id was last set for the *previous* company,
+  // since that id lives here in App, one level up, untouched by the
+  // remount. `me?.company.id` changes on every company switch AND on
+  // every logout/login transition (it becomes undefined on logout,
+  // then whatever the next login's company is — even the same
+  // company again counts as a change, since it passes through
+  // undefined first), so one effect covers both requirements.
+  useEffect(() => {
+    setPaymentsCustomerFilter(undefined);
+  }, [me?.company.id]);
+
   async function handleLogout() {
     await authApi.logout().catch(() => undefined);
     setMe(null);
