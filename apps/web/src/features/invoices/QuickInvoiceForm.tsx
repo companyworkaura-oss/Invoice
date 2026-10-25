@@ -1,11 +1,12 @@
 import type { Customer, DiscountType, InvoiceWithItems, PaymentMethod } from '@invoice/shared';
 import { Decimal, calculateSets, formatNumber, roundMoney } from '@invoice/shared';
-import { useMemo, useState, useEffect } from 'react';
+import { useMemo, useRef, useState, useEffect } from 'react';
 import { ApiError } from '../../lib/api';
 import * as customersApi from '../customers/api';
 import * as paymentsApi from '../payments/api';
 import * as invoicesApi from './api';
 import { previewDiscount, sumAmounts } from './preview';
+import { newQuickInvoiceSaveState, saveQuickInvoice } from './quick-save';
 
 /**
  * A faster, single-purpose UI for the common case (one customer, a
@@ -111,6 +112,11 @@ export function QuickInvoiceForm({ invoice, onSaved, onCancel }: Props) {
   const [errors, setErrors] = useState<FieldErrors>({});
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  // F06: survives across retries of the same save attempt (handleSubmit
+  // running again after a failure) without surviving a fresh mount of
+  // this form — exactly the lifetime a "don't duplicate on retry" guard
+  // needs. See saveQuickInvoice's doc comment.
+  const saveStateRef = useRef(newQuickInvoiceSaveState());
 
   useEffect(() => {
     customersApi.listCustomers({ status: 'active' }).then(setCustomers).catch(() => setCustomers([]));
@@ -211,32 +217,25 @@ export function QuickInvoiceForm({ invoice, onSaved, onCancel }: Props) {
         return;
       }
 
-      // Same createInvoice call CreateInvoiceForm makes — same ledger
-      // debit, same invoice numbering — just with manual
-      // (no-category) items: the server recalculates lineAmount =
-      // quantity * unitPrice itself (createManualInvoiceItem) rather
-      // than trusting any total from here.
-      const saved = await invoicesApi.createInvoice({ ...sharedFields, customerId, invoiceDate: todayLocal() });
-
-      // "Paid" is a convenience: it records a payment immediately after
-      // saving, through the exact same createPayment call (and ledger
-      // credit) the Payments page and customer ledger panel use — never
-      // a special "quick invoice payment" path.
-      if (paid) {
-        await paymentsApi.createPayment({
+      // F06: createInvoice (same ledger debit, same invoice numbering
+      // as CreateInvoiceForm) and, when "Paid" is checked, createPayment
+      // (same ledger credit the Payments page uses) are driven through
+      // saveQuickInvoice so a retry after a failure in either step never
+      // re-creates the invoice — see its doc comment and
+      // saveStateRef above. A fresh state per successful save (reset
+      // right after onSaved below) means the *next* invoice this form
+      // creates starts from a clean slate.
+      const saved = await saveQuickInvoice(
+        saveStateRef.current,
+        {
+          invoiceInput: { ...sharedFields, customerId, invoiceDate: todayLocal() },
           customerId,
-          amount: saved.grandTotal,
-          date: saved.invoiceDate,
+          paid,
           paymentMethod,
-        });
-        // `saved`'s amountPaid/currentBalance were computed at the
-        // moment of creation, before the payment above existed — refetch
-        // so the template view that opens next (and anything printed or
-        // downloaded from it) shows the real, ledger-derived figures.
-        onSaved(await invoicesApi.getInvoice(saved.id));
-        return;
-      }
-
+        },
+        { createInvoice: invoicesApi.createInvoice, createPayment: paymentsApi.createPayment, getInvoice: invoicesApi.getInvoice },
+      );
+      saveStateRef.current = newQuickInvoiceSaveState();
       onSaved(saved);
     } catch (err) {
       setSubmitError(err instanceof ApiError ? err.body.error : 'Something went wrong saving this invoice');

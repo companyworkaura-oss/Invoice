@@ -2594,6 +2594,76 @@ call `previewDiscount` the same way and needed no changes themselves.
   pre-existing warnings in `App.tsx`/`PaymentsPage.tsx` untouched by
   this change).
 
+## F06 — Quick Invoice Save Must Be Retry-Safe (Phase 46)
+
+A correctness fix scoped to the frontend only — no backend endpoint,
+transaction, or idempotency key was added; see the rationale below for
+why a frontend fix was preferred.
+
+- **The bug**: `QuickInvoiceForm.tsx`'s `handleSubmit` (the "Paid"
+  convenience path) made three separate network calls in sequence —
+  `createInvoice`, then (if "Paid" was checked) `createPayment`, then
+  a `getInvoice` refetch — with no backend transaction tying them
+  together and no record kept of which step had already succeeded. If
+  `createPayment` or the refetch failed (network blip, a dropped
+  response, a backend 5xx) and the user — seeing the error — clicked
+  Save again, `handleSubmit` ran from scratch and called `createInvoice`
+  a second time, creating a real duplicate invoice (with its own ledger
+  debit) for what was, from the user's perspective, one save attempt.
+  A 100% discount (zero-total) invoice made this worse: `createPayment`
+  with a 0.00 amount is rejected by the backend's
+  `requirePositiveDecimal` (must be `> 0`), so checking "Paid" on a
+  fully-discounted invoice guaranteed the payment step would fail on
+  every attempt, forcing exactly the retry that duplicates the invoice.
+- **Why a frontend fix, not a combined backend endpoint**: a truly
+  bullet proof fix would need a new transactional "create + pay"
+  endpoint with a client-supplied idempotency key (to survive even a
+  request that *reaches* the server and succeeds but whose *response*
+  is lost) — a materially bigger change (new route, new idempotency
+  storage, a key surviving across retries) than this bug warrants.
+  Within a single mounted form, retaining the created invoice's id in
+  memory and skipping any step already completed is just as safe for
+  the actual failure modes this bug covers (a request that fails before
+  ever reaching/completing on the server) and needed no backend changes
+  at all — the "Otherwise implement robust frontend recovery with
+  created invoice ID" fallback the task allowed for.
+- **The fix**: extracted the three-call sequence out of the component
+  into a new pure, dependency-injected function,
+  `saveQuickInvoice(state, input, deps)`
+  (`apps/web/src/features/invoices/quick-save.ts`). `state` —
+  `{ invoice, paymentCreated }` — is a plain mutable object the *caller*
+  owns; `QuickInvoiceForm` keeps one in a `useRef` (`saveStateRef`) so
+  it survives a failed `handleSubmit` and is still there on the next
+  click, but is thrown away (a fresh one) the instant a save actually
+  succeeds. `saveQuickInvoice` fills in `state.invoice` the moment
+  `createInvoice` resolves and `state.paymentCreated` the moment
+  `createPayment` resolves — *before* either can throw on what comes
+  next — and checks both at the top of every call: a retry with the
+  same `state` skips `createInvoice` if `state.invoice` is already set,
+  and skips `createPayment` if `state.paymentCreated` is already true,
+  resuming only from whichever step actually failed. A zero-total
+  invoice (`new Decimal(invoice.grandTotal).greaterThan(0)` is false)
+  never attempts `createPayment` at all, even with "Paid" checked —
+  the F06 "skip the doomed zero payment request" requirement.
+- **Tests** (`apps/web/test/quick-save.test.ts`, 5 new, using mocked/
+  sometimes-failing `deps` with call counters — no DOM/React rendering
+  needed since the extracted function has no React dependency): a
+  100%-discount Paid invoice saves with exactly one `createInvoice`
+  call and zero `createPayment` calls; a payment failure followed by a
+  retry (same `state`) results in exactly one `createInvoice` call
+  total; a refetch failure followed by a retry results in exactly one
+  `createInvoice` call and exactly one `createPayment` call (the
+  payment is not re-sent just because the refetch was); a three-attempt
+  flaky-refetch sequence (fail, fail, succeed) still shows exactly one
+  `createInvoice` and one `createPayment` call across all three
+  attempts; and an unpaid invoice never calls `createPayment` or
+  `getInvoice` at all (unchanged behavior, confirmed not to regress).
+- `npm run typecheck`, `npm run build`, `npm test` (shared 61/61 + api
+  324/324 + web 14/14, all clean), and `npm run lint` (the one
+  pre-existing `membership.service.ts` failure aside, confirmed
+  untouched; `@invoice/web`'s lint is clean, same two pre-existing
+  unrelated warnings as before).
+
 ## Known gotchas / things to check before starting work
 
 - **Postgres cluster is often stopped** when a session starts:
@@ -3128,6 +3198,23 @@ call `previewDiscount` the same way and needed no changes themselves.
     since `preview.ts` has no React/DOM dependency) with 9 new tests.
     See "F05 — Discount Input Must Not Crash During Typing (Phase 45)"
     below
+
+51. F06 — Quick Invoice Save Must Be Retry-Safe (correctness fix):
+    `QuickInvoiceForm`'s "Paid" convenience made three unguarded
+    network calls in sequence (createInvoice, createPayment,
+    getInvoice); a failure in either of the last two followed by a
+    user retry re-ran `createInvoice` and created a duplicate invoice.
+    A 100%-discount invoice guaranteed this, since the backend rejects
+    a zero-amount payment outright. Fixed by extracting the sequence
+    into `saveQuickInvoice()` (`apps/web/src/features/invoices/
+    quick-save.ts`), driven by a caller-owned `state` object
+    (`{ invoice, paymentCreated }`, kept in a `useRef` so it survives
+    a failed attempt but resets after a successful one) that's filled
+    in the instant each step succeeds, so a retry with the same state
+    skips whatever already completed and resumes only from the step
+    that failed; a zero-total invoice skips the payment step
+    entirely. See "F06 — Quick Invoice Save Must Be Retry-Safe
+    (Phase 46)" below
 
 Repo also went through a monorepo restructure (`server/` → `apps/api` +
 new `apps/web` + `packages/shared`) between Phase 1 and Phase 2.
