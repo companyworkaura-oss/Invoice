@@ -66,6 +66,29 @@ export interface DiscountPreview {
 }
 
 /**
+ * Parses a discount value typed into a live form field — which, mid-
+ * keystroke, is routinely empty or incomplete ("-", ".") before it
+ * settles into a valid number, and can always be outright garbage
+ * ("abc") from a paste. `new Decimal(...)` throws a DecimalError on
+ * any of those (F05), which would blow up this module's render-time
+ * useMemo call and lose the rest of the in-progress invoice form —
+ * so this never throws: anything that isn't a finite decimal comes
+ * back as `null` for the caller to turn into a field error instead.
+ * Empty/blank input is treated as "no value yet", not an error — a
+ * field the user hasn't typed into shouldn't show red.
+ */
+function parseDiscountValue(raw: string): Decimal | null {
+  const trimmed = raw.trim();
+  if (trimmed === '') return new Decimal(0);
+  try {
+    const value = new Decimal(trimmed);
+    return value.isFinite() ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Client-side preview only, mirroring the server's calculateDiscount
  * (invoice.service.ts) exactly — but this is never what gets saved. The
  * backend recalculates and validates from scratch when the invoice is
@@ -78,7 +101,10 @@ export function previewDiscount(
 ): DiscountPreview {
   if (!discountType) return { discountAmount: '0.00', grandTotal: roundMoney(new Decimal(subtotal)), error: null };
 
-  const value = new Decimal(discountValueRaw || '0');
+  const value = parseDiscountValue(discountValueRaw);
+  if (!value) {
+    return { discountAmount: '0.00', grandTotal: roundMoney(new Decimal(subtotal)), error: 'Enter a valid discount number' };
+  }
   if (value.isNegative()) {
     return { discountAmount: '0.00', grandTotal: roundMoney(new Decimal(subtotal)), error: 'Discount cannot be negative' };
   }

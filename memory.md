@@ -2535,6 +2535,65 @@ dashboard's unpaid/partial count.
   failure in `membership.service.ts` confirmed untouched by this
   change.
 
+## F05 — Discount Input Must Not Crash During Typing (Phase 45)
+
+A correctness fix scoped to `apps/web/src/features/invoices/preview.ts`
+only — `CreateInvoiceForm.tsx` and `QuickInvoiceForm.tsx` both already
+call `previewDiscount` the same way and needed no changes themselves.
+
+- **The bug**: `previewDiscount` built `new Decimal(discountValueRaw ||
+  '0')` directly from the raw Discount `<input>`'s value on every
+  render (via a `useMemo`). `decimal.js`'s constructor throws a
+  `DecimalError` for anything that isn't a well-formed number —
+  including `'-'`, `'.'`, and `'abc'`, all of which are everyday,
+  completely normal states for a text field mid-keystroke (typing a
+  negative number starts with `'-'`; typing `10.5` passes through
+  `'10.'`). Because this ran inside a render-time `useMemo` with no
+  try/catch anywhere above it, typing any of those characters threw
+  during render and crashed the component tree, silently discarding
+  the rest of the in-progress invoice form (items, customer, notes —
+  everything unsaved).
+- **The fix**: new `parseDiscountValue(raw)` helper wraps the `Decimal`
+  construction in try/catch and also checks `.isFinite()` (catches
+  `'Infinity'`/`'NaN'`, which `decimal.js` parses without throwing but
+  which aren't usable discount values either) — returning `null` for
+  anything invalid instead of ever throwing. Blank/empty input returns
+  `new Decimal(0)`, not an error — a field the user hasn't typed into
+  yet shouldn't show red. `previewDiscount` now calls this helper and,
+  when it returns `null`, returns its normal non-throwing
+  `DiscountPreview` shape with `error: 'Enter a valid discount
+  number'` — the exact same shape already used for the pre-existing
+  "cannot be negative"/"must be between 0 and 100"/"cannot exceed the
+  subtotal" validation errors, so both forms' existing
+  `errors.discountValue` wiring (already reading `discountPreview.error`
+  in their `validate()` functions) picks it up with no changes on
+  their end. Valid inputs (`'10'`, `'10.5'`, negative-number and
+  over-bounds checks) behave exactly as before — only the parsing step
+  changed, not the arithmetic.
+- **Why this fixes "do not lose unsaved invoice form state"**: once
+  `previewDiscount` can no longer throw, React never unmounts the form
+  component mid-render, so `items`/`customerId`/`notes`/every other
+  piece of in-progress state the form already held survives typing any
+  invalid character — no separate state-preservation code was needed.
+- **Tests**: `apps/web` had no test runner or test file at all before
+  this phase (confirmed — no `test` script, no test framework
+  dependency). Since `preview.ts` is a pure function with no React/DOM
+  dependency (same as `@invoice/shared`'s own pure logic), added the
+  same `tsx --test test/*.test.ts` convention `packages/shared`
+  already uses: a new `test` script + `tsx` devDependency in
+  `apps/web/package.json`, wired into the root `npm test` script
+  (`apps/web/test/preview.test.ts`, 9 new tests — empty, `'-'`, `'.'`,
+  `'abc'`, `'10'`, `'10.5'`, a sweep of invalid inputs across every
+  discount type confirming none throw, the pre-existing negative-value
+  error, and the pre-existing percentage/fixed bounds checks, all
+  still correct).
+- `npm run typecheck`, `npm run build`, `npm test` (shared + api
+  324/324 + web 9/9, all clean), and `npm run lint` (the one
+  pre-existing `membership.service.ts` failure aside — confirmed
+  untouched; `@invoice/web`'s lint run separately is clean, its two
+  pre-existing warnings in `App.tsx`/`PaymentsPage.tsx` untouched by
+  this change).
+
 ## Known gotchas / things to check before starting work
 
 - **Postgres cluster is often stopped** when a session starts:
@@ -3051,6 +3110,24 @@ dashboard's unpaid/partial count.
     `type = 'INVOICE'` only in the outer query — reused by all three
     consumers so they can't drift apart again. See "F04 — Paid Draft
     Invoice Delete Guard (Phase 44)" below
+
+50. F05 — Discount Input Must Not Crash During Typing (correctness
+    fix): `previewDiscount` (`apps/web/src/features/invoices/
+    preview.ts`) built `new Decimal(discountValueRaw || '0')` straight
+    from the raw Discount field on every render, and `decimal.js`
+    throws a `DecimalError` for `'-'`/`'.'`/`'abc'` — all everyday
+    mid-typing states — crashing the render and losing the whole
+    in-progress invoice form. Fixed with a new `parseDiscountValue()`
+    helper that catches the throw (and checks `.isFinite()` for
+    `'Infinity'`/`'NaN'`) and returns `null` instead, which
+    `previewDiscount` turns into its normal non-throwing
+    `DiscountPreview` shape with a field validation error — reusing
+    the exact same error-reporting path the pre-existing negative/
+    bounds checks already used. Added `apps/web`'s first-ever test
+    runner (mirroring `packages/shared`'s `tsx --test` convention,
+    since `preview.ts` has no React/DOM dependency) with 9 new tests.
+    See "F05 — Discount Input Must Not Crash During Typing (Phase 45)"
+    below
 
 Repo also went through a monorepo restructure (`server/` → `apps/api` +
 new `apps/web` + `packages/shared`) between Phase 1 and Phase 2.
