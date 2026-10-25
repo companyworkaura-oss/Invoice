@@ -2664,6 +2664,62 @@ why a frontend fix was preferred.
   untouched; `@invoice/web`'s lint is clean, same two pre-existing
   unrelated warnings as before).
 
+## F07 — Quick Invoice Duplicate (Phase 47)
+
+A correctness fix scoped entirely to `duplicateInvoice`
+(`apps/api/src/modules/invoices/invoice.service.ts`) — nothing about
+createInvoice, createManualInvoiceItem, or the category-item path
+changed.
+
+- **The bug**: `duplicateInvoice`'s very first check was
+  `if (original.items.some((item) => !item.categoryId)) throw ...`
+  (deleted category). A manual (Quick Invoice) item has
+  `categoryId === null` by design — every single item on a Quick
+  Invoice does, always, by construction (see `InvoiceItem.categoryId`'s
+  doc comment) — so this guard fired on *every* Quick Invoice, 100% of
+  the time, not just the intended "a category item's category was
+  later deleted" case. Quick Invoice duplication was completely broken.
+- **The fix**: `original.invoiceMode` — already server-derived from
+  the items actually saved (`invoiceModeFromItems`: `'quick'` only
+  when *every* item is manual, never client-supplied) — is the one
+  authoritative signal that tells the two null-categoryId cases apart:
+  `'quick'` means null categoryId is normal and expected; `'standard'`
+  with a null-categoryId item means a category really was deleted out
+  from under it. The deleted-category guard now only runs when
+  `original.invoiceMode !== 'quick'`, so it still fires exactly where
+  it always did for a standard invoice, and never fires for a Quick
+  Invoice at all.
+- **Manual item duplication**: for a Quick Invoice, each item's
+  `InvoiceItemInput` now builds `{ description, quantity, unitPrice }`
+  instead of `{ categoryId, description, stitches, quantity, rate }` —
+  `unitPrice` comes from the saved item's `calculatedUnitAmount`
+  (`createManualInvoiceItem` stores `unitPrice` there directly, with
+  no separate formula input/output distinction for a manual item, same
+  as it does in `rate`). `lineAmount`/`calculatedTotal` is never
+  copied — `createManualInvoiceItem` always recalculates it fresh from
+  `quantity * unitPrice`, exactly as it does for a brand-new Quick
+  Invoice. The category-item branch is byte-for-byte what it already
+  was.
+- **Everything else about duplication is unchanged**: the new
+  duplicate is still always a fresh `'draft'` (via `createInvoice`,
+  same as before), and payments are still never copied — `createInvoice`
+  only ever creates a new invoice + its own ledger debit, with no path
+  that touches `payments` at all.
+- **Tests** (`apps/api/test/invoice-history.test.ts`): 1 new — a Quick
+  Invoice with two manual items (description/quantity/unitPrice) and a
+  full payment duplicates successfully into a fresh `'draft'`,
+  `invoiceMode: 'quick'` invoice with the same total, each item's
+  description/quantity/calculatedUnitAmount/calculatedTotal preserved
+  (categoryId still `null`, as expected), and `amountPaid: '0.00'`
+  confirming the payment was not copied. The pre-existing "duplicate
+  rejects when an item references a category that no longer exists"
+  test (deleted-category case) was re-run and still passes unchanged —
+  confirming that path still errors correctly.
+- `npm run typecheck`, `npm run build`, `npm test` (shared 61/61 + api
+  325/325 + web 14/14, all clean), and `npm run lint` (the one
+  pre-existing `membership.service.ts` failure aside, confirmed
+  untouched; `@invoice/web`'s lint run separately is clean).
+
 ## Known gotchas / things to check before starting work
 
 - **Postgres cluster is often stopped** when a session starts:
@@ -3215,6 +3271,20 @@ why a frontend fix was preferred.
     that failed; a zero-total invoice skips the payment step
     entirely. See "F06 — Quick Invoice Save Must Be Retry-Safe
     (Phase 46)" below
+
+52. F07 — Quick Invoice Duplicate (correctness fix): `duplicateInvoice`
+    treated any item with `categoryId === null` as a deleted-category
+    item and rejected it — but a manual (Quick Invoice) item always
+    has `categoryId === null` by design, so every Quick Invoice failed
+    to duplicate, 100% of the time. Fixed by gating that rejection on
+    `original.invoiceMode !== 'quick'` (server-derived, never
+    client-supplied) — the one signal that tells "this item is
+    manual, by design" apart from "this item's category was deleted
+    out from under it". A Quick Invoice's items now rebuild as
+    `{ description, quantity, unitPrice }` (unitPrice from the saved
+    item's `calculatedUnitAmount`) instead of the category-item shape;
+    the category-item path itself is unchanged. See "F07 — Quick
+    Invoice Duplicate (Phase 47)" below
 
 Repo also went through a monorepo restructure (`server/` → `apps/api` +
 new `apps/web` + `packages/shared`) between Phase 1 and Phase 2.

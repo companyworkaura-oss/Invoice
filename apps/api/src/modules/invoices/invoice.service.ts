@@ -863,7 +863,20 @@ export async function getInvoice(companyId: string, invoiceId: string): Promise<
 export async function duplicateInvoice(companyId: string, userId: string, invoiceId: string): Promise<InvoiceWithItems> {
   const original = await getInvoice(companyId, invoiceId);
 
-  if (original.items.some((item) => !item.categoryId)) {
+  // F07: a manual (Quick Invoice) item has categoryId === null by
+  // construction — that's its normal, expected shape, not a sign of a
+  // deleted category (see InvoiceItem.categoryId's doc comment). The
+  // old guard below treated the two the same, which meant a Quick
+  // Invoice — *every* one, since every one of its items is manual —
+  // could never be duplicated at all. `invoiceMode` is server-derived
+  // from the items actually saved (see invoiceModeFromItems) and is
+  // the one authoritative way to tell a Quick Invoice (null categoryId
+  // by design) apart from a standard invoice whose item lost its
+  // category to a later deletion (also null, but invoiceMode stays
+  // 'standard' — it was never all-manual to begin with).
+  const isQuickInvoice = original.invoiceMode === 'quick';
+
+  if (!isQuickInvoice && original.items.some((item) => !item.categoryId)) {
     throw badRequest('Validation failed', {
       items: 'One or more items reference a deleted category and cannot be duplicated',
     });
@@ -883,18 +896,35 @@ export async function duplicateInvoice(companyId: string, userId: string, invoic
       showBillNumber: original.showBillNumber,
       discountType: original.discountType ?? undefined,
       discountValue: original.discountType ? original.discountValue : undefined,
-      items: original.items.map((item) => ({
-        categoryId: item.categoryId as string,
-        description: item.description ?? undefined,
-        // A category item (guaranteed by the guard above — a manual
-        // item has categoryId null and is already blocked) always has
-        // a stitch count too; they're set together in createInvoiceItem.
-        stitches: item.stitches as number,
-        // Each line's own quantity is copied — a duplicate is "the same
-        // order again", so BAZU=12/FRONT=8 stays BAZU=12/FRONT=8.
-        quantity: item.quantity,
-        rate: item.rate,
-      })),
+      items: original.items.map((item) =>
+        isQuickInvoice
+          ? {
+              // Manual item: no categoryId/stitches at all — just
+              // description/quantity/unitPrice, routing back through
+              // createManualInvoiceItem exactly like the original did.
+              // unitPrice comes from calculatedUnitAmount (createManual
+              // InvoiceItem stores unitPrice there, with no separate
+              // formula input/output distinction for a manual item);
+              // lineAmount (calculatedTotal) is always recalculated
+              // server-side from quantity * unitPrice, never copied.
+              description: item.description ?? undefined,
+              quantity: item.quantity,
+              unitPrice: item.calculatedUnitAmount,
+            }
+          : {
+              categoryId: item.categoryId as string,
+              description: item.description ?? undefined,
+              // A category item (guaranteed by the guard above) always
+              // has a stitch count too; they're set together in
+              // createInvoiceItem.
+              stitches: item.stitches as number,
+              // Each line's own quantity is copied — a duplicate is
+              // "the same order again", so BAZU=12/FRONT=8 stays
+              // BAZU=12/FRONT=8.
+              quantity: item.quantity,
+              rate: item.rate,
+            },
+      ),
     },
     { duplicatedFromInvoiceId: original.id, duplicatedFromInvoiceNumber: original.invoiceNumber },
   );

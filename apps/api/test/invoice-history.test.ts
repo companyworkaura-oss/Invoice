@@ -198,6 +198,52 @@ test('duplicate rejects when an item references a category that no longer exists
   assert.match(dup.body.details.items, /deleted category/);
 });
 
+// F07: a manual (Quick Invoice) item's categoryId is null by design —
+// never a sign of a deleted category. The old guard above blocked
+// duplicating a Quick Invoice entirely for that reason; see
+// duplicateInvoice's doc comment in invoice.service.ts.
+test('F07: a manual Quick Invoice duplicates successfully, copying description/quantity/unitPrice', async () => {
+  const agent = await registeredOwner('History Duplicate Quick Co');
+  const customerId = await createCustomer(agent, 'Quick Duplicate Customer');
+
+  const original = await agent.post('/api/invoices').send({
+    customerId,
+    items: [
+      { description: 'Custom Embroidery Job', quantity: '3', unitPrice: '25.00' },
+      { description: 'Rush Fee', quantity: '1', unitPrice: '10.00' },
+    ],
+  });
+  assert.equal(original.status, 201);
+  assert.equal(original.body.invoiceMode, 'quick');
+  assert.equal(original.body.totalAmount, '85.00'); // 3*25 + 1*10
+
+  await recordPayment(agent, customerId, '85.00');
+
+  const dup = await agent.post(`/api/invoices/${original.body.id}/duplicate`);
+  assert.equal(dup.status, 201);
+  assert.equal(dup.body.status, 'draft');
+  assert.equal(dup.body.invoiceMode, 'quick');
+  assert.equal(dup.body.customerId, customerId);
+  assert.notEqual(dup.body.id, original.body.id);
+  assert.equal(dup.body.totalAmount, '85.00');
+  assert.equal(dup.body.items.length, 2);
+
+  const byDescription = (description: string) =>
+    dup.body.items.find((i: { description: string }) => i.description === description);
+  const job = byDescription('Custom Embroidery Job');
+  assert.equal(job.categoryId, null);
+  assert.equal(job.quantity, '3.00');
+  assert.equal(job.calculatedUnitAmount, '25.00');
+  assert.equal(job.calculatedTotal, '75.00');
+  const rush = byDescription('Rush Fee');
+  assert.equal(rush.quantity, '1.00');
+  assert.equal(rush.calculatedUnitAmount, '10.00');
+  assert.equal(rush.calculatedTotal, '10.00');
+
+  // Payments are never copied — the duplicate starts fully unpaid.
+  assert.equal(dup.body.amountPaid, '0.00');
+});
+
 test('duplicate rejects when a category still exists but has since been disabled', async () => {
   const agent = await registeredOwner('History Duplicate Disabled Co');
   const customerId = await createCustomer(agent, 'Disabled Category Customer');
