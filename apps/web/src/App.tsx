@@ -37,27 +37,28 @@ function App() {
 
   useEffect(refreshMe, []);
 
-  // Collapse the profile panel whenever the active company changes, so
-  // switching companies never leaves a previous company's profile open.
-  useEffect(() => {
+  // Collapse the profile panel and clear the payments customer filter
+  // (F10) whenever the active company changes — switching companies (or
+  // logging out and back in: `me?.company.id` always passes through
+  // undefined first, so that counts as a change too, even into the same
+  // company) must never leave a previous company's profile panel open
+  // or carry its "View payments" shortcut into the next one.
+  //
+  // Adjusted during render rather than in a useEffect — the
+  // React-recommended way to reset state in response to a prop/value
+  // changing ("Adjusting state when a prop changes" in the React docs):
+  // a *state* variable (never a ref — reading a ref's current value
+  // during render is unreliable, since mutating it doesn't itself
+  // schedule the re-render a render-phase read depends on) tracks the
+  // last-seen company id, and setState is called conditionally, right
+  // here, so this resets in the very same render the company id
+  // changes in, with no extra commit-then-effect round trip.
+  const [lastSeenCompanyId, setLastSeenCompanyId] = useState(me?.company.id);
+  if (lastSeenCompanyId !== me?.company.id) {
+    setLastSeenCompanyId(me?.company.id);
     setShowProfile(false);
-  }, [me?.company.id]);
-
-  // F10: paymentsCustomerFilter is session/company-specific UI state —
-  // a shortcut from "View payments" on one customer, not something
-  // that should ever outlive the company it was set for. Without this,
-  // PaymentsPage already remounts fresh on a company switch (its own
-  // `key={me.company.id}` below), but it's immediately re-seeded with
-  // whatever customer id was last set for the *previous* company,
-  // since that id lives here in App, one level up, untouched by the
-  // remount. `me?.company.id` changes on every company switch AND on
-  // every logout/login transition (it becomes undefined on logout,
-  // then whatever the next login's company is — even the same
-  // company again counts as a change, since it passes through
-  // undefined first), so one effect covers both requirements.
-  useEffect(() => {
     setPaymentsCustomerFilter(undefined);
-  }, [me?.company.id]);
+  }
 
   async function handleLogout() {
     await authApi.logout().catch(() => undefined);

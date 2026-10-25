@@ -42,9 +42,19 @@ export function PaymentsPage({ permissions, initialCustomerId }: Props) {
   // survive inside this component's own state even after the parent's
   // value was cleared, since nothing ever told this effect to clear it
   // too.
-  useEffect(() => {
+  //
+  // Adjusted during render rather than in a useEffect — same
+  // React-recommended "reset state when a prop changes" pattern as
+  // App.tsx's company-change reset: a *state* variable (never a ref —
+  // reading one during render is unreliable) tracks the last-seen prop
+  // value, and setState is called conditionally, right here, so this
+  // settles within the same render the prop changes in instead of an
+  // extra commit-then-effect round trip.
+  const [lastSeenInitialCustomerId, setLastSeenInitialCustomerId] = useState(initialCustomerId);
+  if (lastSeenInitialCustomerId !== initialCustomerId) {
+    setLastSeenInitialCustomerId(initialCustomerId);
     setCustomerFilter(initialCustomerId ?? '');
-  }, [initialCustomerId]);
+  }
 
   async function handleDelete(payment: Payment) {
     if (!window.confirm(DELETE_CONFIRM)) return;

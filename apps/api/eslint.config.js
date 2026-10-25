@@ -8,7 +8,13 @@ export default tseslint.config(
   ...tseslint.configs.recommended,
   {
     rules: {
-      '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
+      // argsIgnorePattern covers unused function params; varsIgnorePattern
+      // is the matching rule for a destructured binding deliberately kept
+      // (and conventionally underscore-prefixed) only to omit it from the
+      // rest of the destructure — e.g. membership.service.ts's
+      // `switchCompany` picking every field *except* status/deactivatedAt
+      // off a DB row via `const { status: _status, ...membership } = row`.
+      '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
     },
   },
   {

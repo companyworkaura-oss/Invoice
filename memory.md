@@ -2974,6 +2974,66 @@ clearing the state one level up (App) isn't enough if the consumer
   `PaymentsPage`'s own pre-existing sync effect) — same idiom, same
   warning-not-error severity, no new lint failures.
 
+## Final Quality Pass After F01–F10 (Phase 51)
+
+No new functionality — purely cleaning up the two remaining lint
+issues the F01–F10 run had left as pre-existing/newly-introduced
+warnings, then re-verifying all ten fixes together.
+
+- **`membership.service.ts`'s two `no-unused-vars` errors**: these
+  were never a real bug — `switchCompany`'s
+  `const { status: _status, deactivatedAt: _deactivatedAt, ...membership } = rows[0]`
+  deliberately destructures those two fields only to drop them from
+  the returned object, and `_`-prefixing is this codebase's existing
+  convention for "yes, deliberately unused" (already configured for
+  function *arguments* via `argsIgnorePattern: '^_'` in
+  `apps/api/eslint.config.js`). The config simply never extended that
+  same convention to local/destructured *variables*. Fixed by adding
+  `varsIgnorePattern: '^_'` alongside the existing `argsIgnorePattern`
+  — a one-line config change, no code touched, and confirmed (via a
+  repo-wide grep) that this is the only `_`-prefixed variable in the
+  codebase, so nothing else is newly masked by it.
+- **`App.tsx`/`PaymentsPage.tsx`'s `set-state-in-effect` warnings**
+  (the F10 phase's own two new "reset state when `me?.company.id`/
+  `initialCustomerId` changes" effects, plus the pre-existing
+  `showProfile` effect they sat next to): rewritten using the
+  React-docs-endorsed alternative to a `useEffect` for exactly this
+  shape of problem — "Adjusting state when a prop changes" — a
+  **state** variable (not a ref: a first attempt using `useRef` fixed
+  the warning in `App.tsx` but oxlint's separate `react(refs)` rule
+  caught the same pattern in `PaymentsPage.tsx`, correctly: reading
+  `ref.current` during render is unreliable because mutating a ref
+  never itself schedules the re-render a render-phase read depends
+  on) tracks the last-seen value, compared and conditionally
+  `setState`'d directly in the render body, not inside any
+  `useEffect` at all. This actually resolves the underlying concern
+  the lint rule flags (an extra commit-then-effect round trip) rather
+  than just silencing the warning — the reset now lands in the exact
+  same render the triggering value changes in. Confirmed zero oxlint
+  warnings (not just zero errors) after this change, and re-ran the
+  full F10 Playwright verification (register, view-payments, create a
+  second company and switch, logout/login) against the refactored
+  code — identical PASS results to the original `useEffect`-based
+  version.
+- **Full regression pass, F01–F10**: re-ran the complete `npm test`
+  suite (`shared` 61/61, `api` 336/336, `web` 21/21 — 418 tests, 0
+  failures) with the lint fixes in place, plus a targeted
+  `--test-name-pattern` sweep for every backend finding's own tests
+  individually (F01, F02, F03, F04, F06, F07, F08, F09 — all still
+  pass) and the frontend-only findings' own test files (F05's
+  `preview.test.ts`, F06's `quick-save.test.ts`, F08's
+  `profile-patch.test.ts` — all still pass). F10 has no dedicated test
+  file (frontend component-lifecycle behavior with no pure logic to
+  extract — see Phase 50) and was re-verified live via the same
+  Playwright script used when it was originally fixed, against the
+  rewritten (no-`useEffect`) version of the reset logic.
+- `npm run typecheck`, `npm run build`, `npm test`, and `npm run lint`
+  — all four run clean from the repo root, `npm run lint` with zero
+  errors *and* zero warnings for the first time since F01 (every
+  prior phase's lint run carried the one `membership.service.ts`
+  failure and/or the `set-state-in-effect` warnings as "confirmed
+  pre-existing, untouched").
+
 ## Known gotchas / things to check before starting work
 
 - **Postgres cluster is often stopped** when a session starts:
@@ -3593,6 +3653,23 @@ clearing the state one level up (App) isn't enough if the consumer
     login UI flows), including a regression check that reverting the
     fix made the same script fail. See "F10 — Reset Payment Customer
     Filter on Company Switch (Phase 50)" below
+
+56. Final Quality Pass After F01–F10 (lint cleanup, no functional
+    change): fixed the two remaining lint issues — added
+    `varsIgnorePattern: '^_'` to `apps/api/eslint.config.js` (matching
+    the existing `argsIgnorePattern: '^_'`) so
+    `membership.service.ts`'s deliberately-unused destructured
+    `_status`/`_deactivatedAt` stop erroring; rewrote the F10 phase's
+    "reset state when `me?.company.id`/`initialCustomerId` changes"
+    logic (and the pre-existing `showProfile` effect alongside it) to
+    use the React-docs "adjust state during render" pattern instead of
+    `useEffect` — a state variable (not a ref, which oxlint's
+    `react(refs)` rule correctly flags for the same reason) tracks the
+    last-seen value and conditionally calls `setState` directly in the
+    render body. `npm run lint` now passes with zero errors and zero
+    warnings. Full regression pass confirmed all ten findings' tests
+    (and a live Playwright re-check for F10, which has none) still
+    pass. See "Final Quality Pass After F01–F10 (Phase 51)" below
 
 Repo also went through a monorepo restructure (`server/` → `apps/api` +
 new `apps/web` + `packages/shared`) between Phase 1 and Phase 2.
