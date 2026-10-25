@@ -3034,6 +3034,60 @@ warnings, then re-verifying all ten fixes together.
   failure and/or the `set-state-in-effect` warnings as "confirmed
   pre-existing, untouched").
 
+## F01 Re-Verification + Serving Hardening (Phase 52)
+
+Explicitly re-audited the Phase 41 SVG-upload fix from scratch rather
+than trusting it — read every layer (multer fileFilter, the frontend
+`accept` attribute, `detectImageSignature`'s magic-byte check, the
+saved filename/extension logic, and `/uploads`' static serving), then
+independently reproduced the exact exploit attempt outside the
+existing test suite (a standalone script, not the committed tests)
+with three payloads: an honest `image/svg+xml` SVG, the same SVG
+bytes relabeled `image/png`, and relabeled `image/jpeg`. **All three
+were correctly rejected** (400, `logoUrl` stayed `null`), and a real
+PNG upload through the same flow was correctly accepted — the Phase
+41 fix for the core vulnerability (SVG accepted as a logo) is
+genuinely effective; it was not reproducible on this branch.
+
+- **What the audit confirmed already works, and why**: `multer`'s
+  `fileFilter` is explicitly documented in its own comment as only a
+  fast, spoofable first pass (checks the client-supplied
+  Content-Type); the actual gate is `detectImageSignature()`
+  (`apps/api/src/lib/storage/image-signature.ts`), which matches the
+  file's real leading bytes against PNG/JPEG/WEBP magic numbers only
+  — SVG (or anything else) can never pass no matter what Content-Type
+  or filename accompanies it. The saved file's extension always comes
+  from the *detected* signature, never from the client's filename, so
+  there's no way to get a `.svg`-flavored URL (or any mismatched
+  extension) out of the upload path at all.
+- **One residual hardening gap found and fixed — not a reproducible
+  bypass of the core finding**: `/uploads` (`app.ts`) was served via
+  plain `express.static` with no `X-Content-Type-Options: nosniff`
+  header. This doesn't let an SVG through — upload-time validation
+  already blocks that — but it's exactly the kind of defense-in-depth
+  the original F01 finding's "serving behavior" category calls for:
+  without it, a browser's own content-sniffing (specific to older/
+  edge-case browser behavior, not a gap this app's validation could
+  close any other way) is the only thing standing between a served
+  file's declared Content-Type and how a browser might actually treat
+  it. Added `setHeaders: (res) => res.setHeader('X-Content-Type-Options', 'nosniff')`
+  to the `/uploads` `express.static` options — confirmed via a live
+  request that the header is now present on every served upload.
+- **Regression test, proven to fail before and pass after** (the
+  task's own requirement): added `'F01: served uploads carry
+  X-Content-Type-Options: nosniff'` to
+  `apps/api/test/company-profile.test.ts`. Verified directly — `git
+  stash` the `app.ts` change, re-ran the one new test by name: fails
+  (`undefined` !== `'nosniff'`); restored the change, re-ran the same
+  test: passes. The three pre-existing SVG-rejection tests (plain SVG,
+  script-bearing SVG, SVG-disguised-as-PNG) were also re-run directly
+  and confirmed still passing unchanged — they were never broken to
+  begin with.
+- `npm run typecheck`, `npm run build`, `npm test` (shared 61/61 + api
+  337/337 + web 21/21, all clean), and `npm run lint` (zero errors,
+  zero warnings, same as the end of the Phase 51 quality pass) all
+  clean.
+
 ## Known gotchas / things to check before starting work
 
 - **Postgres cluster is often stopped** when a session starts:
@@ -3670,6 +3724,19 @@ warnings, then re-verifying all ten fixes together.
     warnings. Full regression pass confirmed all ten findings' tests
     (and a live Playwright re-check for F10, which has none) still
     pass. See "Final Quality Pass After F01–F10 (Phase 51)" below
+
+57. F01 Re-Verification + Serving Hardening: independently re-audited
+    and live-reproduced the Phase 41 SVG-upload fix from scratch (not
+    trusting the prior fix) — confirmed the core vulnerability (SVG
+    accepted as a logo, via honest Content-Type or disguised as PNG/
+    JPEG) is NOT reproducible; `detectImageSignature`'s magic-byte
+    check genuinely blocks all three. Found and fixed one residual
+    serving-layer hardening gap in scope ("/uploads serving behavior"):
+    no `X-Content-Type-Options: nosniff` header on served uploads.
+    Added it via `express.static`'s `setHeaders` option in `app.ts`.
+    New regression test proven to fail before this change and pass
+    after. See "F01 Re-Verification + Serving Hardening (Phase 52)"
+    below
 
 Repo also went through a monorepo restructure (`server/` → `apps/api` +
 new `apps/web` + `packages/shared`) between Phase 1 and Phase 2.

@@ -174,6 +174,23 @@ test('uploading a logo stores it, updates logoUrl, and serves it back', async ()
   assert.equal(oldLogoNowGone.status, 404);
 });
 
+// F01 hardening: served uploads must carry X-Content-Type-Options:
+// nosniff, so a browser is never left free to re-interpret a served
+// file as something other than the Content-Type this response
+// actually sent, on top of (never instead of) detectImageSignature()
+// already rejecting anything that isn't a real PNG/JPEG/WEBP at
+// upload time.
+test('F01: served uploads carry X-Content-Type-Options: nosniff', async () => {
+  const agent = await registeredOwner('Nosniff Header Co');
+  const png = readFileSync(path.join(here, 'fixtures', 'tiny.png'));
+  const upload = await agent.post('/api/company/logo').attach('logo', png, { filename: 'logo.png', contentType: 'image/png' });
+  assert.equal(upload.status, 201);
+
+  const served = await request(app).get(upload.body.logoUrl);
+  assert.equal(served.status, 200);
+  assert.equal(served.headers['x-content-type-options'], 'nosniff');
+});
+
 test('rejects a non-image file for logo upload', async () => {
   const agent = await registeredOwner('Bad Logo Co');
   const res = await agent.post('/api/company/logo').attach('logo', Buffer.from('not an image'), {

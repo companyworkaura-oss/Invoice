@@ -22,8 +22,22 @@ export function createApp() {
   app.disable('x-powered-by');
   app.set('trust proxy', 1);
   app.use(requestLogging);
-  // Uploaded logos (local storage backend); served read-only, no directory listing.
-  app.use('/uploads', express.static(config.uploadsDir, { index: false }));
+  // Uploaded logos (local storage backend); served read-only, no directory
+  // listing. `X-Content-Type-Options: nosniff` (F01 hardening) stops a
+  // browser from ever re-interpreting a served file as something other
+  // than the Content-Type this sends — belt-and-suspenders on top of
+  // detectImageSignature() already rejecting anything that isn't a real
+  // PNG/JPEG/WEBP at upload time (see company.routes.ts): even a
+  // pathological case this app's own validation somehow missed could
+  // never be executed as HTML/script just because a browser's content
+  // sniffing guessed differently from the Content-Type actually sent.
+  app.use(
+    '/uploads',
+    express.static(config.uploadsDir, {
+      index: false,
+      setHeaders: (res) => res.setHeader('X-Content-Type-Options', 'nosniff'),
+    }),
+  );
   app.use(express.json({ limit: '100kb' }));
   app.use('/api', requireJsonForMutations);
 
