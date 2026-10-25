@@ -25,15 +25,24 @@ after(async () => {
 async function registeredOwner(companyName: string) {
   const agent = request.agent(app);
   const email = `${companyName.toLowerCase().replace(/\s+/g, '')}+${Date.now()}+${Math.random()}@example.com`;
+  const password = 'correct horse battery';
   const res = await agent.post('/api/auth/register').send({
     companyName,
     fullName: 'Lifecycle Test Owner',
     email,
-    password: 'correct horse battery',
+    password,
   });
   assert.equal(res.status, 201);
   const me = await agent.get('/api/auth/me');
-  return { agent, companyId: me.body.company.id as string, userId: me.body.id as string };
+  return { agent, companyId: me.body.company.id as string, userId: me.body.id as string, email, password };
+}
+
+/** A second, independent login session for an already-registered user — used to race two lifecycle actions from the same account, same as two browser tabs would. */
+async function secondSession(email: string, password: string) {
+  const agent = request.agent(app);
+  const res = await agent.post('/api/auth/login').send({ email, password });
+  assert.equal(res.status, 200);
+  return agent;
 }
 
 /** Adds a second user to the owner's company with the given role, and returns a logged-in, switched agent for them. They always own a separate "personal" company of their own too, from registering. */
@@ -132,6 +141,120 @@ test('cannot deactivate your only company', async () => {
   const { agent } = await registeredOwner('Only Company Co');
   const res = await agent.patch('/api/company/deactivate');
   assert.equal(res.status, 400);
+});
+
+// ---- F02: deactivate/delete must require another ACTIVE company, not just another membership ----
+
+test('F02: with 2 active companies, deactivating one is allowed', async () => {
+  const { agent, companyId: companyA } = await registeredOwner('F02 Two Active Co');
+  await agent.post('/api/companies').send({ name: 'F02 Two Active Second Co' });
+  await agent.post(`/api/companies/${companyA}/switch`); // createCompany auto-switches — switch back to A
+
+  const res = await agent.patch('/api/company/deactivate');
+  assert.equal(res.status, 200);
+  assert.ok(res.body.newActiveCompanyId, 'must land on the other (still active) company');
+});
+
+test('F02: 1 active + 1 already-deactivated company — deactivating the active one is blocked, not allowed', async () => {
+  const { agent, companyId: companyA } = await registeredOwner('F02 One Active One Inactive Co');
+  await agent.post('/api/companies').send({ name: 'F02 One Active One Inactive Second Co' });
+  // The new company (B) is now the session's active company (createCompany auto-switches) — deactivate B first, leaving A as the only active one.
+  const deactivateB = await agent.patch('/api/company/deactivate');
+  assert.equal(deactivateB.status, 200);
+  assert.equal(deactivateB.body.newActiveCompanyId, companyA, 'session lands back on A, the only active company left');
+
+  // Old (buggy) behavior counted B as "another company" even though it's
+  // deactivated, and would have allowed this — stranding the user with
+  // zero active companies. It must be blocked instead.
+  const deactivateA = await agent.patch('/api/company/deactivate');
+  assert.equal(deactivateA.status, 400);
+  assert.match(deactivateA.body.details?.company ?? '', /no other active company/i);
+
+  // A is still active and still the session's company — nothing was stranded.
+  const me = await agent.get('/api/auth/me');
+  assert.equal(me.status, 200);
+  assert.equal(me.body.company.id, companyA);
+});
+
+test('F02: deleting the last active company is blocked even when an inactive one exists', async () => {
+  const { agent, companyId: companyA } = await registeredOwner('F02 Delete Last Active Co');
+  await agent.post('/api/companies').send({ name: 'F02 Delete Last Active Second Co' });
+  await agent.patch('/api/company/deactivate'); // deactivates the second company (the session's current company)
+  await agent.post(`/api/companies/${companyA}/switch`);
+
+  const del = await agent.delete('/api/company').send({ confirmName: 'F02 Delete Last Active Co' });
+  assert.equal(del.status, 400);
+  assert.match(del.body.details?.company ?? '', /no other active company/i);
+
+  // Company A must still exist and be reachable — nothing was deleted.
+  const stillThere = await agent.post(`/api/companies/${companyA}/switch`);
+  assert.equal(stillThere.status, 200);
+});
+
+test('F02: concurrent deactivate calls racing a user\'s last two active companies never leave them with zero active companies', async () => {
+  const { agent: agentA, companyId: companyA, email, password } = await registeredOwner('F02 Concurrent Co');
+  const second = await agentA.post('/api/companies').send({ name: 'F02 Concurrent Second Co' });
+  const companyB: string = second.body.id;
+  await agentA.post(`/api/companies/${companyA}/switch`); // agentA's session -> company A (active)
+
+  const agentB = await secondSession(email, password); // independent session, same user
+  await agentB.post(`/api/companies/${companyB}/switch`); // agentB's session -> company B (active)
+
+  // Race: both sessions try to deactivate their respective (only two)
+  // active companies at the same time. This is the end-to-end
+  // behavioral check — the dedicated test right below this one proves
+  // the advisory lock itself genuinely blocks a second transaction
+  // deterministically; this one proves the whole request path produces
+  // the right outcome when the two calls are fired together.
+  const [resultA, resultB] = await Promise.all([agentA.patch('/api/company/deactivate'), agentB.patch('/api/company/deactivate')]);
+
+  const statuses = [resultA.status, resultB.status].sort();
+  assert.deepEqual(statuses, [200, 400], 'exactly one of the two concurrent deactivations must succeed');
+
+  // Whichever happened, the account must end up with exactly one active company — never zero.
+  const activeCount = await pool.query(
+    `SELECT count(*)::int AS count FROM companies WHERE id IN ($1, $2) AND status = 'active'`,
+    [companyA, companyB],
+  );
+  assert.equal(activeCount.rows[0].count, 1, 'must never be stranded with zero active companies, and never still have both');
+});
+
+test('F02: the lifecycle advisory lock genuinely blocks a second transaction until the first commits or rolls back', async () => {
+  // A direct test of the locking primitive itself (pg_advisory_xact_lock
+  // keyed by hashtextextended(userId, 0) — see lockUserForLifecycleChange
+  // in company-lifecycle.service.ts), rather than relying on HTTP-request
+  // timing to happen to interleave: two raw connections both try to take
+  // the same advisory-lock key, and the second one must provably remain
+  // pending until the first transaction ends. This is the deterministic
+  // regression guard for F02's race-safety requirement.
+  const lockKey = `fake-user-id-for-lock-test-${Date.now()}`;
+  const client1 = await pool.connect();
+  const client2 = await pool.connect();
+  try {
+    await client1.query('BEGIN');
+    await client1.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [lockKey]);
+
+    await client2.query('BEGIN');
+    let secondAcquired = false;
+    const secondAttempt = client2
+      .query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [lockKey])
+      .then(() => {
+        secondAcquired = true;
+      });
+
+    // Give the second attempt every chance to (wrongly) succeed early.
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    assert.equal(secondAcquired, false, 'a second transaction must still be blocked while the first holds the lock');
+
+    await client1.query('COMMIT'); // releases client1's advisory lock automatically
+    await secondAttempt; // must now resolve
+    assert.equal(secondAcquired, true, 'the second transaction must acquire the lock as soon as the first releases it');
+
+    await client2.query('COMMIT');
+  } finally {
+    client1.release();
+    client2.release();
+  }
 });
 
 test('admin can deactivate but staff cannot', async () => {

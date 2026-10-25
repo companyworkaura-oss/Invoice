@@ -28,12 +28,21 @@ async function lockCompanyForUpdate(
   return rows[0];
 }
 
-/** How many companies this user belongs to at all (active or deactivated) — used to block stranding the caller with zero companies. */
-async function countMemberships(client: { query: typeof pool.query }, userId: string): Promise<number> {
-  const { rows } = await client.query<{ count: string }>('SELECT count(*)::int AS count FROM company_members WHERE user_id = $1', [
-    userId,
-  ]);
-  return Number(rows[0].count);
+/**
+ * Serializes every deactivate/delete this user performs, across
+ * concurrent requests/sessions, so two lifecycle actions racing to
+ * each remove one of the user's last two active companies can never
+ * both pass the "another active company exists" check before either
+ * commits (F02). An ordinary row lock can't protect this invariant —
+ * it spans every company the user belongs to, not one row — so this
+ * takes a transaction-scoped Postgres advisory lock keyed on the
+ * user's id instead. It's automatically released at COMMIT/ROLLBACK
+ * (pg_advisory_xact_lock, not the session-scoped pg_advisory_lock),
+ * matching withTransaction's lifecycle exactly, and hashtextextended
+ * turns the user's uuid into the bigint key the function requires.
+ */
+async function lockUserForLifecycleChange(client: { query: typeof pool.query }, userId: string): Promise<void> {
+  await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [userId]);
 }
 
 /** The caller's role in a *specific* company, independent of which company their session currently has active — reactivate targets a company that, by definition, can't be the active one. */
@@ -51,10 +60,17 @@ function requireMembershipPermission(role: Role | null, permission: 'company.dea
 }
 
 /**
- * Picks another active company this user belongs to (oldest first, same
- * tiebreak as login's default-membership pick) — used to re-point the
- * caller's own session after deactivating/deleting their current one,
- * so they land somewhere real instead of a 401.
+ * Picks another ACTIVE company this user belongs to (oldest first,
+ * same tiebreak as login's default-membership pick) — a deactivated
+ * company never counts, which is the whole fix for F02 ("stranding"
+ * a user: the old safety check counted every membership regardless of
+ * status, so a user with one active + one already-deactivated company
+ * could deactivate/delete their only active one and be left with zero
+ * active companies). Doing one call here both answers "is this
+ * deactivate/delete safe to proceed with" (null means no — the caller
+ * must block) and, when it's not null, supplies the exact company to
+ * re-point the caller's own session to — one query serves both jobs,
+ * so the safety check and the repoint target can never disagree.
  */
 async function pickAnotherActiveCompany(
   client: { query: typeof pool.query },
@@ -88,16 +104,26 @@ export interface LifecycleResult extends CompanyMembership {
  */
 export async function deactivateCompany(companyId: string, userId: string, sessionId: string): Promise<{ newActiveCompanyId: string | null }> {
   return withTransaction(async (client) => {
+    // Must come before locking the company row: this is what prevents
+    // two concurrent deactivate/delete calls from this same user (e.g.
+    // their last two active companies, raced from two tabs/sessions)
+    // from both reading "another active company exists" before either
+    // has committed. See lockUserForLifecycleChange's doc comment.
+    await lockUserForLifecycleChange(client, userId);
     const company = await lockCompanyForUpdate(client, companyId);
     const role = await getMembershipRole(client, companyId, userId);
     requireMembershipPermission(role, 'company.deactivate');
     if (company.status === 'deactivated') {
       throw badRequest('Validation failed', { status: 'This company is already deactivated' });
     }
-    const membershipCount = await countMemberships(client, userId);
-    if (membershipCount <= 1) {
+
+    // F02: must be another ACTIVE company, never just another
+    // membership — a membership in an already-deactivated company
+    // doesn't give the user anywhere to land, so it must not count.
+    const newActiveCompanyId = await pickAnotherActiveCompany(client, userId, companyId);
+    if (!newActiveCompanyId) {
       throw badRequest('Validation failed', {
-        company: 'This is your only company. Create another company before deactivating this one.',
+        company: 'You have no other active company. Create or reactivate another company before deactivating this one.',
       });
     }
 
@@ -113,20 +139,14 @@ export async function deactivateCompany(companyId: string, userId: string, sessi
 
     // The caller's own session was (by construction — this route only
     // ever acts on the active company) pointing here. Re-point it to
-    // another active company now, in the same transaction, so their
-    // very next request lands somewhere real instead of a 401 from
-    // requireAuth's status filter.
-    const newActiveCompanyId = await pickAnotherActiveCompany(client, userId, companyId);
-    if (newActiveCompanyId) {
-      await client.query('UPDATE sessions SET company_id = $1 WHERE id = $2 AND user_id = $3', [
-        newActiveCompanyId,
-        sessionId,
-        userId,
-      ]);
-    }
-    // No "else" branch needed: the membershipCount <= 1 guard above
-    // already guarantees another active company exists here, since a
-    // deactivated company can't itself be the one found by that query.
+    // the active company already found above, in the same transaction,
+    // so their very next request lands somewhere real instead of a 401
+    // from requireAuth's status filter.
+    await client.query('UPDATE sessions SET company_id = $1 WHERE id = $2 AND user_id = $3', [
+      newActiveCompanyId,
+      sessionId,
+      userId,
+    ]);
 
     return { newActiveCompanyId };
   });
@@ -198,16 +218,22 @@ export async function deleteCompanyPermanently(
   confirmName: string,
 ): Promise<{ newActiveCompanyId: string | null }> {
   const result = await withTransaction<DeleteResult>(async (client) => {
+    // Same race protection as deactivateCompany — see
+    // lockUserForLifecycleChange's doc comment.
+    await lockUserForLifecycleChange(client, userId);
     const company = await lockCompanyForUpdate(client, companyId);
     const role = await getMembershipRole(client, companyId, userId);
     requireMembershipPermission(role, 'company.delete');
     if (confirmName !== company.name) {
       throw badRequest('Validation failed', { confirmName: 'Type the company name exactly to confirm deletion' });
     }
-    const membershipCount = await countMemberships(client, userId);
-    if (membershipCount <= 1) {
+
+    // F02: must be another ACTIVE company, never just another
+    // membership — see pickAnotherActiveCompany's doc comment.
+    const newActiveCompanyId = await pickAnotherActiveCompany(client, userId, companyId);
+    if (!newActiveCompanyId) {
       throw badRequest('Validation failed', {
-        company: 'This is your only company. Create another company before deleting this one.',
+        company: 'You have no other active company. Create or reactivate another company before deleting this one.',
       });
     }
 
@@ -225,20 +251,19 @@ export async function deleteCompanyPermanently(
     // Re-point the caller's own session away from this company *before*
     // the delete below — so when the company (and every session still
     // pointing at it) cascades away, this session's row has already
-    // moved and survives. Guaranteed to find one by the membershipCount
-    // guard above. Every *other* member's session pointing here is
+    // moved and survives. (newActiveCompanyId was already resolved by
+    // the F02 safety check above — reusing it here, rather than
+    // querying again, means the check and the repoint target can never
+    // disagree.) Every *other* member's session pointing here is
     // deliberately left alone and lets the cascade remove it — the same
     // "a vanished tenant logs its members out" behavior a revoked
     // membership already causes today (see requireAuth), not a new kind
     // of failure this feature introduces.
-    const newActiveCompanyId = await pickAnotherActiveCompany(client, userId, companyId);
-    if (newActiveCompanyId) {
-      await client.query('UPDATE sessions SET company_id = $1 WHERE id = $2 AND user_id = $3', [
-        newActiveCompanyId,
-        sessionId,
-        userId,
-      ]);
-    }
+    await client.query('UPDATE sessions SET company_id = $1 WHERE id = $2 AND user_id = $3', [
+      newActiveCompanyId,
+      sessionId,
+      userId,
+    ]);
 
     // Durable, outside the cascade — see this function's doc comment.
     await client.query(

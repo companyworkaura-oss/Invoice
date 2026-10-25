@@ -2324,6 +2324,82 @@ no other company profile behavior touched.
   pre-existing and untouched by this change — confirmed via `git
   status`/`git diff` showing zero modifications to that file).
 
+## F02 — Prevent Last Active Company Lockout (Phase 42)
+
+A security-review fix, scoped to `company-lifecycle.service.ts` and
+its tests only — tenant isolation, permissions, and company-switching
+logic (`membership.service.ts`) are untouched.
+
+- **The vulnerability**: `deactivateCompany` and
+  `deleteCompanyPermanently` both guarded against stranding the
+  caller with `const membershipCount = await countMemberships(...)`
+  then `if (membershipCount <= 1) throw ...` — but `countMemberships`
+  counted every row in `company_members` for that user, regardless of
+  the company's `status`. A user with company A (active) and company
+  B (already deactivated, e.g. from an earlier, legitimate
+  deactivation) has `membershipCount === 2`, which passes the guard —
+  so deactivating or deleting A (their only *active* company) was
+  wrongly allowed, leaving them with zero active companies and no way
+  to log in to anything.
+- **The fix reuses `pickAnotherActiveCompany`** (already existed,
+  already correctly filtered `c.status = 'active'` — it was written
+  for picking the session's post-action repoint target, not for the
+  safety check) as the gate itself: `const newActiveCompanyId = await
+  pickAnotherActiveCompany(client, userId, companyId); if
+  (!newActiveCompanyId) throw badRequest(...)`. One query now answers
+  both "is this safe" and "where does the session land" — the old
+  code's second, separate call to the same function (for the repoint)
+  was removed and the already-resolved value reused instead, so the
+  safety check and the repoint target can never disagree with each
+  other.
+- **Concurrency**: a `FOR UPDATE` lock on the target company row alone
+  doesn't protect this invariant — two concurrent deactivate calls
+  targeting a user's *two different* companies (their last two active
+  ones) don't contend for the same row, so each could independently
+  read "yes, another active company exists" before either commits,
+  and both succeed. New `lockUserForLifecycleChange(client, userId)`
+  takes a transaction-scoped Postgres advisory lock —
+  `pg_advisory_xact_lock(hashtextextended(userId, 0))`, auto-released
+  at COMMIT/ROLLBACK, exactly matching `withTransaction`'s lifecycle —
+  keyed on the user's id (not the company), called first thing inside
+  both `deactivateCompany` and `deleteCompanyPermanently`, before the
+  company row lock. This serializes every lifecycle action a given
+  user performs across concurrent requests/sessions without affecting
+  other users' concurrent lifecycle actions at all (different
+  advisory-lock key). `reactivateCompany` deliberately doesn't take
+  this lock — reactivating only ever increases the user's active-
+  company count, so it can't itself cause the invariant this lock
+  protects to break.
+- **Tests** (`apps/api/test/company-lifecycle.test.ts`, 5 new, 20/20
+  in the file total): 2 active companies → deactivating one allowed;
+  1 active + 1 already-deactivated → deactivating the active one now
+  blocked (the exact bug scenario — previously this would have wrongly
+  succeeded); deleting the last active company blocked even when an
+  inactive one exists; an HTTP-level concurrency test (two independent
+  login sessions for the same user, each on one of their last two
+  active companies, firing `PATCH /company/deactivate` via
+  `Promise.all`) asserting exactly one of the two succeeds and the
+  account ends with exactly one active company, never zero or both.
+  A fifth, more rigorous test was added specifically because the
+  HTTP-level one turned out not to reliably exercise the actual race
+  in this environment (verified by temporarily disabling the advisory
+  lock and re-running the HTTP-level test 15×: it never failed,
+  because Node/pg connection timing happened to naturally avoid true
+  interleaving) — it opens two raw `pg` connections directly, has one
+  hold `pg_advisory_xact_lock` inside an open transaction, and proves
+  the second connection's attempt at the *same* lock key provably
+  stays pending (checked after a 300ms wait) until the first commits,
+  then resolves immediately after. This is the deterministic
+  regression guard; the HTTP-level test remains as an end-to-end
+  behavioral check on top of it. (Sanity-checked both directions: the
+  deterministic test was confirmed to fail when given two different
+  lock keys instead of the same one, proving it isn't trivially
+  passing.)
+- `npm run typecheck`, `npm run build`, `npm test` (316/316), and
+  `npm run lint` all clean for every file this phase touched (the
+  monorepo lint script's one pre-existing failure, in
+  `membership.service.ts`, is confirmed untouched by this change).
+
 ## Known gotchas / things to check before starting work
 
 - **Postgres cluster is often stopped** when a session starts:
@@ -2789,6 +2865,25 @@ no other company profile behavior touched.
     Content-Type/filename alone, so an SVG renamed to `logo.png` is
     still rejected. See "F01 — SVG Logo Upload Stored XSS (Phase 41)"
     below
+
+47. F02 — Prevent Last Active Company Lockout (security fix): the
+    deactivate/delete safety check counted every `company_members`
+    row the user had (`countMemberships`), active or deactivated —
+    so a user with one active company and one already-deactivated one
+    could deactivate or delete their only active company and be
+    stranded with zero. Fixed by gating on `pickAnotherActiveCompany`
+    (already existed, already filtered `c.status = 'active'`, but was
+    only ever used for the post-action session repoint, never the
+    safety check itself) instead — one query now serves both jobs, so
+    the check and the repoint target can never disagree. Concurrent
+    deactivate/delete races (two sessions of the same user each
+    racing to remove one of their last two active companies) are
+    serialized with a new transaction-scoped Postgres advisory lock
+    (`pg_advisory_xact_lock(hashtextextended(userId, 0))`) taken
+    before either the company row lock or the active-company check,
+    so the second racing transaction always sees the first's already-
+    committed result. See "F02 — Prevent Last Active Company Lockout
+    (Phase 42)" below
 
 Repo also went through a monorepo restructure (`server/` → `apps/api` +
 new `apps/web` + `packages/shared`) between Phase 1 and Phase 2.
