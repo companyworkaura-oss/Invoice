@@ -6,6 +6,7 @@ import type {
   InvoiceStatus,
   InvoiceWithItems,
   WhatsAppSharePayload,
+  WhatsAppSharePreview,
 } from '@invoice/shared';
 import { api } from '../../lib/api';
 
@@ -102,13 +103,30 @@ export const invoicePdfUrl = (invoiceId: string, templateId?: string) =>
   `/api/invoices/${invoiceId}/pdf${templateId ? `?template=${encodeURIComponent(templateId)}` : ''}`;
 
 /**
- * Builds a WhatsApp share payload (message text + wa.me link) server-side
- * from the customer's saved WhatsApp number. Behind the same interface on
- * the API side that a future paid WhatsApp Business Cloud API would slot
- * into — this call never changes shape.
+ * F03: read-only preview — message text, the manual wa.me link, and
+ * whether the server can actually send via WhatsApp Business Cloud
+ * API (`cloudApiConfigured`). Never sends anything; safe to call any
+ * number of times, e.g. to re-render the preview before the user
+ * decides whether to send.
  */
-export const getWhatsAppShare = (invoiceId: string) =>
-  api<WhatsAppSharePayload>(`/invoices/${invoiceId}/whatsapp-share`);
+export const getWhatsAppSharePreview = (invoiceId: string) =>
+  api<WhatsAppSharePreview>(`/invoices/${invoiceId}/whatsapp-share`);
+
+/**
+ * F03: the one call that may actually trigger a WhatsApp Business
+ * Cloud API send server-side — only meaningful (and only ever called
+ * by the frontend) when the preview's `cloudApiConfigured` is true;
+ * when it's false there is nothing server-side to send, and the user
+ * opening the preview's `fallbackUrl` themselves is the entire "send".
+ * `idempotencyKey` must be the same value across any retry of one
+ * logical "Send via WhatsApp" click — the server uses it to make a
+ * repeated call a no-op rather than a second real send.
+ */
+export const sendWhatsAppShare = (invoiceId: string, idempotencyKey: string) =>
+  api<WhatsAppSharePayload>(`/invoices/${invoiceId}/whatsapp-send`, {
+    method: 'POST',
+    body: JSON.stringify({ idempotencyKey }),
+  });
 
 /**
  * Copies this invoice's items into a brand-new draft (server-side, via

@@ -33,7 +33,15 @@ export function InvoiceTemplateView({ invoice, onBack, initialAction }: Props) {
   const [textSize, setTextSize] = useState<InvoiceTextSize>(() => loadTextSize());
   const [downloading, setDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState<string | null>(null);
-  const [shareStage, setShareStage] = useState<'idle' | 'preparing-pdf' | 'opening-whatsapp'>('idle');
+  // F03: 'preparing' covers both the read-only preview fetch and the
+  // PDF download; 'sending' is specifically the POST to
+  // whatsapp-send (Business Cloud API only — never entered for the
+  // default click-to-chat setup, since there is nothing server-side
+  // to send there). The button stays disabled for every non-'idle'
+  // value, which is what actually prevents a double-click from firing
+  // two sends — the idempotency key the server also requires is the
+  // backstop for that same guarantee, not a replacement for it.
+  const [shareStage, setShareStage] = useState<'idle' | 'preparing' | 'sending' | 'opening-whatsapp'>('idle');
   const [shareError, setShareError] = useState<string | null>(null);
   const [shareNotice, setShareNotice] = useState<string | null>(null);
   /** Set only when the last share attempt failed specifically at the PDF-generation step — offers "send text only" as the explicit escape hatch the spec calls for, instead of silently degrading. */
@@ -83,42 +91,63 @@ export function InvoiceTemplateView({ invoice, onBack, initialAction }: Props) {
   }
 
   /**
-   * A wa.me link can prefill the recipient and message text, but it can
-   * never attach a local/generated PDF — that's a hard platform
-   * limitation, not something to paper over. So by default this
-   * downloads the invoice PDF first (same mechanism as the Download PDF
-   * button), *then* opens WhatsApp to the exact customer with the
-   * message prefilled, and tells the user to attach the file they just
-   * downloaded. `textOnly` is the explicit opt-out the spec calls for:
-   * only set when the user has already seen a PDF-generation failure
-   * and chose to share the text anyway.
+   * F03: GET .../whatsapp-share is a read-only preview — it never
+   * sends anything, no matter how many times it's called. This always
+   * fetches it first. Only when the preview says the server is
+   * actually configured to send (`cloudApiConfigured`, i.e. WhatsApp
+   * Business Cloud API credentials are set — see apps/api's
+   * lib/whatsapp) does this ever call POST .../whatsapp-send, the one
+   * endpoint allowed to generate/upload the PDF and send a real
+   * document message. A fresh `idempotencyKey` is minted for that one
+   * POST call — the server uses it to make a retried/duplicated call
+   * with the same key a no-op rather than a second real send, a
+   * guarantee that holds regardless of whether this button's own
+   * disabled state manages to prevent the second click in the first
+   * place.
    *
-   * If the server is configured with WhatsApp Business Cloud API
-   * credentials (see apps/api's lib/whatsapp), it may have already sent
-   * the PDF as a real document message server-side — share.status
-   * 'sent' means that succeeded and there's nothing left to do here;
-   * 'failed' (or the default click-to-chat mode) falls through to the
-   * same download-then-open flow, using share.url as the manual
-   * fallback either way.
+   * When there's no server-side send to make (the default click-to-
+   * chat setup, or a failed Business API send falling back), a wa.me
+   * link can prefill the recipient and message text, but it can never
+   * attach a local/generated PDF — that's a hard platform limitation,
+   * not something to paper over. So this downloads the invoice PDF
+   * first (same mechanism as the Download PDF button), *then* lets the
+   * user themselves open WhatsApp with the message prefilled — this
+   * app never opens or sends that on their behalf; `window.open` here
+   * only ever runs in direct response to this explicit button click,
+   * never automatically. `textOnly` is the explicit opt-out the spec
+   * calls for: only set when the user has already seen a
+   * PDF-generation failure and chose to share the text anyway.
    */
   async function handleShare(textOnly = false) {
     setShareError(null);
     setShareNotice(null);
     setOfferTextOnlyShare(false);
-    setShareStage('preparing-pdf');
+    setShareStage('preparing');
     try {
       // Server normalizes/validates the customer's WhatsApp number and
       // builds the message from the invoice's own ledger-derived stats
       // — see apps/api's whatsapp-share.service.ts. A missing/invalid
-      // number throws here, before anything opens.
-      const share = await invoicesApi.getWhatsAppShare(invoice.id);
+      // number throws here, before anything opens. Read-only: never
+      // sends, regardless of how many times this is called.
+      const preview = await invoicesApi.getWhatsAppSharePreview(invoice.id);
 
-      if (share.mode === 'business-api' && share.status === 'sent') {
-        setShareNotice('Invoice sent via WhatsApp.');
-        return;
+      if (preview.cloudApiConfigured) {
+        setShareStage('sending');
+        const idempotencyKey = crypto.randomUUID();
+        const sent = await invoicesApi.sendWhatsAppShare(invoice.id, idempotencyKey);
+        if (sent.status === 'sent') {
+          setShareNotice('Invoice sent via WhatsApp.');
+          return;
+        }
+        // Falls through to the manual download-then-open flow below,
+        // using the same fallback link every payload carries, so a
+        // failed automatic send never leaves the user with nothing
+        // actionable.
+        setShareError(sent.error ?? 'Automatic WhatsApp sending failed — opening a manual chat instead.');
       }
 
       if (!textOnly) {
+        setShareStage('preparing');
         try {
           await downloadPdf(invoicesApi.invoicePdfUrl(invoice.id, template.id), filename);
         } catch (err) {
@@ -128,19 +157,19 @@ export function InvoiceTemplateView({ invoice, onBack, initialAction }: Props) {
         }
       }
 
+      // Opening wa.me is this click's own, explicit, user-initiated
+      // action — never triggered by a GET, a retry, or anything other
+      // than the person clicking this exact button right now.
       setShareStage('opening-whatsapp');
-      window.open(share.url, '_blank', 'noopener,noreferrer');
+      window.open(preview.fallbackUrl, '_blank', 'noopener,noreferrer');
       setShareNotice(
         textOnly
           ? 'WhatsApp opened with the invoice message. Attach the invoice PDF manually if needed.'
           : 'Invoice PDF has been downloaded. Attach the downloaded PDF in WhatsApp before sending.',
       );
-      if (share.mode === 'business-api' && share.status === 'failed') {
-        setShareError(share.error ?? 'Automatic WhatsApp sending failed — opened a manual chat instead.');
-      }
     } catch (err) {
       setShareError(
-        err instanceof ApiError ? (err.body.details?.whatsapp ?? err.body.error) : 'Could not build the WhatsApp share link',
+        err instanceof ApiError ? (err.body.details?.whatsapp ?? err.body.error) : 'Could not send the invoice via WhatsApp',
       );
     } finally {
       setShareStage('idle');
@@ -222,11 +251,13 @@ export function InvoiceTemplateView({ invoice, onBack, initialAction }: Props) {
             disabled={shareStage !== 'idle'}
             className="rounded-md bg-green-600 px-3 py-1 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50"
           >
-            {shareStage === 'preparing-pdf'
-              ? 'Preparing PDF…'
-              : shareStage === 'opening-whatsapp'
-                ? 'Opening WhatsApp…'
-                : 'Share via WhatsApp'}
+            {shareStage === 'preparing'
+              ? 'Preparing…'
+              : shareStage === 'sending'
+                ? 'Sending…'
+                : shareStage === 'opening-whatsapp'
+                  ? 'Opening WhatsApp…'
+                  : 'Share via WhatsApp'}
           </button>
         </div>
       </div>

@@ -3151,6 +3151,113 @@ standalone script, rather than trusting the already-committed tests.
   339/339 + web 21/21, all clean), and `npm run lint` (zero errors,
   zero warnings) all clean.
 
+## F03 — WhatsApp Send Must Not Happen on GET (Phase 54)
+
+A security fix separating "preview" from "send" — scoped entirely to
+WhatsApp share/send architecture; invoice calculations, PDF contents,
+the ledger, payments, invoice numbering, templates, and discount
+logic are all untouched.
+
+- **The vulnerability**: `GET /api/invoices/:id/whatsapp-share`
+  (`buildInvoiceWhatsAppShare`, the only function that existed) always
+  called `getWhatsAppService().buildShare(...)`. The moment WhatsApp
+  Business Cloud API credentials are configured
+  (`BusinessCloudApiWhatsAppService`), `buildShare` uploads the PDF as
+  media and sends a real document message — two real `fetch` calls to
+  `graph.facebook.com` — as a side effect of what is supposed to be a
+  read-only GET. The report reproduced this exactly: two GETs, two
+  real sends. (The default, unconfigured click-to-chat mode was always
+  safe — its `buildShare` has zero network calls — so this only ever
+  manifested once Business Cloud API was set up.)
+- **The fix — two entry points instead of one**, in
+  `whatsapp-share.service.ts`:
+  - `previewInvoiceWhatsAppShare` (GET): builds the message, the F09
+    customer-openable PDF share link, and the manual wa.me fallback —
+    structurally incapable of sending anything, because it never
+    calls `WhatsAppService.buildShare` or `generateInvoicePdf` at all,
+    no matter which service is active. Returns a new
+    `WhatsAppSharePreview` shape (`toPhone`, `message`, `fallbackUrl`,
+    `invoiceNumber`, `cloudApiConfigured`) — no `status`/`error`
+    fields, since nothing has been sent by the time this returns.
+  - `sendInvoiceWhatsAppShare` (new `POST /api/invoices/:id/
+    whatsapp-send`): the only function that ever calls
+    `WhatsAppService.buildShare` — generates/uploads the PDF and sends
+    via Business Cloud API when that's active. Wrapped in an
+    idempotency guard (below) so a retried/duplicated call never
+    sends twice. Returns the original `WhatsAppSharePayload` shape
+    (`mode`/`status`/`error` included) — unchanged, since this is now
+    the only caller that ever needed those fields.
+  - `buildShareContext` is the validation + message-building logic
+    both share, kept in one place so the GET preview and what an
+    actual POST send uses can never drift apart.
+- **Idempotency**: new table `whatsapp_send_requests` (migration
+  021) — `UNIQUE (company_id, invoice_id, idempotency_key)`, with a
+  nullable `result` jsonb column filled in once the attempt completes.
+  `idempotencyKey` is required on the POST body (frontend mints one
+  per "Send via WhatsApp" click via `crypto.randomUUID()`).
+  Claim-then-send-then-finalize: `INSERT` the key first (the UNIQUE
+  constraint is what makes a second INSERT with the same key fail
+  instead of quietly succeeding); the winner performs the real send
+  and then `UPDATE`s the row with the result; a loser whose INSERT
+  conflicted replays the winner's `result` directly if it's already
+  filled in, or polls briefly (250ms × up to 20 attempts) if the
+  winner is still mid-send, rather than ever sending itself. If the
+  winner's send throws, its row is deleted (only when `result IS
+  NULL`) so a genuine retry with the same key starts clean instead of
+  polling forever for a result that will never arrive. A *different*
+  key for the same invoice is treated as a completely independent new
+  send, by design — this guards against retries/double-clicks of one
+  logical action, not against a user deliberately resending later.
+- **CSRF**: no new code needed — the new POST route is mounted under
+  `/api/invoices`, already behind the app-wide
+  `requireJsonForMutations` middleware (JSON/multipart-only +
+  `SameSite=Lax` cookies), so it inherits the exact same CSRF defense
+  every other mutating route already has. Confirmed directly: a
+  cross-site-style POST (`application/x-www-form-urlencoded`,
+  no CORS preflight) is rejected with 415 before it ever reaches the
+  send logic.
+- **Authorization/tenant isolation**: POST uses the same
+  `requirePermission('invoice.view')` guard and the same
+  `getInvoice(companyId, invoiceId)` tenant check GET already had —
+  no new permission introduced, no isolation gap: a cross-tenant POST
+  404s exactly like a cross-tenant GET always has.
+- **Frontend** (`InvoiceTemplateView.tsx`): `handleShare` now always
+  calls the read-only preview first; only calls the new POST send
+  endpoint when `preview.cloudApiConfigured` is true. When it's false
+  (the default setup), the existing download-then-open-wa.me flow is
+  unchanged — `window.open(preview.fallbackUrl, ...)` only ever runs
+  in direct, synchronous response to this exact button click, never
+  automatically and never via any GET. `shareStage` gained a
+  `'sending'` value (shown only around the POST call) alongside the
+  existing `'preparing'`/`'opening-whatsapp'`; "Sent"/"Failed" are
+  communicated via the pre-existing `shareNotice`/`shareError`
+  paragraphs, unchanged in mechanism. The button stays disabled for
+  every non-idle stage (existing double-click guard); the server's
+  idempotency key is the backstop that holds even if that disabling
+  were ever bypassed.
+- **Test-only seam added**: `setWhatsAppServiceForTesting` in
+  `lib/whatsapp/index.ts` — ESM named exports are read-only bindings,
+  so a test can't reassign `getWhatsAppService` itself to stub which
+  service is active; this is the one sanctioned override point,
+  needed to prove "GET never sends even with Business Cloud API
+  configured" against the real route/service code without starting a
+  second process with different environment variables.
+- **Tests** (`apps/api/test/whatsapp.test.ts`, rewritten for the new
+  GET shape plus 9 new): GET preview returns the new shape with zero
+  outbound calls, even called twice (the report's exact reproduction)
+  and even with Business Cloud API configured via the test seam; POST
+  sends exactly once for a fresh key; the identical POST retried with
+  the same key replays the exact same result with zero additional
+  media uploads/messages sent (verified both via the returned payload
+  and a `whatsapp_send_requests` row count); a different key is an
+  independent send; POST requires `idempotencyKey`; POST is rejected
+  unauthenticated and cross-tenant (404, same as GET); and a
+  cross-site-style non-JSON POST is rejected by the existing CSRF
+  guard.
+- `npm run typecheck`, `npm run build`, `npm test` (shared 61/61 + api
+  347/347 + web 21/21, all clean), and `npm run lint` (zero errors,
+  zero warnings) all clean.
+
 ## Known gotchas / things to check before starting work
 
 - **Postgres cluster is often stopped** when a session starts:
@@ -3814,6 +3921,27 @@ standalone script, rather than trusting the already-committed tests.
     for both actions. No service code changed. See "F02
     Re-Verification + Fresh-Login Regression Coverage (Phase 53)"
     below
+
+59. F03 — WhatsApp Send Must Not Happen on GET (security fix): GET
+    /api/invoices/:id/whatsapp-share always called
+    WhatsAppService.buildShare, which uploads the PDF and sends a real
+    WhatsApp Business Cloud API document message the moment
+    credentials are configured — two GETs, two real sends, exactly as
+    reported. Split into `previewInvoiceWhatsAppShare` (GET,
+    structurally incapable of sending — never calls buildShare/
+    generateInvoicePdf) and new `sendInvoiceWhatsAppShare` (new POST
+    /api/invoices/:id/whatsapp-send, the only caller of buildShare),
+    wrapped in an idempotency guard keyed on a required
+    caller-supplied `idempotencyKey` against a new
+    `whatsapp_send_requests` table (migration 021,
+    UNIQUE(company, invoice, key)) so a retried/duplicated POST never
+    sends twice. POST inherits the same tenant-isolation and CSRF
+    protection (app-wide requireJsonForMutations) every other mutating
+    route already has — no new code needed for either. Frontend only
+    calls POST when the preview reports Business Cloud API is
+    configured; otherwise unchanged (download PDF, user opens wa.me
+    themselves). See "F03 — WhatsApp Send Must Not Happen on GET
+    (Phase 54)" below
 
 Repo also went through a monorepo restructure (`server/` → `apps/api` +
 new `apps/web` + `packages/shared`) between Phase 1 and Phase 2.

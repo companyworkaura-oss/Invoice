@@ -92,7 +92,27 @@ export function buildWhatsAppClickToChatUrl(phone: string, message: string): str
 
 export type WhatsAppShareMode = 'click-to-chat' | 'business-api';
 
-/** Response shape of GET /api/invoices/:id/whatsapp-share. */
+/**
+ * F03: GET /api/invoices/:id/whatsapp-share is read-only — a preview
+ * only, never a send. This is its entire response shape: no `status`/
+ * `error` fields, because nothing has been sent yet by the time this
+ * is returned. Actually sending (when `cloudApiConfigured` is true) is
+ * POST /api/invoices/:id/whatsapp-send's job alone; when it's false,
+ * the only "send" is the user themselves opening `fallbackUrl` — a
+ * client-side navigation this app never triggers on their behalf.
+ */
+export interface WhatsAppSharePreview {
+  /** Normalized (digits-only, international) recipient number. */
+  toPhone: string;
+  message: string;
+  /** The manual click-to-chat link — always present and always safe to open; opening it is a deliberate user action, never done on their behalf. */
+  fallbackUrl: string;
+  invoiceNumber: string;
+  /** True only when WhatsApp Business Cloud API is configured server-side — tells the frontend whether "Send via WhatsApp" should call POST .../whatsapp-send (an actual server-side send) or just open fallbackUrl itself (no server send exists to call). */
+  cloudApiConfigured: boolean;
+}
+
+/** Response shape of POST /api/invoices/:id/whatsapp-send — the one path that may actually call out to WhatsApp. */
 export interface WhatsAppSharePayload {
   mode: WhatsAppShareMode;
   /** Normalized (digits-only, international) recipient number. */

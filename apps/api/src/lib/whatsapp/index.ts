@@ -15,6 +15,7 @@ let instance: WhatsAppService | undefined;
  * otherwise this falls back to the free click-to-chat link.
  */
 export function getWhatsAppService(): WhatsAppService {
+  if (override) return override;
   if (!instance) {
     const { phoneNumberId, accessToken, apiVersion } = config.whatsappBusiness;
     instance =
@@ -23,4 +24,20 @@ export function getWhatsAppService(): WhatsAppService {
         : new ClickToChatWhatsAppService();
   }
   return instance;
+}
+
+let override: WhatsAppService | undefined;
+
+/**
+ * Test-only seam (F03): ESM named exports are read-only bindings, so a
+ * test can't just reassign `getWhatsAppService` itself to stub which
+ * service is active — this is the one sanctioned way to do that,
+ * letting a test prove "GET never sends, even with Business Cloud API
+ * configured" against the real route/service code, without needing a
+ * second process started with different environment variables (which
+ * `config`'s one-time, import-time env read would otherwise require).
+ * Call with `undefined` to restore the normal env-driven selection.
+ */
+export function setWhatsAppServiceForTesting(service: WhatsAppService | undefined): void {
+  override = service;
 }
