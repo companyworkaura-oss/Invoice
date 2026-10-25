@@ -42,7 +42,7 @@ export function LogoUploader({ logoUrl, canEdit, onUploaded }: Props) {
           {uploading ? 'Uploading…' : logoUrl ? 'Change logo' : 'Upload logo'}
           <input
             type="file"
-            accept="image/png,image/jpeg,image/webp,image/svg+xml"
+            accept="image/png,image/jpeg,image/webp"
             onChange={handleChange}
             disabled={uploading}
             className="hidden"

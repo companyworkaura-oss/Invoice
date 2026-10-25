@@ -115,6 +115,84 @@ test('rejects a non-image file for logo upload', async () => {
   assert.equal(res.status, 400);
 });
 
+// F01 — stored XSS via SVG logo upload. SVG is markup, not an image:
+// a <script> tag or an onload= handler inside it executes if someone
+// ever opens the raw uploaded file's URL directly (served same-origin,
+// at /uploads/logos/...), or if it's loaded via <object>/<iframe>. The
+// app has no SVG sanitizer, so the only safe fix is to never store one
+// at all — only PNG/JPEG/WEBP are accepted, and acceptance is decided
+// by sniffing the file's actual bytes (lib/storage/image-signature.ts),
+// never the client-supplied Content-Type/filename alone.
+
+test('accepts a normal PNG logo (signature-validated, not just by Content-Type)', async () => {
+  const agent = await registeredOwner('PNG Logo Co');
+  const png = readFileSync(path.join(here, 'fixtures', 'tiny.png'));
+  const res = await agent.post('/api/company/logo').attach('logo', png, { filename: 'logo.png', contentType: 'image/png' });
+  assert.equal(res.status, 201);
+  assert.ok(res.body.logoUrl.endsWith('.png'));
+});
+
+test('accepts a normal JPEG logo', async () => {
+  const agent = await registeredOwner('JPEG Logo Co');
+  const jpeg = readFileSync(path.join(here, 'fixtures', 'tiny.jpg'));
+  const res = await agent.post('/api/company/logo').attach('logo', jpeg, { filename: 'logo.jpg', contentType: 'image/jpeg' });
+  assert.equal(res.status, 201);
+  assert.ok(res.body.logoUrl.endsWith('.jpg'));
+});
+
+test('accepts a normal WEBP logo', async () => {
+  const agent = await registeredOwner('WEBP Logo Co');
+  const webp = readFileSync(path.join(here, 'fixtures', 'tiny.webp'));
+  const res = await agent.post('/api/company/logo').attach('logo', webp, { filename: 'logo.webp', contentType: 'image/webp' });
+  assert.equal(res.status, 201);
+  assert.ok(res.body.logoUrl.endsWith('.webp'));
+});
+
+test('rejects an SVG logo outright, even with a legitimate image/svg+xml Content-Type', async () => {
+  const agent = await registeredOwner('SVG Logo Rejected Co');
+  const svg = readFileSync(path.join(here, 'fixtures', 'logo.svg'));
+  const res = await agent.post('/api/company/logo').attach('logo', svg, { filename: 'logo.svg', contentType: 'image/svg+xml' });
+  assert.equal(res.status, 400);
+  assert.match(res.body.details?.logo ?? '', /svg/i);
+
+  // No logo must have been saved from the rejected upload.
+  const company = await agent.get('/api/company');
+  assert.equal(company.body.logoUrl, null);
+});
+
+test('rejects a script-bearing SVG logo (the actual stored-XSS payload) the same way', async () => {
+  const agent = await registeredOwner('SVG XSS Logo Co');
+  const maliciousSvg = readFileSync(path.join(here, 'fixtures', 'logo-xss.svg'));
+  assert.ok(maliciousSvg.includes('<script>'), 'fixture must actually contain a script tag to be a meaningful test');
+
+  const res = await agent
+    .post('/api/company/logo')
+    .attach('logo', maliciousSvg, { filename: 'logo.svg', contentType: 'image/svg+xml' });
+  assert.equal(res.status, 400);
+
+  const company = await agent.get('/api/company');
+  assert.equal(company.body.logoUrl, null, 'the malicious SVG must never be written to disk or referenced by the company');
+});
+
+test('rejects an SVG disguised as a PNG — Content-Type/filename alone is never trusted', async () => {
+  const agent = await registeredOwner('Disguised SVG Logo Co');
+  const svg = readFileSync(path.join(here, 'fixtures', 'logo.svg'));
+
+  // The exact spoofing attempt F01 describes: wrong Content-Type and a
+  // .png filename, real bytes are still SVG/XML — signature sniffing
+  // must catch this even though fileFilter's MIME check alone would not.
+  const res = await agent.post('/api/company/logo').attach('logo', svg, { filename: 'logo.png', contentType: 'image/png' });
+  assert.equal(res.status, 400);
+  assert.match(res.body.details?.logo ?? '', /not a valid/i);
+});
+
+test('rejects a plain-garbage file even when it claims to be a PNG', async () => {
+  const agent = await registeredOwner('Fake PNG Logo Co');
+  const garbage = Buffer.from('this is not image bytes at all, just plain text pretending to be one');
+  const res = await agent.post('/api/company/logo').attach('logo', garbage, { filename: 'logo.png', contentType: 'image/png' });
+  assert.equal(res.status, 400);
+});
+
 test('staff cannot edit the profile or upload a logo', async () => {
   const owner = await registeredOwner('Staff Guard Co');
   const ownerMe = await owner.get('/api/auth/me');

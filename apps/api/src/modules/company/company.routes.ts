@@ -2,6 +2,7 @@ import { Router } from 'express';
 import multer from 'multer';
 import { config } from '../../config.js';
 import { badRequest } from '../../lib/http-error.js';
+import { detectImageSignature } from '../../lib/storage/image-signature.js';
 import { getLogoStorage } from '../../lib/storage/index.js';
 import { asBody, optionalEmail, optionalString, requireString } from '../../lib/validate.js';
 import { auth, requireAuth } from '../../middleware/auth.js';
@@ -12,18 +13,21 @@ import * as service from './company.service.js';
 export const companyRouter = Router();
 companyRouter.use(requireAuth);
 
-const LOGO_MIME_TO_EXT: Record<string, string> = {
-  'image/png': 'png',
-  'image/jpeg': 'jpg',
-  'image/webp': 'webp',
-  'image/svg+xml': 'svg',
-};
+// Raster formats only — see F01: SVG is markup, not an image, and this
+// app has no SVG sanitizer, so an uploaded SVG could carry a <script>
+// or onload= handler and execute in the browser of anyone who opens
+// the raw logo URL directly. Declared here only as a fast, cheap
+// first-pass rejection (multer's fileFilter sees the client-supplied
+// Content-Type, which a client can lie about) — the authoritative
+// check is detectImageSignature() below, run against the file's actual
+// bytes once the upload is fully buffered.
+const ALLOWED_LOGO_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
 
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: config.maxLogoBytes },
   fileFilter: (_req, file, cb) => {
-    cb(null, file.mimetype in LOGO_MIME_TO_EXT);
+    cb(null, ALLOWED_LOGO_MIME_TYPES.has(file.mimetype));
   },
 });
 
@@ -58,10 +62,20 @@ companyRouter.patch('/', requirePermission('company.manage'), async (req, res) =
 
 companyRouter.post('/logo', requirePermission('company.manage'), upload.single('logo'), async (req, res) => {
   if (!req.file) {
-    throw badRequest('Validation failed', { logo: 'Attach an image (png, jpg, webp, or svg) under 2MB' });
+    throw badRequest('Validation failed', { logo: 'Attach an image (png, jpg, or webp) under 2MB. SVG is not supported.' });
+  }
+  // The authoritative check: sniff the actual file bytes rather than
+  // trusting the client-supplied Content-Type (fileFilter above is
+  // only a fast first pass). Catches an SVG — or anything else —
+  // renamed/relabeled to claim it's a PNG/JPEG/WEBP. See F01.
+  const signature = detectImageSignature(req.file.buffer);
+  if (!signature) {
+    throw badRequest('Validation failed', {
+      logo: 'This file is not a valid PNG, JPEG, or WEBP image. SVG and other formats are not supported.',
+    });
   }
   const { companyId } = auth(req);
-  const extension = LOGO_MIME_TO_EXT[req.file.mimetype];
+  const extension = signature.extension;
   const storage = getLogoStorage();
 
   const previousUrl = await service.getLogoUrl(companyId);
