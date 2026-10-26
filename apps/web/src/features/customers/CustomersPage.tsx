@@ -1,6 +1,7 @@
 import type { Customer, Permission } from '@invoice/shared';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { CustomerStatementView } from '../ledger/CustomerStatementView';
+import * as customersApi from './api';
 import { CustomerDetails } from './CustomerDetails';
 import { CustomerForm } from './CustomerForm';
 import { CustomerList } from './CustomerList';
@@ -13,11 +14,29 @@ type View =
 
 interface Props {
   permissions: Permission[];
+  /**
+   * UI/UX-01: set by InvoiceDetails' "View customer account" action
+   * (via App.tsx's viewCustomerAccount) — jumps straight to that
+   * customer's statement instead of the plain list. Same lifecycle as
+   * PaymentsPage's `initialCustomerId`: the caller owns clearing it
+   * (on company switch), so a repeated id doesn't need to re-fire
+   * this effect, and leaving this tab and coming back doesn't jump
+   * again on its own.
+   */
+  openCustomerId?: string;
 }
 
-export function CustomersPage({ permissions }: Props) {
+export function CustomersPage({ permissions, openCustomerId }: Props) {
   const [view, setView] = useState<View>({ name: 'list' });
   const [refreshToken, setRefreshToken] = useState(0);
+
+  useEffect(() => {
+    if (!openCustomerId) return;
+    customersApi
+      .getCustomer(openCustomerId)
+      .then((customer) => setView({ name: 'statement', customer }))
+      .catch(() => undefined);
+  }, [openCustomerId]);
 
   function refreshList() {
     setRefreshToken((t) => t + 1);

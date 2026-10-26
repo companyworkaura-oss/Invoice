@@ -22,10 +22,20 @@ function App() {
   const [showProfile, setShowProfile] = useState(false);
   const [tab, setTab] = useState<DashboardTab>('dashboard');
   const [paymentsCustomerFilter, setPaymentsCustomerFilter] = useState<string | undefined>(undefined);
+  // UI/UX-01: the "View customer account" action on an invoice's
+  // Customer Account panel — same lifecycle as paymentsCustomerFilter
+  // above, consumed by CustomersPage to jump straight to that
+  // customer's statement instead of the plain list.
+  const [customerAccountToOpen, setCustomerAccountToOpen] = useState<string | undefined>(undefined);
 
   function viewPaymentsForCustomer(customerId: string) {
     setPaymentsCustomerFilter(customerId);
     setTab('payments');
+  }
+
+  function viewCustomerAccount(customerId: string) {
+    setCustomerAccountToOpen(customerId);
+    setTab('customers');
   }
 
   function refreshMe() {
@@ -58,6 +68,7 @@ function App() {
     setLastSeenCompanyId(me?.company.id);
     setShowProfile(false);
     setPaymentsCustomerFilter(undefined);
+    setCustomerAccountToOpen(undefined);
   }
 
   async function handleLogout() {
@@ -182,7 +193,7 @@ function App() {
 
         {tab === 'customers' && (
           <div className="mt-4 print:mt-0">
-            <CustomersPage key={me.company.id} permissions={me.permissions} />
+            <CustomersPage key={me.company.id} permissions={me.permissions} openCustomerId={customerAccountToOpen} />
           </div>
         )}
 
@@ -194,7 +205,12 @@ function App() {
 
         {tab === 'invoices' && (
           <div className="mt-4 print:mt-0">
-            <InvoicesPage key={me.company.id} permissions={me.permissions} onViewPayments={viewPaymentsForCustomer} />
+            <InvoicesPage
+              key={me.company.id}
+              permissions={me.permissions}
+              onViewPayments={viewPaymentsForCustomer}
+              onViewCustomerAccount={viewCustomerAccount}
+            />
           </div>
         )}
 

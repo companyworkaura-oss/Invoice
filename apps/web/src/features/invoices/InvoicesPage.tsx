@@ -28,9 +28,10 @@ const ROW_ACTION_TO_INITIAL_ACTION: Record<InvoiceRowAction, TemplateInitialActi
 interface Props {
   permissions: Permission[];
   onViewPayments: (customerId: string) => void;
+  onViewCustomerAccount: (customerId: string) => void;
 }
 
-export function InvoicesPage({ permissions, onViewPayments }: Props) {
+export function InvoicesPage({ permissions, onViewPayments, onViewCustomerAccount }: Props) {
   const [view, setView] = useState<View>({ name: 'list' });
   const [refreshToken, setRefreshToken] = useState(0);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -108,6 +109,7 @@ export function InvoicesPage({ permissions, onViewPayments }: Props) {
             onViewTemplate={() => setView({ name: 'template', invoice: view.invoice, returnTo: 'details' })}
             onInvoiceUpdated={(invoice) => setView({ name: 'details', invoice })}
             onEdit={() => setView({ name: 'edit', invoice: view.invoice })}
+            onViewCustomerAccount={onViewCustomerAccount}
           />
         )}
 

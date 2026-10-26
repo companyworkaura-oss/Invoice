@@ -1,5 +1,12 @@
-import type { InvoiceWithItems, Permission } from '@invoice/shared';
-import { calculateSets, formatNumber, formatQuantity } from '@invoice/shared';
+import type { InvoicePaymentStatus, InvoiceWithItems, Permission } from '@invoice/shared';
+import {
+  calculateSets,
+  deriveInvoicePaymentStatus,
+  formatNumber,
+  formatQuantity,
+  invoiceRemainingBalance,
+  suggestedCustomerPaymentAmount,
+} from '@invoice/shared';
 import { useState } from 'react';
 import { PaymentForm } from '../payments/PaymentForm';
 import * as invoicesApi from './api';
@@ -11,15 +18,45 @@ interface Props {
   onViewTemplate: () => void;
   onInvoiceUpdated: (invoice: InvoiceWithItems) => void;
   onEdit: () => void;
+  /** UI/UX-01: "View customer account" on the Customer Account panel — jumps to this customer's statement elsewhere in the app. */
+  onViewCustomerAccount: (customerId: string) => void;
 }
 
-export function InvoiceDetails({ invoice, permissions, onBack, onViewTemplate, onInvoiceUpdated, onEdit }: Props) {
+const PAYMENT_STATUS_LABEL: Record<InvoicePaymentStatus, string> = {
+  PAID: 'Paid',
+  PARTIAL: 'Partially paid',
+  UNPAID: 'Unpaid',
+  CANCELLED: 'Cancelled',
+};
+
+export function InvoiceDetails({
+  invoice,
+  permissions,
+  onBack,
+  onViewTemplate,
+  onInvoiceUpdated,
+  onEdit,
+  onViewCustomerAccount,
+}: Props) {
   const [showPaymentForm, setShowPaymentForm] = useState(false);
   const canEdit = invoice.status === 'draft' && permissions.includes('invoice.edit');
   const sets = calculateSets(invoice.generalQuantity);
   const formattedGeneralQuantity = formatQuantity(invoice.generalQuantity);
   const hasReferences = Boolean(invoice.billNumber || invoice.lotNumber || invoice.customerLotNumber || invoice.gatePassNumber);
   const hasQuantity = Boolean(formattedGeneralQuantity || sets);
+
+  // UI/UX-01: "This invoice" vs. "Customer account" — see the panels
+  // below. Both figures are restatements of invoice.grandTotal/
+  // amountPaid, the same two authoritative, backend-computed values
+  // already on this object; neither invents a new accounting rule
+  // (see invoice-payment-status.ts's doc comment — it mirrors
+  // listInvoices' own SQL exactly).
+  const remainingOnInvoice = invoiceRemainingBalance(invoice.grandTotal, invoice.amountPaid);
+  const paymentStatus = deriveInvoicePaymentStatus(invoice.status, invoice.grandTotal, invoice.amountPaid);
+  // Never suggest a negative or zero amount — a customer in credit, or
+  // with nothing outstanding, has nothing to prompt a payment toward;
+  // see the "Credit / zero-balance cases" requirement.
+  const suggestedPaymentAmount = suggestedCustomerPaymentAmount(invoice.currentBalance);
 
   async function refresh() {
     onInvoiceUpdated(await invoicesApi.getInvoice(invoice.id));
@@ -125,19 +162,62 @@ export function InvoiceDetails({ invoice, permissions, onBack, onViewTemplate, o
         </tfoot>
       </table>
 
-      <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-1 border-t border-slate-200 pt-3 text-sm sm:grid-cols-5">
-        <StatRow label="Previous Balance" value={formatNumber(invoice.previousBalance)} />
-        <StatRow label="Grand Total" value={formatNumber(invoice.grandTotal)} />
-        <StatRow label="Total Receivable" value={formatNumber(invoice.totalReceivable)} />
-        <StatRow label="Amount Paid" value={formatNumber(invoice.amountPaid)} />
-        <StatRow label="Current Balance" value={formatNumber(invoice.currentBalance)} emphasize />
-      </dl>
+      {/*
+        UI/UX-01: invoice-level money ("This invoice") and
+        customer-account-level money ("Customer account") used to sit
+        in one shared totals grid with no visual boundary between
+        them — Amount Paid (this invoice's own FIFO-allocated share)
+        sat right next to Current Balance (the customer's entire live
+        account balance across every invoice), with nothing marking
+        that they're different scopes. Two separate panels now, mobile
+        stacked with the invoice panel first, side by side from `sm:`
+        up when there's room.
+      */}
+      <div className="mt-4 grid grid-cols-1 gap-3 border-t border-slate-200 pt-3 sm:grid-cols-2">
+        <section className="rounded-md border border-slate-200 p-3">
+          <h4 className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">This invoice</h4>
+          <dl className="mt-2 space-y-1.5 text-sm">
+            <StatRow label="Invoice Total" value={formatNumber(invoice.grandTotal)} />
+            <StatRow label="Paid toward this invoice" value={formatNumber(invoice.amountPaid)} />
+            <StatRow label="Remaining on this invoice" value={formatNumber(remainingOnInvoice)} emphasize />
+            <div>
+              <dt className="text-xs text-slate-500">Invoice payment status</dt>
+              <dd>
+                <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${PAYMENT_STATUS_BADGE[paymentStatus]}`}>
+                  {PAYMENT_STATUS_LABEL[paymentStatus]}
+                </span>
+              </dd>
+            </div>
+          </dl>
+        </section>
+
+        <section className="rounded-md border border-slate-200 bg-slate-50 p-3">
+          <h4 className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Customer account</h4>
+          <dl className="mt-2 space-y-1.5 text-sm">
+            <StatRow label="Overall balance" value={formatNumber(invoice.currentBalance)} emphasize />
+          </dl>
+          <p className="mt-1.5 text-xs text-slate-500">
+            Overall balance across this customer&rsquo;s account — every invoice, payment, opening balance, and
+            adjustment, not just this invoice.
+          </p>
+          <button
+            type="button"
+            onClick={() => onViewCustomerAccount(invoice.customerId)}
+            className="mt-2 text-xs text-slate-500 underline"
+          >
+            View customer account
+          </button>
+        </section>
+      </div>
 
       <div className="mt-4 border-t border-slate-200 pt-3">
         {showPaymentForm ? (
           <PaymentForm
             customerId={invoice.customerId}
-            suggestedAmount={invoice.currentBalance !== '0.00' ? invoice.currentBalance : undefined}
+            title="Record customer payment"
+            helperText="Payments are allocated to the oldest outstanding debt first, not necessarily this invoice."
+            suggestedAmount={suggestedPaymentAmount}
+            suggestedAmountLabel="Suggested: the customer's full outstanding account balance (all unpaid invoices), not just this invoice — edit to pay a different amount."
             onRecorded={() => {
               setShowPaymentForm(false);
               refresh();
@@ -150,7 +230,7 @@ export function InvoiceDetails({ invoice, permissions, onBack, onViewTemplate, o
             onClick={() => setShowPaymentForm(true)}
             className="rounded-md border border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50"
           >
-            Record a payment
+            Record customer payment
           </button>
         )}
       </div>
@@ -158,11 +238,18 @@ export function InvoiceDetails({ invoice, permissions, onBack, onViewTemplate, o
   );
 }
 
+const PAYMENT_STATUS_BADGE: Record<InvoicePaymentStatus, string> = {
+  PAID: 'bg-emerald-100 text-emerald-700',
+  PARTIAL: 'bg-amber-100 text-amber-700',
+  UNPAID: 'bg-slate-200 text-slate-600',
+  CANCELLED: 'bg-slate-200 text-slate-500',
+};
+
 function StatRow({ label, value, emphasize }: { label: string; value: string; emphasize?: boolean }) {
   return (
-    <div>
+    <div className="flex items-baseline justify-between gap-2">
       <dt className="text-xs text-slate-500">{label}</dt>
-      <dd className={emphasize ? 'font-semibold text-slate-900' : 'text-slate-700'}>{value}</dd>
+      <dd className={emphasize ? 'text-right font-semibold text-slate-900' : 'text-right text-slate-700'}>{value}</dd>
     </div>
   );
 }

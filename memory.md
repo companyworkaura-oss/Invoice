@@ -3909,6 +3909,113 @@ one previously-reported "fixed" item that genuinely wasn't.
   zero warnings) all clean. **Saved optional customer values can now
   be cleared.** **F12 is confirmed FIXED.**
 
+## UI/UX-01 — Clarify Invoice Balance vs. Customer Account Balance (Phase 64)
+
+A UI/terminology-scope fix — no accounting, allocation, PDF, or
+schema change. First finding from a separate UI/UX report (not the
+F01–F12 accounting/security list).
+
+- **Old confusing layout**: Invoice Details' totals area was one
+  unlabeled 5-column grid — Previous Balance, Grand Total, Total
+  Receivable, Amount Paid, Current Balance — mixing figures scoped to
+  *this invoice* (Amount Paid: this invoice's own FIFO-allocated
+  share) with figures scoped to the *customer's entire account*
+  (Current Balance: their live overall balance across every
+  invoice), with nothing marking the boundary. The "Record a payment"
+  button pre-filled Current Balance into the amount field with no
+  label at all, so a user had no way to tell the suggested number was
+  the whole account's balance, not this invoice's.
+- **New "This invoice" section**: Invoice Total (`grandTotal`), Paid
+  toward this invoice (`amountPaid`), Remaining on this invoice (new
+  `invoiceRemainingBalance(grandTotal, amountPaid)`), and an Invoice
+  payment status badge (new `deriveInvoicePaymentStatus`) — both new
+  functions live in `packages/shared/src/invoice-payment-status.ts`,
+  restating only the two already-authoritative values already on
+  `InvoiceWithItems`, with the exact same CASE/subtraction
+  invoice.service.ts's `listInvoices` SQL already uses for
+  `InvoiceListEntry`'s `paid`/`balance`/`paymentStatus` — no new
+  accounting rule invented, no "fake" frontend calculation.
+- **New "Customer account" section**: Overall balance
+  (`currentBalance`) plus the exact helper text the report suggested
+  ("Overall balance across this customer's account — every invoice,
+  payment, opening balance, and adjustment, not just this invoice.")
+  and a "View customer account" action. Wired end-to-end: a new
+  `onViewCustomerAccount` prop threads from `InvoicesPage` up to
+  `App.tsx`'s new `viewCustomerAccount(customerId)` handler — the
+  exact same shape as the existing `onViewPayments`/
+  `paymentsCustomerFilter` ("View payments" from an invoice row)
+  pattern — which sets `customerAccountToOpen` and switches to the
+  Customers tab; `CustomersPage` gained a matching `openCustomerId`
+  prop, fetching that customer and jumping straight to
+  `CustomerStatementView` (the existing statement/account-history
+  screen — no new accounting module built). Reset alongside
+  `paymentsCustomerFilter` on company switch, same lifecycle.
+- **Payment wording/helper text**: "Record a payment" renamed to
+  "Record customer payment" (both the button and the form's own
+  title) to signal this isn't scoped to one invoice. New helper text
+  under the title: "Payments are allocated to the oldest outstanding
+  debt first, not necessarily this invoice." — restating F05/F06's
+  already-implemented allocation policy, not changing it.
+  `PaymentForm` gained optional `title`, `helperText`, and
+  `suggestedAmountLabel` props (all default to today's exact
+  behavior/wording, so `CustomerLedgerPanel`/`PaymentsPage`, which
+  pass none of them, are completely unaffected). When
+  `InvoiceDetails` pre-fills an amount, it's now labeled: "Suggested:
+  the customer's full outstanding account balance (all unpaid
+  invoices), not just this invoice — edit to pay a different amount."
+  The suggestion rule itself is unchanged (still `currentBalance`) —
+  this task only had to make clear what it is, not change which
+  figure gets suggested.
+- **Credit / zero-balance handling**: new `suggestedCustomerPaymentAmount(currentBalance)`
+  returns `undefined` (no suggestion at all) whenever the balance
+  isn't actually positive — covers "nothing outstanding" and "in
+  credit" alike. **Caught a real bug via its own test**: the first
+  version used decimal.js's `isPositive()`, which — unlike a strict
+  "greater than zero" check — returns `true` for exactly `0` (no
+  signed-zero distinction), so a customer with a `'0.00'` balance
+  would still have gotten a `'0.00'` payment suggested instead of
+  none. Fixed to `.greaterThan(0)`; the test that caught it stayed as
+  a named regression case. `invoiceRemainingBalance` is floored at
+  zero defensively, though it's provably unreachable given
+  `amountPaid`'s F06-established `[0, grandTotal]` bound.
+- **Files changed**: `packages/shared/src/invoice-payment-status.ts`
+  (new — `invoiceRemainingBalance`, `deriveInvoicePaymentStatus`,
+  `suggestedCustomerPaymentAmount`), `packages/shared/src/index.ts`
+  (export), `apps/web/src/features/invoices/InvoiceDetails.tsx`
+  (rewritten totals/payment section), `apps/web/src/features/invoices/InvoicesPage.tsx`
+  (new `onViewCustomerAccount` prop, threaded through), `apps/web/src/App.tsx`
+  (`customerAccountToOpen` state + `viewCustomerAccount` handler, reset
+  on company switch), `apps/web/src/features/customers/CustomersPage.tsx`
+  (new `openCustomerId` prop, fetches and jumps to the statement
+  view), `apps/web/src/features/payments/PaymentForm.tsx` (new
+  optional `title`/`helperText`/`suggestedAmountLabel` props).
+- **Tests**: new `packages/shared/test/invoice-payment-status.test.ts`
+  (11 tests) — two independent unpaid invoices, a partial payment, a
+  fully-paid invoice, a zero-total invoice (still `PAID`, nothing was
+  ever owed), a cancelled invoice (`CANCELLED` regardless of
+  `amountPaid`), remaining-balance floored at zero, a customer in
+  credit (negative balance) and one with a zero balance both getting
+  no suggested amount, a customer who genuinely owes money getting
+  that exact amount suggested, and an explicit check that a customer
+  with multiple unpaid invoices never has its account-wide balance
+  conflated with either invoice's own remaining amount.
+- **Responsive behavior**: `grid-cols-1` (stacked, invoice panel
+  first in DOM order) up to the `sm:` breakpoint, `sm:grid-cols-2`
+  (side by side) from there up — same breakpoint convention already
+  used elsewhere in this codebase (e.g. `MetaGroup`). Money values
+  right-aligned via `StatRow`'s `justify-between` row.
+- **Acceptance test, live-verified against the real API** (customer
+  with Invoice A unpaid, Invoice B unpaid, one 60.00 partial payment —
+  FIFO pays the oldest debt, Invoice A, first): opening Invoice A
+  shows Invoice Total `100.00`, Paid toward this invoice `60.00`,
+  Remaining on this invoice `40.00`, and the Customer account panel's
+  Overall balance `140.00` (200 owed across both invoices minus the
+  60 paid) — all four figures distinct, correctly labeled, and
+  immediately readable with no mental math.
+- `npm run typecheck`, `npm run build`, `npm test` (shared 72/72 + api
+  407/407 + web 39/39, all clean), and `npm run lint` (zero errors,
+  zero warnings) all clean. **UI/UX-01 is COMPLETE.**
+
 ## Known gotchas / things to check before starting work
 
 - **Postgres cluster is often stopped** when a session starts:
@@ -4802,6 +4909,42 @@ one previously-reported "fixed" item that genuinely wasn't.
     (`company-profile.test.ts`) already existed and needed no changes
     — confirmed still green. See "F12 — Optional Contact Fields Must
     Be Clearable (Phase 63)" below
+
+69. UI/UX-01 — Clarify Invoice Balance vs. Customer Account Balance
+    (UI/terminology fix, first of a UI/UX report separate from the
+    F01–F12 accounting/security findings): Invoice Details used to
+    show five figures — Previous Balance, Grand Total, Total
+    Receivable, Amount Paid, Current Balance — in one unlabeled grid,
+    mixing this-invoice-scoped money (Amount Paid, this invoice's own
+    FIFO-allocated share) with customer-account-scoped money (Current
+    Balance, the customer's entire live balance), and the "Record a
+    payment" button pre-filled Current Balance with no indication a
+    partial payment is actually allocated oldest-debt-first, possibly
+    to a completely different invoice. Split into two clearly
+    separated panels — "This invoice" (Invoice Total/Paid toward this
+    invoice/Remaining on this invoice/an invoice payment status badge)
+    and "Customer account" (Overall balance + a "View customer
+    account" link to that customer's statement, wired through a new
+    App.tsx `viewCustomerAccount` handler mirroring the existing
+    `onViewPayments`/`paymentsCustomerFilter` pattern) — mobile-
+    stacked invoice-first, side by side on `sm:` and up. Two new pure
+    functions in `packages/shared/src/invoice-payment-status.ts`
+    (`invoiceRemainingBalance`, `deriveInvoicePaymentStatus`) restate
+    only the already-authoritative `grandTotal`/`amountPaid` already
+    on `InvoiceWithItems`, mirroring invoice.service.ts's listInvoices
+    SQL CASE/subtraction exactly — no new accounting rule invented.
+    "Record a payment" renamed to "Record customer payment" with
+    explicit helper text ("Payments are allocated to the oldest
+    outstanding debt first, not necessarily this invoice.");
+    `PaymentForm` gained optional `title`/`helperText`/
+    `suggestedAmountLabel` props (every other caller's defaults
+    unchanged). A third new pure function, `suggestedCustomerPaymentAmount`,
+    fixes a real bug caught by its own test: decimal.js's `isPositive()`
+    treats `0` as positive, which would have kept suggesting a "0.00"
+    payment for a customer with nothing outstanding — switched to
+    `greaterThan(0)`, so a zero or negative (credit) balance now
+    correctly suggests nothing. See "UI/UX-01 — Clarify Invoice
+    Balance vs. Customer Account Balance (Phase 64)" below
 
 Repo also went through a monorepo restructure (`server/` → `apps/api` +
 new `apps/web` + `packages/shared`) between Phase 1 and Phase 2.

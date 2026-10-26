@@ -19,13 +19,34 @@ function todayLocal(): string {
 interface Props {
   /** Fixed when recording from a customer or invoice page; omitted (and picked from a list) on the Payments page. */
   customerId?: string;
-  /** Pre-fills the amount, e.g. an invoice's current balance — still editable, so partial payments stay easy. */
+  /** Pre-fills the amount — still editable, so partial payments stay easy. */
   suggestedAmount?: string;
+  /**
+   * UI/UX-01: what `suggestedAmount` actually represents, shown right
+   * under the Amount field whenever a suggestion is pre-filled — e.g.
+   * "Customer's full outstanding account balance (all unpaid
+   * invoices), not just this invoice." Callers that pre-fill an
+   * amount must say what it is; this is never shown if
+   * `suggestedAmount` isn't set.
+   */
+  suggestedAmountLabel?: string;
+  /** Defaults to "Record a payment" — e.g. InvoiceDetails uses "Record customer payment" to make clear this isn't scoped to one invoice. */
+  title?: string;
+  /** Optional context shown under the title — e.g. the oldest-debt-first allocation note on InvoiceDetails. */
+  helperText?: string;
   onRecorded: (payment: Payment) => void;
   onCancel?: () => void;
 }
 
-export function PaymentForm({ customerId, suggestedAmount, onRecorded, onCancel }: Props) {
+export function PaymentForm({
+  customerId,
+  suggestedAmount,
+  suggestedAmountLabel,
+  title = 'Record a payment',
+  helperText,
+  onRecorded,
+  onCancel,
+}: Props) {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [selectedCustomerId, setSelectedCustomerId] = useState(customerId ?? '');
   const [amount, setAmount] = useState(suggestedAmount ?? '');
@@ -64,7 +85,10 @@ export function PaymentForm({ customerId, suggestedAmount, onRecorded, onCancel 
 
   return (
     <form onSubmit={handleSubmit} className="space-y-3 rounded-md border border-slate-200 p-4">
-      <h3 className="text-sm font-semibold text-slate-900">Record a payment</h3>
+      <div>
+        <h3 className="text-sm font-semibold text-slate-900">{title}</h3>
+        {helperText && <p className="mt-0.5 text-xs text-slate-500">{helperText}</p>}
+      </div>
 
       {!customerId && (
         <div>
@@ -102,6 +126,9 @@ export function PaymentForm({ customerId, suggestedAmount, onRecorded, onCancel 
             onChange={(e) => setAmount(e.target.value)}
             className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-slate-500 focus:outline-none"
           />
+          {suggestedAmount !== undefined && suggestedAmountLabel && (
+            <p className="mt-1 text-xs text-slate-500">{suggestedAmountLabel}</p>
+          )}
         </div>
         <div>
           <label htmlFor="pay-date" className="block text-xs font-medium text-slate-500">
