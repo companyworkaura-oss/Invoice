@@ -3,7 +3,6 @@ import { Decimal, calculateSets, formatNumber, roundMoney } from '@invoice/share
 import { useMemo, useRef, useState, useEffect } from 'react';
 import { ApiError } from '../../lib/api';
 import * as customersApi from '../customers/api';
-import * as paymentsApi from '../payments/api';
 import * as invoicesApi from './api';
 import { previewDiscount, sumAmounts } from './preview';
 import { newQuickInvoiceSaveState, saveQuickInvoice } from './quick-save';
@@ -13,12 +12,14 @@ import { newQuickInvoiceSaveState, saveQuickInvoice } from './quick-save';
  * handful of items, done). It is a thin frontend layer only — every
  * calculation, save, and the resulting invoice record go through the
  * exact same apis/services as CreateInvoiceForm: createInvoice (same
- * ledger debit, same invoice numbering), updateInvoice when editing,
- * and createPayment (same ledger credit) when "Paid" is checked on
- * create. Nothing here has its own accounting logic, its own totals
- * math, or its own storage — a saved Quick Invoice is a normal invoice
- * row from the moment it's created, and shows up everywhere a normal
- * invoice does (list, ledger, PDF, audit).
+ * ledger debit, same invoice numbering), updateInvoice when editing.
+ * When "Paid" is checked on create, the initial payment (same ledger
+ * credit the Payments page posts) is created atomically with the
+ * invoice itself, server-side — see F11 and quick-save.ts. Nothing
+ * here has its own accounting logic, its own totals math, or its own
+ * storage — a saved Quick Invoice is a normal invoice row from the
+ * moment it's created, and shows up everywhere a normal invoice does
+ * (list, ledger, PDF, audit).
  *
  * Unlike CreateInvoiceForm, a Quick Invoice item never goes through a
  * category or the formula engine — each row is just
@@ -112,7 +113,7 @@ export function QuickInvoiceForm({ invoice, onSaved, onCancel }: Props) {
   const [errors, setErrors] = useState<FieldErrors>({});
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  // F06: survives across retries of the same save attempt (handleSubmit
+  // F11: survives across retries of the same save attempt (handleSubmit
   // running again after a failure) without surviving a fresh mount of
   // this form — exactly the lifetime a "don't duplicate on retry" guard
   // needs. See saveQuickInvoice's doc comment.
@@ -217,23 +218,24 @@ export function QuickInvoiceForm({ invoice, onSaved, onCancel }: Props) {
         return;
       }
 
-      // F06: createInvoice (same ledger debit, same invoice numbering
-      // as CreateInvoiceForm) and, when "Paid" is checked, createPayment
-      // (same ledger credit the Payments page uses) are driven through
-      // saveQuickInvoice so a retry after a failure in either step never
-      // re-creates the invoice — see its doc comment and
-      // saveStateRef above. A fresh state per successful save (reset
-      // right after onSaved below) means the *next* invoice this form
-      // creates starts from a clean slate.
+      // F11: createInvoice and, when "Paid" is checked, its initial
+      // payment (same ledger debit/credit as CreateInvoiceForm and the
+      // Payments page) are created atomically, server-side, in one
+      // transaction — see apps/api's createInvoiceCore. saveQuickInvoice
+      // reuses the same idempotency key across any retry of this save
+      // attempt (see saveStateRef above and quick-save.ts's doc
+      // comment), so a retry after a dropped response never creates a
+      // second invoice. A fresh state per successful save (reset right
+      // after onSaved below) means the *next* invoice this form creates
+      // starts from a clean slate.
       const saved = await saveQuickInvoice(
         saveStateRef.current,
         {
           invoiceInput: { ...sharedFields, customerId, invoiceDate: todayLocal() },
-          customerId,
           paid,
           paymentMethod,
         },
-        { createInvoice: invoicesApi.createInvoice, createPayment: paymentsApi.createPayment, getInvoice: invoicesApi.getInvoice },
+        { createInvoice: invoicesApi.createInvoice },
       );
       saveStateRef.current = newQuickInvoiceSaveState();
       onSaved(saved);

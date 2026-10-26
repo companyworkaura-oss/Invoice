@@ -37,8 +37,66 @@ const COLUMNS = `
   p.created_at AS "createdAt"
 `;
 
+// A pg Pool and a pg PoolClient (inside a transaction) share this shape.
+type Queryable = Pick<typeof pool, 'query'>;
+
 function ledgerNote(paymentMethod: PaymentMethod, reference: string | undefined | null): string {
   return reference ? `Payment (${paymentMethod}, ref ${reference})` : `Payment (${paymentMethod})`;
+}
+
+/**
+ * The actual insert-payment-plus-ledger-credit work, taking an
+ * already-open client instead of opening its own transaction. This is
+ * what lets F11's atomic create-and-pay (invoice.service.ts's
+ * createInvoiceCore) post the invoice's initial payment inside the
+ * *same* transaction as the invoice itself — both commit together or
+ * neither does, so there is no window where the invoice exists but
+ * its payment doesn't. `createPayment` below is just this wrapped in
+ * its own transaction, for every other (non-atomic-with-an-invoice)
+ * caller.
+ */
+export async function createPaymentWithClient(
+  client: Queryable,
+  companyId: string,
+  userId: string,
+  input: PaymentInput,
+): Promise<Payment> {
+  await requireCustomer(client, companyId, input.customerId);
+
+  const { rows } = await client.query<Omit<Payment, 'customerName'>>(
+    `INSERT INTO payments (company_id, customer_id, amount, date, payment_method, reference, notes)
+     VALUES ($1, $2, $3, COALESCE($4::date, CURRENT_DATE), $5, $6, $7)
+     RETURNING id, company_id AS "companyId", customer_id AS "customerId",
+               amount, date, payment_method AS "paymentMethod", reference, notes,
+               created_at AS "createdAt"`,
+    [companyId, input.customerId, input.amount, input.date ?? null, input.paymentMethod, input.reference ?? null, input.notes ?? null],
+  );
+  const payment = rows[0];
+
+  // Same transaction/client as the insert above — see the doc comment.
+  await postLedgerEntry(client, {
+    companyId,
+    customerId: input.customerId,
+    type: 'PAYMENT',
+    referenceId: payment.id,
+    credit: payment.amount,
+    date: payment.date,
+    notes: ledgerNote(payment.paymentMethod, payment.reference),
+  });
+
+  await postAuditLog(client, {
+    companyId,
+    userId,
+    action: 'PAYMENT_CREATED',
+    entityType: 'payment',
+    entityId: payment.id,
+    metadata: { customerId: input.customerId, amount: payment.amount, paymentMethod: payment.paymentMethod },
+  });
+
+  const customerRes = await client.query<{ name: string }>('SELECT name FROM customers WHERE id = $1', [
+    input.customerId,
+  ]);
+  return { ...payment, customerName: customerRes.rows[0].name };
 }
 
 /**
@@ -49,44 +107,7 @@ function ledgerNote(paymentMethod: PaymentMethod, reference: string | undefined 
  * behind it, or vice versa.
  */
 export async function createPayment(companyId: string, userId: string, input: PaymentInput): Promise<Payment> {
-  return withTransaction(async (client) => {
-    await requireCustomer(client, companyId, input.customerId);
-
-    const { rows } = await client.query<Omit<Payment, 'customerName'>>(
-      `INSERT INTO payments (company_id, customer_id, amount, date, payment_method, reference, notes)
-       VALUES ($1, $2, $3, COALESCE($4::date, CURRENT_DATE), $5, $6, $7)
-       RETURNING id, company_id AS "companyId", customer_id AS "customerId",
-                 amount, date, payment_method AS "paymentMethod", reference, notes,
-                 created_at AS "createdAt"`,
-      [companyId, input.customerId, input.amount, input.date ?? null, input.paymentMethod, input.reference ?? null, input.notes ?? null],
-    );
-    const payment = rows[0];
-
-    // Same transaction as the insert above — see the doc comment.
-    await postLedgerEntry(client, {
-      companyId,
-      customerId: input.customerId,
-      type: 'PAYMENT',
-      referenceId: payment.id,
-      credit: payment.amount,
-      date: payment.date,
-      notes: ledgerNote(payment.paymentMethod, payment.reference),
-    });
-
-    await postAuditLog(client, {
-      companyId,
-      userId,
-      action: 'PAYMENT_CREATED',
-      entityType: 'payment',
-      entityId: payment.id,
-      metadata: { customerId: input.customerId, amount: payment.amount, paymentMethod: payment.paymentMethod },
-    });
-
-    const customerRes = await client.query<{ name: string }>('SELECT name FROM customers WHERE id = $1', [
-      input.customerId,
-    ]);
-    return { ...payment, customerName: customerRes.rows[0].name };
-  });
+  return withTransaction((client) => createPaymentWithClient(client, companyId, userId, input));
 }
 
 export async function listPayments(companyId: string, filter: PaymentListFilter): Promise<Payment[]> {

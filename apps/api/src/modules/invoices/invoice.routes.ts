@@ -1,5 +1,6 @@
 import { Router, type Request } from 'express';
-import { badRequest } from '../../lib/http-error.js';
+import { roleHasPermission } from '@invoice/shared';
+import { badRequest, forbidden } from '../../lib/http-error.js';
 import {
   asBody,
   optionalBoolean,
@@ -27,6 +28,7 @@ const STATUSES = ['draft', 'issued'] as const;
 const PAYMENT_STATUSES = ['PAID', 'PARTIAL', 'UNPAID', 'CANCELLED'] as const;
 const ARCHIVED_FILTERS = ['active', 'archived', 'all'] as const;
 const DISCOUNT_TYPES = ['percentage', 'fixed'] as const;
+const PAYMENT_METHODS = ['cash', 'bank', 'cheque', 'other'] as const;
 
 function parseItems(body: Record<string, unknown>): service.InvoiceItemInput[] {
   const raw = body.items;
@@ -102,14 +104,46 @@ invoicesRouter.post('/', requirePermission('invoice.create'), async (req, res) =
     throw badRequest('Validation failed', { status: `Must be one of: ${STATUSES.join(', ')}` });
   }
 
-  const invoice = await service.createInvoice(auth(req).companyId, auth(req).userId, {
-    customerId: requireUuid(body, 'customerId'),
-    invoiceDate: optionalDate(body, 'invoiceDate'),
-    notes: optionalString(body, 'notes', { max: 2000 }),
-    status: status as service.InvoiceStatus | undefined,
-    items: parseItems(body),
-    ...parseDiscountAndLot(body),
-  });
+  // F11: Quick Invoice's "Save as Paid" — opt-in, so a caller that
+  // never sends `paid` (every Standard Invoice save, duplicate) gets
+  // today's exact behavior back, unchanged. `paid` + `payment.create`
+  // gates posting the initial payment the same way the dedicated
+  // POST /payments route does; `invoice.create` alone (e.g. STAFF
+  // without payment.create, if that combination is ever introduced)
+  // is not enough to post one here either.
+  const paid = optionalBoolean(body, 'paid') ?? false;
+  let paymentMethod: service.PaymentMethod | undefined;
+  if (paid) {
+    if (!roleHasPermission(auth(req).role, 'payment.create')) throw forbidden();
+    const method = requireString(body, 'paymentMethod', { max: 20 });
+    if (!(PAYMENT_METHODS as readonly string[]).includes(method)) {
+      throw badRequest('Validation failed', { paymentMethod: `Must be one of: ${PAYMENT_METHODS.join(', ')}` });
+    }
+    paymentMethod = method as service.PaymentMethod;
+  }
+  // Must be the same value across any retry of one logical "Save"
+  // click — see createInvoice's idempotency wrapper. Optional: a
+  // caller with no retry concern of its own (Standard Invoice) simply
+  // never sends one.
+  const idempotencyKey = optionalString(body, 'idempotencyKey', { max: 100 });
+
+  const invoice = await service.createInvoice(
+    auth(req).companyId,
+    auth(req).userId,
+    {
+      customerId: requireUuid(body, 'customerId'),
+      invoiceDate: optionalDate(body, 'invoiceDate'),
+      notes: optionalString(body, 'notes', { max: 2000 }),
+      status: status as service.InvoiceStatus | undefined,
+      items: parseItems(body),
+      ...parseDiscountAndLot(body),
+    },
+    {},
+    {
+      idempotencyKey,
+      pay: paid ? { paymentMethod: paymentMethod as service.PaymentMethod } : undefined,
+    },
+  );
   res.status(201).json(invoice);
 });
 

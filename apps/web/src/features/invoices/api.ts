@@ -5,6 +5,7 @@ import type {
   InvoicePaymentStatus,
   InvoiceStatus,
   InvoiceWithItems,
+  PaymentMethod,
   WhatsAppSharePayload,
   WhatsAppSharePreview,
 } from '@invoice/shared';
@@ -50,6 +51,23 @@ export interface InvoiceInput {
   discountType?: DiscountType;
   discountValue?: string;
   items: InvoiceItemInput[];
+  /**
+   * F11: Quick Invoice's "Save as Paid" only — posts the initial
+   * payment server-side, atomically with the invoice itself. Omit
+   * (the normal case, including every Standard Invoice save) for an
+   * unpaid invoice; CreateInvoiceForm never sets this.
+   */
+  paid?: boolean;
+  /** Required when paid is true. */
+  paymentMethod?: PaymentMethod;
+  /**
+   * F11: must be the same value across any retry of one logical
+   * "Save" click — the server uses it to make a repeated create-and-
+   * pay a no-op (returning the original invoice) rather than creating
+   * a duplicate. Generate one per save attempt; omit for callers with
+   * no retry concern of their own.
+   */
+  idempotencyKey?: string;
 }
 
 /** Same shape as InvoiceInput minus customerId/status — a draft's customer is fixed; see PATCH /invoices/:id. */

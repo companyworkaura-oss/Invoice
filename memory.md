@@ -3570,6 +3570,117 @@ root cause already fixed as "F05" in Phase 45.
   prior to this task, now with committed regression coverage matching
   the report's exact test list).
 
+## F11 — Zero-Total Paid Quick Invoice Must Not Partially Save / Duplicate (Phase 60)
+
+A genuine correctness fix plus an architecture change: an atomic
+server-side create-and-pay transaction, replacing a client-only retry
+guard with real request-level idempotency.
+
+- **Exact root cause**: Quick Invoice's "Save as Paid" was
+  `createInvoice` then `createPayment` — two independent HTTP
+  requests. For a 100%-discounted invoice (`grandTotal '0.00'`), the
+  invoice creation succeeded but the payment request always failed
+  (the backend's `requirePositiveDecimal` rejects a zero-amount
+  payment), surfacing a false "save failed" to the user even though
+  the invoice already existed. For a non-zero invoice, any failure
+  between the two requests (or a dropped response the client
+  interpreted as a failure) followed by a naive retry could re-POST
+  `createInvoice` and create a duplicate invoice — the old guard
+  against this (`quick-save.ts`'s in-memory `state` ref, from the
+  prior "F06"/Phase 51 fix) only survived retries within the same
+  component instance; it couldn't survive a page reload or protect
+  against a genuine double-submit race (two concurrent calls both
+  seeing `state.invoice === null`).
+- **Zero-total behavior**: a zero-total invoice is never paid no
+  matter what `pay`/`paid` is requested — enforced inside
+  `createInvoiceCore` itself (`if (pay && discount.grandTotal !==
+  '0.00')`), not just by the frontend choosing not to ask. Belt and
+  suspenders: even a future caller that forgets this rule can't
+  trigger the doomed zero-amount payment attempt.
+- **Transaction/idempotency strategy**: both requested architectures
+  from the task, combined.
+  - *Atomicity*: `payment.service.ts`'s `createPayment` body was
+    extracted into `createPaymentWithClient(client, ...)`, which takes
+    an already-open transaction client instead of opening its own.
+    `invoice.service.ts`'s `createInvoiceCore` (the renamed body of
+    the old `createInvoice`) now calls it with its own `client` right
+    after computing the invoice's ledger summary, then recomputes that
+    summary so the response already reflects the payment — same
+    transaction as the invoice, items, and ledger debit, so all of it
+    commits together or none of it does. There is no window, ever,
+    where the invoice exists but a payment the caller asked for
+    doesn't (or the reverse) — stronger than "recoverable," it's
+    simply never partial.
+  - *Idempotency*: a new `invoice_save_requests` table (migration 022)
+    and a `createInvoiceIdempotent` wrapper mirror F03's
+    `whatsapp_send_requests` claim/finalize/release pattern exactly —
+    a client-supplied `idempotencyKey` claimed via a UNIQUE
+    `(company_id, idempotency_key)` INSERT; the loser of a race either
+    gets back the winner's `invoiceId` (once finalized) or polls
+    briefly for it; a claim whose attempt throws is released so a
+    genuine retry starts clean. This existing F03 approach was
+    reused rather than inventing a new mechanism, per the task's own
+    preference. The new, exported `createInvoice(companyId, userId,
+    input, auditMetadataExtra, options)` only takes this path when
+    `options.idempotencyKey` is given; every existing caller
+    (`duplicateInvoice`, Standard Invoice's POST /invoices) passes
+    neither `idempotencyKey` nor `pay` and gets `createInvoiceCore`
+    directly — byte-for-byte the old behavior.
+- **Files changed**:
+  - `apps/api/src/migrations/022_invoice_save_idempotency.sql` (new) —
+    the `invoice_save_requests` table.
+  - `apps/api/src/modules/payments/payment.service.ts` — extracted
+    `createPaymentWithClient` (exported); `createPayment` is now a
+    one-line wrapper calling it inside its own `withTransaction`.
+  - `apps/api/src/modules/invoices/invoice.service.ts` — old
+    `createInvoice` renamed to (unexported) `createInvoiceCore`, now
+    taking an optional `pay: CreateInvoicePayOptions` and posting the
+    payment as described above; new exported `createInvoice` wrapper
+    + `CreateInvoiceOptions` (`idempotencyKey?`, `pay?`) +
+    `claimInvoiceSaveKey`/`finalizeInvoiceSaveKey`/
+    `releaseInvoiceSaveKey`/`createInvoiceIdempotent`. Re-exports
+    `PaymentMethod` (imported from payment.service.ts) for the routes
+    file.
+  - `apps/api/src/modules/invoices/invoice.routes.ts` — POST /
+    accepts optional `paid`/`paymentMethod`/`idempotencyKey`;
+    `payment.create` permission is checked (via `roleHasPermission`)
+    in addition to the route's existing `invoice.create` whenever
+    `paid` is set, so Quick Invoice's atomic pay can't grant payment
+    creation to a role that lacks it.
+  - `apps/web/src/features/invoices/api.ts` — `InvoiceInput` gained
+    optional `paid`/`paymentMethod`/`idempotencyKey` fields (unused by
+    Standard Invoice, so it's unaffected).
+  - `apps/web/src/features/invoices/quick-save.ts` — collapsed from a
+    3-call sequence (createInvoice/createPayment/getInvoice) tracked
+    by a mutable `{invoice, paymentCreated}` state to a single
+    `createInvoice` call carrying `state.idempotencyKey`, generated
+    once per save attempt (`crypto.randomUUID()`) and reused across
+    every retry of that same `state`.
+  - `apps/web/src/features/invoices/QuickInvoiceForm.tsx` — updated
+    call site (no more separate `createPayment`/`getInvoice` deps);
+    stale doc comments corrected.
+- **Tests**: new `apps/api/test/invoice-quick-save-idempotency.test.ts`
+  (8 tests) — the exact zero-total-Paid repro (saves once, no
+  zero-value payment, no false failure), a non-zero Paid save
+  (invoice + payment both succeed atomically), a same-idempotencyKey
+  retry (no duplicate invoice or payment), a different-idempotencyKey
+  "save" (correctly treated as independent), an unpaid Quick Invoice
+  (unaffected), F04 rounding under the atomic path, Standard Invoice
+  (unaffected, no paid field sent), and a missing-paymentMethod
+  validation case. Rewrote `apps/web/test/quick-save.test.ts` (5
+  tests, replacing the old F06-era ones that asserted on
+  createPayment/getInvoice call counts no longer relevant to this
+  design) to prove: a fresh idempotency key per state, the key is
+  forwarded correctly, a retry reuses the *same* key rather than
+  generating a new one, a succeeded state never re-calls
+  `createInvoice`, and an unpaid save sends `paid: false` with no
+  `paymentMethod`.
+- `npm run typecheck`, `npm run build`, `npm test` (shared 61/61 + api
+  384/384 + web 36/36, all clean), and `npm run lint` (zero errors,
+  zero warnings) all clean. **Retry cannot create a duplicate**:
+  proven by the same-idempotencyKey test above hitting the real
+  backend twice. **F11 is confirmed FIXED.**
+
 ## Known gotchas / things to check before starting work
 
 - **Postgres cluster is often stopped** when a session starts:
@@ -4338,6 +4449,39 @@ root cause already fixed as "F05" in Phase 45.
     coverage matching the report's own test list, including a 13-state
     sweep across both discount types. See "F10 — Discount Input Must
     Not Crash During Typing (Phase 59)" below
+
+65. F11 — Zero-Total Paid Quick Invoice Must Not Partially Save /
+    Duplicate (correctness + architecture fix): Quick Invoice's "Save
+    as Paid" was createInvoice then createPayment, two separate
+    requests with no transaction tying them together — a 100%-discount
+    invoice's payment always failed (backend rejects a zero-amount
+    payment), surfacing a false "save failed" even though the invoice
+    existed, and a failure/retry between the two requests could create
+    a duplicate invoice. Fixed by making the invoice and its initial
+    payment one atomic server-side operation: `createPaymentWithClient`
+    (new, in payment.service.ts) takes an already-open transaction
+    client instead of opening its own, so invoice.service.ts's
+    `createInvoiceCore` can post the payment inside the exact same
+    transaction as the invoice — both commit together or neither does,
+    full stop, not just "recoverable". A zero-total invoice never gets
+    a payment attempt regardless of what's requested (enforced
+    server-side, not just by the frontend skipping the call). Added
+    real request-level idempotency (new `createInvoice` wrapper +
+    `invoice_save_requests` table, migration 022) mirroring F03's
+    WhatsApp-send claim/finalize/release pattern exactly: a client-
+    supplied `idempotencyKey`, retried with the same value, returns the
+    original invoice instead of creating a second one — this replaces
+    the old client-only in-memory retry guard, which couldn't survive
+    a page reload or a genuine double-submit race. POST /invoices
+    gained optional `paid`/`paymentMethod`/`idempotencyKey` fields,
+    opt-in so Standard Invoice (which never sends them) is unaffected;
+    `payment.create` is required in addition to `invoice.create` when
+    `paid` is set. Quick Invoice's frontend (`quick-save.ts`,
+    `QuickInvoiceForm.tsx`) collapsed from a 3-call sequence
+    (createInvoice/createPayment/getInvoice) to one call carrying a
+    per-save-attempt idempotency key generated once and reused across
+    retries. See "F11 — Zero-Total Paid Quick Invoice Must Not
+    Partially Save / Duplicate (Phase 60)" below
 
 Repo also went through a monorepo restructure (`server/` → `apps/api` +
 new `apps/web` + `packages/shared`) between Phase 1 and Phase 2.

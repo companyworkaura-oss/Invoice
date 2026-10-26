@@ -1,5 +1,5 @@
 import { pool, withTransaction } from '../../db/pool.js';
-import { badRequest, notFound } from '../../lib/http-error.js';
+import { badRequest, conflict, notFound } from '../../lib/http-error.js';
 import { fifoPaidCtes } from '../../lib/ledger-fifo.js';
 import {
   ALLOWED_VARIABLES,
@@ -13,6 +13,9 @@ import {
 } from '@invoice/shared';
 import { postAuditLog } from '../audit/audit.service.js';
 import { getBalanceBefore, getCustomerBalance, postLedgerEntry } from '../ledger/ledger.service.js';
+import { createPaymentWithClient, type PaymentMethod } from '../payments/payment.service.js';
+
+export type { PaymentMethod };
 
 export type InvoiceStatus = 'draft' | 'issued' | 'cancelled';
 
@@ -578,18 +581,36 @@ async function createManualInvoiceItem(
 }
 
 /**
+ * F11: when requested (Quick Invoice's "Save as Paid"), post the
+ * invoice's initial payment inside createInvoiceCore's own
+ * transaction — same client, same commit/rollback. A zero-total
+ * invoice (e.g. a 100% discount) is never paid regardless of this
+ * flag: there's nothing to collect, and the backend's own
+ * requirePositiveDecimal would reject a zero-amount payment anyway —
+ * this is the one place that "never attempt it" rule is actually
+ * enforced, so a caller can't bypass it even if a client bug asks for
+ * one. See CreateInvoicePayOptions.
+ */
+export interface CreateInvoicePayOptions {
+  paymentMethod: PaymentMethod;
+}
+
+/**
  * Creates an invoice with all of its items in a single transaction: the
  * invoice number, every item's formula evaluation, and the rows
  * themselves all commit together or not at all. All amounts are
  * computed here, server-side, via the formula engine — nothing about
  * calculated_unit_amount or calculated_total is ever accepted from the
- * request.
+ * request. `pay`, when given, posts the invoice's initial payment in
+ * this exact same transaction — see createInvoice (the idempotent,
+ * exported wrapper around this) for why that matters.
  */
-export async function createInvoice(
+async function createInvoiceCore(
   companyId: string,
   userId: string,
   input: InvoiceInput,
-  auditMetadataExtra: Record<string, unknown> = {},
+  auditMetadataExtra: Record<string, unknown>,
+  pay: CreateInvoicePayOptions | undefined,
 ): Promise<InvoiceWithItems> {
   if (input.items.length === 0) {
     throw badRequest('Validation failed', { items: 'At least one item is required' });
@@ -685,7 +706,26 @@ export async function createInvoice(
             notes: `Invoice ${invoiceNumber}`,
           })
         ).createdAt;
-    const summary = await buildLedgerSummary(client, companyId, input.customerId, invoiceId, discount.grandTotal, ledgerCreatedAt);
+    let summary = await buildLedgerSummary(client, companyId, input.customerId, invoiceId, discount.grandTotal, ledgerCreatedAt);
+
+    // F11: the invoice's initial payment, posted in this same
+    // transaction — it commits with the invoice or not at all, so
+    // there is never a window where the invoice exists but a payment
+    // the caller asked for doesn't (or vice versa). Deliberately
+    // skipped for a zero-total invoice even if `pay` was requested:
+    // see CreateInvoicePayOptions.
+    if (pay && discount.grandTotal !== '0.00') {
+      await createPaymentWithClient(client, companyId, userId, {
+        customerId: input.customerId,
+        amount: discount.grandTotal,
+        date: invoiceDate,
+        paymentMethod: pay.paymentMethod,
+      });
+      // amountPaid/currentBalance above were computed before this
+      // payment existed — recompute so the response already reflects it,
+      // matching what an immediate GET of this same invoice would show.
+      summary = await buildLedgerSummary(client, companyId, input.customerId, invoiceId, discount.grandTotal, ledgerCreatedAt);
+    }
 
     await postAuditLog(client, {
       companyId,
@@ -729,6 +769,130 @@ export async function createInvoice(
       ...summary,
     };
   });
+}
+
+/**
+ * F11 idempotency: claims `idempotencyKey` for this `companyId` by
+ * inserting a row into invoice_save_requests — the UNIQUE constraint
+ * on (company_id, idempotency_key) means at most one caller can ever
+ * win this INSERT for a given key. The loser gets `claimed: false`
+ * and whatever `invoiceId` the winner has filled in so far (`null`
+ * while the winner's save is still in flight). Same claim/finalize/
+ * release pattern as F03's WhatsApp send idempotency
+ * (whatsapp-share.service.ts) — there is no invoice yet to scope the
+ * key to, so it's keyed by (company, key) alone instead of
+ * (company, invoice, key).
+ */
+async function claimInvoiceSaveKey(
+  companyId: string,
+  idempotencyKey: string,
+): Promise<{ claimed: true } | { claimed: false; invoiceId: string | null }> {
+  try {
+    await pool.query('INSERT INTO invoice_save_requests (company_id, idempotency_key) VALUES ($1, $2)', [
+      companyId,
+      idempotencyKey,
+    ]);
+    return { claimed: true };
+  } catch (err) {
+    if (err && typeof err === 'object' && 'code' in err && err.code === '23505') {
+      const { rows } = await pool.query<{ invoiceId: string | null }>(
+        'SELECT invoice_id AS "invoiceId" FROM invoice_save_requests WHERE company_id = $1 AND idempotency_key = $2',
+        [companyId, idempotencyKey],
+      );
+      return { claimed: false, invoiceId: rows[0]?.invoiceId ?? null };
+    }
+    throw err;
+  }
+}
+
+async function finalizeInvoiceSaveKey(companyId: string, idempotencyKey: string, invoiceId: string): Promise<void> {
+  await pool.query('UPDATE invoice_save_requests SET invoice_id = $3 WHERE company_id = $1 AND idempotency_key = $2', [
+    companyId,
+    idempotencyKey,
+    invoiceId,
+  ]);
+}
+
+/** Releases a claimed key that never produced an invoice (the create attempt itself threw) — so a genuine retry with the same key starts clean instead of polling forever for a result that will never arrive. */
+async function releaseInvoiceSaveKey(companyId: string, idempotencyKey: string): Promise<void> {
+  await pool.query(
+    'DELETE FROM invoice_save_requests WHERE company_id = $1 AND idempotency_key = $2 AND invoice_id IS NULL',
+    [companyId, idempotencyKey],
+  );
+}
+
+const SAVE_POLL_INTERVAL_MS = 100;
+const SAVE_MAX_POLL_ATTEMPTS = 30; // ~3s total — generous for a save genuinely still in flight, short enough not to hang a caller indefinitely.
+
+async function createInvoiceIdempotent(
+  companyId: string,
+  userId: string,
+  input: InvoiceInput,
+  auditMetadataExtra: Record<string, unknown>,
+  pay: CreateInvoicePayOptions | undefined,
+  idempotencyKey: string,
+): Promise<InvoiceWithItems> {
+  const claim = await claimInvoiceSaveKey(companyId, idempotencyKey);
+
+  if (claim.claimed) {
+    try {
+      const invoice = await createInvoiceCore(companyId, userId, input, auditMetadataExtra, pay);
+      await finalizeInvoiceSaveKey(companyId, idempotencyKey, invoice.id);
+      return invoice;
+    } catch (err) {
+      await releaseInvoiceSaveKey(companyId, idempotencyKey);
+      throw err;
+    }
+  }
+
+  if (claim.invoiceId) return getInvoice(companyId, claim.invoiceId);
+
+  // Another request with this exact key is still in flight (or just
+  // errored and released the key) — wait briefly for it to settle
+  // rather than creating a second invoice ourselves.
+  for (let attempt = 0; attempt < SAVE_MAX_POLL_ATTEMPTS; attempt++) {
+    await new Promise((resolve) => setTimeout(resolve, SAVE_POLL_INTERVAL_MS));
+    const { rows } = await pool.query<{ invoiceId: string | null }>(
+      'SELECT invoice_id AS "invoiceId" FROM invoice_save_requests WHERE company_id = $1 AND idempotency_key = $2',
+      [companyId, idempotencyKey],
+    );
+    if (rows[0]?.invoiceId) return getInvoice(companyId, rows[0].invoiceId);
+    if (!rows[0]) return createInvoiceIdempotent(companyId, userId, input, auditMetadataExtra, pay, idempotencyKey); // released — claim it ourselves now.
+  }
+  throw conflict('A save with this idempotency key is already in progress. Try again shortly.');
+}
+
+export interface CreateInvoiceOptions {
+  /**
+   * Must be the same value across any retry of one logical "Save"
+   * click — see createInvoiceIdempotent. Omit for callers (duplicate,
+   * Standard Invoice) that have no such retry concern of their own.
+   */
+  idempotencyKey?: string;
+  /** Quick Invoice's "Save as Paid" — posts the initial payment in the same transaction as the invoice. Standard Invoice never sets this. */
+  pay?: CreateInvoicePayOptions;
+}
+
+/**
+ * Creates an invoice (see createInvoiceCore) and, when `options.pay`
+ * is given, its initial payment — atomically, in one transaction.
+ * When `options.idempotencyKey` is also given, a retry with the exact
+ * same key never creates a second invoice (or a second payment): see
+ * createInvoiceIdempotent. Every existing caller that passes neither
+ * option (duplicateInvoice, Standard Invoice's POST /invoices) gets
+ * today's exact behavior back, unchanged.
+ */
+export async function createInvoice(
+  companyId: string,
+  userId: string,
+  input: InvoiceInput,
+  auditMetadataExtra: Record<string, unknown> = {},
+  options: CreateInvoiceOptions = {},
+): Promise<InvoiceWithItems> {
+  if (options.idempotencyKey) {
+    return createInvoiceIdempotent(companyId, userId, input, auditMetadataExtra, options.pay, options.idempotencyKey);
+  }
+  return createInvoiceCore(companyId, userId, input, auditMetadataExtra, options.pay);
 }
 
 /**
