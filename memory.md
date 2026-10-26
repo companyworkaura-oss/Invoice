@@ -3523,6 +3523,53 @@ change, no migration.
   376/376 + web 25/25, all clean), and `npm run lint` (zero errors,
   zero warnings) all clean.
 
+## F10 — Discount Input Must Not Crash During Typing (Phase 59)
+
+A re-verification, not a new fix: this report's F10 is the exact same
+root cause already fixed as "F05" in Phase 45.
+
+- **Exact crash source (already fixed)**: `new Decimal(discountValueRaw)`
+  called directly on the raw keystroke value — decimal.js throws a
+  `DecimalError` for ordinary mid-typing states like `"-"` and `"."`
+  (verified live via a Node one-liner; `"0."`/`"12."` trailing-dot
+  strings parse successfully to `0`/`12` and do not throw, so those
+  two are legitimate values, not error states). An uncaught throw
+  inside the render-time discount preview `useMemo` would crash the
+  whole form component.
+- **Files changed**: only
+  `apps/web/test/discount-input-safety.test.ts` (new, 11 tests). No
+  production code changed — independently re-audited
+  `apps/web/src/features/invoices/preview.ts`,
+  `CreateInvoiceForm.tsx`, and `QuickInvoiceForm.tsx` before adding
+  anything; both forms already route the discount field exclusively
+  through the one shared `previewDiscount`/`parseDiscountValue`
+  helper, which already wraps `new Decimal(trimmed)` in try/catch,
+  checks `.isFinite()`, and returns `Decimal | null` — it never
+  throws regardless of input.
+- **Parser/validation approach confirmed already in place**: raw
+  string input and parsed numeric value are already kept separate —
+  `parseDiscountValue` returns `null` for anything invalid/incomplete,
+  and `previewDiscount` surfaces that as an inline `error` message
+  (discount amount/grand total fall back to `0.00`/the full subtotal
+  while invalid) rather than throwing or sending a bad value anywhere.
+- **Tests**: new `discount-input-safety.test.ts` covers every typing
+  state this report's own test list (1-9) calls for verbatim —
+  `"."`, `"-"`, `"abc"` (with the exact inline validation message),
+  `"12."`, `"12.5"`, clearing the field, percentage bounds validation,
+  fixed bounds validation, and the F04 half-cent rounding-consistency
+  case — plus a bonus `"0."` case and a 13-state sweep across both
+  discount types asserting `doesNotThrow`. All 11 pass.
+- **Standard Invoice and Quick Invoice both confirmed fixed**: both
+  forms call the identical shared `previewDiscount` via their own
+  `useMemo`; `QuickInvoiceForm`'s unrelated `previewLineAmount`
+  (quantity × unit price, already guarded by `Number.isFinite` checks)
+  was identified as out of scope and left untouched.
+- `npm run typecheck`, `npm run build`, `npm test` (shared 61/61 + api
+  376/376 + web 36/36, all clean), and `npm run lint` (zero errors,
+  zero warnings) all clean. **F10 is confirmed FIXED** (already fixed
+  prior to this task, now with committed regression coverage matching
+  the report's exact test list).
+
 ## Known gotchas / things to check before starting work
 
 - **Postgres cluster is often stopped** when a session starts:
@@ -4276,6 +4323,21 @@ change, no migration.
     automatically since they all route through this one function. See
     "F09 — Zero-Total Invoice Historical Balance Must Remain Stable
     (Phase 58)" below
+
+64. F10 — Discount Input Must Not Crash During Typing
+    (re-verification, not a new fix): this report's F10 is the exact
+    same root cause already fixed as "F05" in Phase 45 — raw
+    mid-typing discount values like `"."`/`"-"`/`"abc"` could throw
+    via `new Decimal(discountValueRaw)` outside safe validation.
+    Independently re-audited `preview.ts`, `CreateInvoiceForm.tsx`,
+    and `QuickInvoiceForm.tsx`: both forms already route exclusively
+    through the shared `previewDiscount`/`parseDiscountValue` helper,
+    which already never throws (try/catch + `.isFinite()` check,
+    returns `Decimal | null`). No production code changed. Added
+    `discount-input-safety.test.ts` (11 tests) as committed regression
+    coverage matching the report's own test list, including a 13-state
+    sweep across both discount types. See "F10 — Discount Input Must
+    Not Crash During Typing (Phase 59)" below
 
 Repo also went through a monorepo restructure (`server/` → `apps/api` +
 new `apps/web` + `packages/shared`) between Phase 1 and Phase 2.
