@@ -159,6 +159,23 @@ export interface DiscountResult {
  * No discountType (undefined/null) means no discount at all: any
  * discountValue passed alongside it is ignored, not an error — the
  * caller didn't ask for a discount.
+ *
+ * F04: `discountAmount` and `grandTotal` must satisfy
+ * `subtotal === discountAmount + grandTotal` at 2-decimal money
+ * precision — the one authoritative rounding rule every other figure
+ * derived from this invoice (creation response, reread, ledger debit,
+ * list, dashboard, PDF, WhatsApp, statements) is built on. The old
+ * code rounded discountAmount and grandTotal *independently*, each
+ * from its own unrounded Decimal (`subtotal - unroundedDiscount`) —
+ * so a subtotal/percentage combination that lands exactly on a half
+ * cent (e.g. subtotal 1.01 @ 50% → raw discount 0.505, raw grandTotal
+ * also 0.505) rounds *both* halves up under ROUND_HALF_UP, producing
+ * 0.51 + 0.51 = 1.02 for a 1.01 subtotal. Rounding discountAmount
+ * exactly once, then deriving grandTotal from that *rounded* value
+ * (`subtotal - roundedDiscountAmount`) instead of the raw one, makes
+ * the two halves add back up to subtotal by construction — there's
+ * only one rounding decision made, not two independent ones that can
+ * disagree with each other.
  */
 export function calculateDiscount(
   subtotal: string,
@@ -187,7 +204,12 @@ export function calculateDiscount(
     discountAmount = value;
   }
 
-  const grandTotal = new Decimal(subtotal).minus(discountAmount);
+  // F04: round discountAmount ONCE, here — everything downstream
+  // (including the negativity guard and grandTotal itself) is derived
+  // from this one rounded value, never from the unrounded `discountAmount`
+  // Decimal above again.
+  const roundedDiscountAmount = roundMoney(discountAmount);
+  const grandTotal = new Decimal(subtotal).minus(roundedDiscountAmount);
   if (grandTotal.isNegative()) {
     // Defensive only — unreachable given the checks above, kept so a
     // future change to this function can't silently let the total go negative.
@@ -197,7 +219,11 @@ export function calculateDiscount(
   return {
     discountType,
     discountValue: roundMoney(value),
-    discountAmount: roundMoney(discountAmount),
+    discountAmount: roundedDiscountAmount,
+    // subtotal is already at 2-decimal money precision (a sum of
+    // already-rounded item totals) and roundedDiscountAmount is too,
+    // so this subtraction is already exact — roundMoney here is a
+    // formality/safety net, not a second independent rounding decision.
     grandTotal: roundMoney(grandTotal),
   };
 }

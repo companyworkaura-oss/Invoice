@@ -73,3 +73,47 @@ test('F05: valid-decimal bounds checks are preserved (percentage over 100, fixed
   const overFixed = previewDiscount('100.00', 'fixed', '150');
   assert.match(overFixed.error ?? '', /exceed the subtotal/);
 });
+
+// F04: discountAmount and grandTotal must satisfy
+// subtotal === discountAmount + grandTotal at 2-decimal precision —
+// mirrors the server's calculateDiscount fix exactly (see
+// invoice.service.ts), so this live preview never shows a different
+// split than what the server will actually save.
+function assertConsistent(subtotal: string, result: { discountAmount: string; grandTotal: string }) {
+  const sum = (Number(result.discountAmount) + Number(result.grandTotal)).toFixed(2);
+  assert.equal(sum, subtotal, `discountAmount (${result.discountAmount}) + grandTotal (${result.grandTotal}) must equal subtotal (${subtotal})`);
+}
+
+test('F04: subtotal 1.01 @ 50% previews as 0.51 + 0.50, never 0.51 + 0.51', () => {
+  const result = previewDiscount('1.01', 'percentage', '50');
+  assertConsistent('1.01', result);
+  assert.equal(result.discountAmount, '0.51');
+  assert.equal(result.grandTotal, '0.50');
+});
+
+test('F04: a sweep of half-cent percentage combinations are all internally consistent', () => {
+  const cases: [string, string][] = [
+    ['1.01', '50'],
+    ['0.01', '50'],
+    ['0.03', '50'],
+    ['10.01', '33.33'],
+    ['99.99', '1'],
+  ];
+  for (const [subtotal, discountValue] of cases) {
+    assertConsistent(subtotal, previewDiscount(subtotal, 'percentage', discountValue));
+  }
+});
+
+test('F04: a fixed discount with cents is internally consistent', () => {
+  const result = previewDiscount('10.00', 'fixed', '3.33');
+  assertConsistent('10.00', result);
+  assert.equal(result.discountAmount, '3.33');
+  assert.equal(result.grandTotal, '6.67');
+});
+
+test('F04: normal whole-cent discounts are unaffected (same numbers as before the fix)', () => {
+  const tenPercent = previewDiscount('144.00', 'percentage', '10');
+  assertConsistent('144.00', tenPercent);
+  assert.equal(tenPercent.discountAmount, '14.40');
+  assert.equal(tenPercent.grandTotal, '129.60');
+});

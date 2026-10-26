@@ -3258,6 +3258,86 @@ logic are all untouched.
   347/347 + web 21/21, all clean), and `npm run lint` (zero errors,
   zero warnings) all clean.
 
+## F04 — Discount Rounding Must Be Financially Consistent (Phase 55)
+
+A correctness fix isolated to the one function that computes
+discountAmount/grandTotal — `calculateDiscount`
+(`apps/api/src/modules/invoices/invoice.service.ts`) — plus its exact
+frontend mirror (`previewDiscount`, `preview.ts`, fixed for the same
+reason: so the live edit/create preview never shows a different split
+than what the server actually saves). Nothing else needed to change —
+every other figure (reread, list, dashboard, ledger debit, PDF/
+WhatsApp via the view model) was already *derived from* the stored
+`discountAmount`/`grandTotal`, never independently recomputed, so
+fixing the one source of truth fixed all of them automatically.
+
+- **Old rounding behavior**: `calculateDiscount` computed
+  `discountAmount` (raw, unrounded Decimal) and `grandTotal =
+  subtotal - discountAmount` (also from the *unrounded* discountAmount)
+  side by side, then called `roundMoney` on each **independently**.
+  `roundMoney` uses `ROUND_HALF_UP`. For the reported case — subtotal
+  1.01, 50% — the raw discount is exactly 0.505 and the raw grand
+  total is also exactly 0.505 (the subtotal's own half-cent split in
+  half again); `ROUND_HALF_UP` rounds *both* of those identical
+  half-cent values up to 0.51, producing `0.51 + 0.51 = 1.02` for a
+  1.01 subtotal — one cent manufactured out of nowhere, purely from
+  rounding the same split twice from two different unrounded
+  starting points.
+- **New authoritative rounding rule**: round `discountAmount` exactly
+  **once**, then derive `grandTotal = subtotal - roundedDiscountAmount`
+  — never from the raw, unrounded discount again. `grandTotal` is
+  still passed through `roundMoney` once more, but since `subtotal`
+  (always a sum of already-rounded item totals) and the now-rounded
+  `discountAmount` are both already at 2-decimal precision, that
+  subtraction is already exact — the second `roundMoney` call is a
+  formality/safety net, not a second independent rounding decision.
+  This guarantees `subtotal === discountAmount + grandTotal` at money
+  precision by construction, for both percentage and fixed discounts,
+  because there is structurally only one rounding choice made, not
+  two that can disagree.
+- **Files changed**: `apps/api/src/modules/invoices/invoice.service.ts`
+  (`calculateDiscount` — the fix itself; both `createInvoice` and
+  `updateInvoice` already called this single function, so create and
+  edit automatically share the identical rule with zero changes to
+  either), and `apps/web/src/features/invoices/preview.ts`
+  (`previewDiscount` — the exact same fix, mirrored, so the client-side
+  live preview during typing/editing never disagrees with what the
+  server will save).
+- **Why nothing else needed to change**: `getInvoice`'s reread derives
+  `grandTotal` from the *stored* `discountAmount` column
+  (`totalAmount - discountAmount`, not a fresh percentage
+  recalculation); `listInvoices`'s SQL does the same
+  (`items.total - discount_amount`); the ledger debit at creation is
+  `discount.grandTotal` from this same function; the invoice view
+  model (`buildInvoiceViewModel`, consumed by PDF/print/WhatsApp) just
+  passes through `invoice.discountAmount`/`invoice.grandTotal` from
+  the already-fetched object, with no recomputation of its own. Every
+  one of these was already "consume the stored authoritative value" —
+  they inherited the fix automatically once the one place that *sets*
+  those values was corrected.
+- **Tests**: new `apps/api/test/invoice-discount-rounding.test.ts`
+  (10 new) using manual (Quick Invoice) items — `unitPrice` taken
+  literally with no formula engine involved — for exact, arbitrary-cent
+  subtotal control: the exact reported scenario (1.01 @ 50% →
+  0.51 + 0.50, never 0.51 + 0.51); create/reread/list/ledger-debit all
+  reporting the identical `grandTotal`; a real, non-empty PDF response
+  for the same invoice; editing a draft's discount value *and* type
+  and confirming the new totals (and the updated ledger debit) stay
+  consistent; a sweep of half-cent/odd-percentage edge cases (0.01 @
+  50%, 10.01 @ 33.33%, a fixed discount with cents, several more);
+  normal whole-cent amounts producing the exact same numbers as
+  before the fix (no regression); and a dedicated check that every
+  validation rule (negative discount, percentage over 100, fixed over
+  subtotal, exactly-at-subtotal allowed with a zero grand total) is
+  unchanged. **Verified the regression test itself**: reverted
+  `calculateDiscount` (`git stash`) and re-ran — it reproduces the
+  exact reported `0.51 + 0.51 = 1.02` failure; restored the fix and
+  re-ran clean. New `apps/web/test/preview.test.ts` tests (4 new)
+  mirror the same cases for the frontend preview function.
+- `npm run typecheck`, `npm run build`, `npm test` (shared 61/61 + api
+  357/357 + web 25/25, all clean), and `npm run lint` (zero errors,
+  zero warnings) all clean.
+
 ## Known gotchas / things to check before starting work
 
 - **Postgres cluster is often stopped** when a session starts:
@@ -3942,6 +4022,22 @@ logic are all untouched.
     configured; otherwise unchanged (download PDF, user opens wa.me
     themselves). See "F03 — WhatsApp Send Must Not Happen on GET
     (Phase 54)" below
+
+60. F04 — Discount Rounding Must Be Financially Consistent
+    (correctness fix): `calculateDiscount` rounded `discountAmount`
+    and `grandTotal` independently from the same unrounded Decimal,
+    so a half-cent split (e.g. subtotal 1.01 @ 50% -> raw 0.505 twice)
+    rounded both halves up under ROUND_HALF_UP: 0.51 + 0.51 = 1.02 for
+    a 1.01 subtotal. Fixed by rounding discountAmount exactly once,
+    then deriving grandTotal from that rounded value instead of the
+    raw one — `subtotal === discountAmount + grandTotal` holds by
+    construction. Every other consumer (reread, list, ledger debit,
+    PDF/WhatsApp view model) already derived its figures from the
+    stored discountAmount/grandTotal rather than recomputing, so
+    fixing this one function fixed all of them; mirrored the identical
+    fix in the frontend's previewDiscount so the live edit preview
+    never disagrees with what gets saved. See "F04 — Discount
+    Rounding Must Be Financially Consistent (Phase 55)" below
 
 Repo also went through a monorepo restructure (`server/` → `apps/api` +
 new `apps/web` + `packages/shared`) between Phase 1 and Phase 2.

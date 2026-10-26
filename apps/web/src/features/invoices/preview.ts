@@ -130,9 +130,18 @@ export function previewDiscount(
     discountAmount = value;
   }
 
+  // F04: round discountAmount ONCE, then derive grandTotal from that
+  // rounded value — never round discountAmount and grandTotal
+  // independently from the same unrounded Decimal. Mirrors the
+  // server's calculateDiscount exactly (invoice.service.ts) so this
+  // preview never shows a different split than what actually gets
+  // saved: independently rounding both (the old bug here and there)
+  // could make a subtotal like 1.01 @ 50% preview as 0.51 + 0.51 =
+  // 1.02, a cent more than the real subtotal.
+  const roundedDiscountAmount = roundMoney(discountAmount);
   return {
-    discountAmount: roundMoney(discountAmount),
-    grandTotal: roundMoney(new Decimal(subtotal).minus(discountAmount)),
+    discountAmount: roundedDiscountAmount,
+    grandTotal: roundMoney(new Decimal(subtotal).minus(roundedDiscountAmount)),
     error: null,
   };
 }
