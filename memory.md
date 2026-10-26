@@ -3401,6 +3401,61 @@ outside the committed test suite, before adding any test.
   363/363 + web 25/25, all clean), and `npm run lint` (zero errors,
   zero warnings) all clean.
 
+## F06 — Invoice Amount Paid Must Never Be Negative (Phase 57)
+
+A re-verification, not a new fix — this report's F06 is the exact
+same root cause this session already fixed as "F03" in Phase 43.
+Independently re-audited `buildLedgerSummary`'s `amountPaid` and
+live-reproduced the report's exact scenario before adding any test.
+
+- **Root cause (already fixed)**: `amountPaid` used to be derived as
+  `totalReceivable - currentBalance` — the customer's *overall* live
+  balance, which moves whenever *any* invoice is created anywhere in
+  the customer's history. Two unpaid invoices of 100 each: the older
+  one's `totalReceivable` (100) minus the customer's current overall
+  balance (200, both invoices' debits) is `-100` — a negative "amount
+  paid" on an invoice nobody has paid anything toward.
+- **How amountPaid was previously derived**: `totalReceivable -
+  currentBalance`, a whole-customer snapshot subtraction, never
+  scoped to the specific invoice.
+- **New/current source of truth (already in place, confirmed
+  unchanged)**: `buildLedgerSummary` calls `getInvoicePaidAmount`
+  (invoice.service.ts) — the F05 authoritative FIFO allocation, built
+  on the shared `fifoPaidCtes` fragment
+  (`apps/api/src/lib/ledger-fifo.ts`), the exact same helper
+  `listInvoices`, the dashboard's unpaid/partial count, and
+  `deleteInvoice`'s guard all already use. The FIFO formula itself —
+  `debit - LEAST(debit, GREATEST(current_balance -
+  cumulative_before, 0))` — is bounded in `[0, debit]` by
+  construction (subtracting a value clamped to `[0, debit]` from
+  `debit` can never go negative or exceed `debit`), so `0 <=
+  amountPaid <= grandTotal` holds mathematically, not just
+  empirically, for every invoice.
+- **Live reproduction, independent of the test suite** (a standalone
+  script, not committed): the exact report scenario — invoice A=100,
+  invoice B=100, no payment — both report `amountPaid: '0.00'`,
+  never negative; a partial payment (40) is absorbed entirely by the
+  older invoice, the newer stays 0; a payment of 150 fully pays the
+  older (100) and spills the remaining 50 onto the newer; a sweep of
+  5 invoices with uneven payments and a mid-sequence debit adjustment
+  stayed within `[0, grandTotal]` for every single one. **The
+  reported negative-paid bug does not reproduce on this branch.**
+- **Files changed**: none in production code. New
+  `apps/api/test/invoice-amount-paid.test.ts` only — 7 tests matching
+  this report's own test list (1–6) plus one additional zero-total/
+  100%-discount edge case the report's "handle according to existing
+  business rules" note called for. Confirmed detail/list/PDF all
+  agree on the identical `amountPaid` for the same invoice (test 5 —
+  the PDF response itself is generated from the same already-computed
+  `InvoiceWithItems` object `buildInvoiceViewModel` only ever passes
+  `amountPaid` through, never recomputes), and a global `[0,
+  grandTotal]` bounds check plus a `paymentStatus`/`balance`
+  cross-check against `listInvoices` for every invoice in a 5-invoice,
+  multi-payment, mid-sequence-adjustment sweep (test 6).
+- `npm run typecheck`, `npm run build`, `npm test` (shared 61/61 + api
+  370/370 + web 25/25, all clean), and `npm run lint` (zero errors,
+  zero warnings) all clean.
+
 ## Known gotchas / things to check before starting work
 
 - **Postgres cluster is often stopped** when a session starts:
@@ -4119,6 +4174,23 @@ outside the committed test suite, before adding any test.
     anywhere even though already correctly handled. No production
     code changed. See "F05 — Paid Invoice Must Not Become Unpaid
     After Later Debit (Phase 56)" below
+
+62. F06 — Invoice Amount Paid Must Never Be Negative
+    (re-verification, not a new fix): this report's F06 is the exact
+    same root cause already fixed as "F03" in Phase 43
+    (`totalReceivable - currentBalance`, a whole-customer snapshot
+    subtraction, going negative for an older unpaid invoice once a
+    sibling invoice raised the customer's overall balance).
+    Independently re-audited `buildLedgerSummary`/`getInvoicePaidAmount`
+    and live-reproduced the exact report scenario (two unpaid 100
+    invoices) and every test case the report lists before adding
+    anything — none reproduce; the FIFO formula is mathematically
+    bounded in [0, grandTotal] by construction. No production code
+    changed. Added `invoice-amount-paid.test.ts` (7 tests) as
+    committed regression coverage matching the report's own test
+    list, including a global bounds sweep and a detail/list/PDF
+    agreement check. See "F06 — Invoice Amount Paid Must Never Be
+    Negative (Phase 57)" below
 
 Repo also went through a monorepo restructure (`server/` → `apps/api` +
 new `apps/web` + `packages/shared`) between Phase 1 and Phase 2.
