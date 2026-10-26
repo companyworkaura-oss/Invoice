@@ -3681,6 +3681,62 @@ guard with real request-level idempotency.
   proven by the same-idempotencyKey test above hitting the real
   backend twice. **F11 is confirmed FIXED.**
 
+## F08 — Quick Invoice Duplicate Must Support Manual Items (Phase 61)
+
+A re-verification, not a new fix: this report's F08 is the exact same
+root cause already fixed as "F07" in Phase 52.
+
+- **Exact root cause (already fixed)**: a manual (Quick Invoice) item
+  has `categoryId === null` by design — its normal, expected shape,
+  never a sign of a deleted category. `duplicateInvoice`'s old guard
+  (`original.items.some((item) => !item.categoryId)`) treated the two
+  cases identically, so *every* Quick Invoice — all of whose items are
+  manual — was rejected as "references a deleted category and cannot
+  be duplicated," even though nothing was actually deleted.
+- **How Quick vs. Standard is distinguished**: `invoiceMode`
+  (`'quick' | 'standard'`), computed server-side from the items
+  actually saved (`invoiceModeFromItems` — "every item manual" ⇒
+  `'quick'`) and stored on the invoice row itself, never inferred
+  from `categoryId` alone and never accepted from the client.
+  `duplicateInvoice` only runs the "deleted category" guard when
+  `invoiceMode !== 'quick'`, so a Quick Invoice's by-design null
+  `categoryId` never trips it, while a standard invoice's item that
+  lost its category to a real deletion still does. The two item
+  shapes are then mapped back correctly: a Quick Invoice's items go
+  through the manual (description/quantity/`calculatedUnitAmount`)
+  path with no categoryId/stitches at all; a standard invoice's go
+  through the category (categoryId/stitches/rate) path.
+- **Files changed**: only
+  `apps/api/test/invoice-quick-duplicate.test.ts` (new, 7 tests). No
+  production code changed — independently re-audited
+  `duplicateInvoice` in invoice.service.ts and live-reproduced the
+  exact scenario (a Quick Invoice with manual items, `categoryId`
+  null, a duplicate request) in a standalone script before adding
+  anything: status 201, a new id, a new invoice number (`INV-000002`
+  vs. the original's `INV-000001`), no "category deleted" error.
+- **Tests**: new `invoice-quick-duplicate.test.ts` covers every case
+  this report's own numbered list (1-7) calls for — a single manual
+  item duplicates; multiple manual items all copy their
+  description/quantity/unitPrice exactly; the duplicate gets a new id
+  and a new invoice number; a paid original's payment is never copied
+  (the duplicate starts fully unpaid, and no second payment row is
+  created); Standard Invoice duplication is unaffected; a Standard
+  Invoice item referencing a genuinely deleted category still
+  correctly rejects; and a valid Quick Invoice's manual items never
+  trigger the "deleted category" error. This is independent of (and
+  in addition to) the pre-existing "F07"-labeled coverage already in
+  `invoice-history.test.ts` (one combined Quick-duplicate test, plus
+  separate deleted-category/disabled-category/tenant-isolation
+  tests), which already covered the same ground under different
+  names.
+- `npm run typecheck`, `npm run build`, `npm test` (shared 61/61 + api
+  391/391 + web 36/36, all clean), and `npm run lint` (zero errors,
+  zero warnings) all clean. **Quick Invoice duplicate with
+  `categoryId = null` confirmed working** (both by live reproduction
+  and by the new tests). **F08 is confirmed FIXED** (already fixed
+  prior to this task, now with additional committed regression
+  coverage matching the report's exact test list).
+
 ## Known gotchas / things to check before starting work
 
 - **Postgres cluster is often stopped** when a session starts:
@@ -4482,6 +4538,27 @@ guard with real request-level idempotency.
     per-save-attempt idempotency key generated once and reused across
     retries. See "F11 — Zero-Total Paid Quick Invoice Must Not
     Partially Save / Duplicate (Phase 60)" below
+
+66. F08 — Quick Invoice Duplicate Must Support Manual Items
+    (re-verification, not a new fix): this report's F08 is the exact
+    same root cause already fixed as "F07" in Phase 52 —
+    `duplicateInvoice`'s old guard treated a manual item's by-design
+    null `categoryId` as a sign of a deleted category, blocking every
+    Quick Invoice from ever being duplicated. `invoiceMode`
+    (server-derived from the items actually saved, never inferred
+    from `categoryId` alone) is the reliable discriminator already in
+    use: the "deleted category" guard only runs for a standard
+    invoice. Independently re-audited `duplicateInvoice` and live-
+    reproduced the exact scenario (a Quick Invoice with manual items,
+    `categoryId` null, duplicate request) outside the test suite
+    before adding anything — confirmed status 201, a new id, and a
+    new invoice number (`INV-000002` vs `INV-000001`), no "category
+    deleted" error. No production code changed. Added
+    `invoice-quick-duplicate.test.ts` (7 tests, matching this report's
+    own numbered test list) as committed regression coverage,
+    independent of the pre-existing "F07"-labeled coverage in
+    invoice-history.test.ts. See "F08 — Quick Invoice Duplicate Must
+    Support Manual Items (Phase 61)" below
 
 Repo also went through a monorepo restructure (`server/` → `apps/api` +
 new `apps/web` + `packages/shared`) between Phase 1 and Phase 2.
