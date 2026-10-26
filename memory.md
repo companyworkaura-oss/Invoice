@@ -3338,6 +3338,69 @@ fixing the one source of truth fixed all of them automatically.
   357/357 + web 25/25, all clean), and `npm run lint` (zero errors,
   zero warnings) all clean.
 
+## F05 — Paid Invoice Must Not Become Unpaid After Later Debit (Phase 56)
+
+A re-verification, not a new fix — this report's F05 is the exact
+same root cause this session already fixed as "F04" in Phase 44 (the
+two review reports use different numbering for the same finding).
+Did not assume the earlier fix held; independently re-audited
+`apps/api/src/lib/ledger-fifo.ts`'s `fifoPaidCtes` and reproduced
+every scenario this report's finding lists — A through F — live,
+outside the committed test suite, before adding any test.
+
+- **Root cause (already fixed)**: a FIFO "oldest debt first"
+  allocation that windows `cumulative_before` over only `type =
+  'INVOICE'` ledger rows (instead of every positive-debit row —
+  opening balance, invoice, and debit adjustment) silently drops newer
+  non-invoice debits from the running sum, so a later debit
+  adjustment or opening balance can make an already-paid invoice look
+  unpaid again, or vice versa. Already corrected in `fifoPaidCtes`,
+  which windows over every debit-positive row and only narrows to
+  `type = 'INVOICE'` in each caller's *outer* query, after the window
+  is computed.
+- **Final allocation policy (confirmed, unchanged)**: oldest-debt-
+  first FIFO across every positive-debit ledger entry type — opening
+  balance, invoice, and debit adjustment — ordered by
+  `created_at DESC, id DESC` with a running `cumulative_before` sum;
+  a payment/credit is applied against the customer's current balance
+  working backward from the newest entry, so the oldest debt is
+  always satisfied first.
+- **Single source of truth (confirmed, unchanged)**: `listInvoices`,
+  `getInvoicePaidAmount` (invoice detail *and* the delete guard, via
+  `deleteInvoice`), and the dashboard's unpaid/partial count
+  (`getUnpaidOrPartialInvoiceCount`) all build on the one shared
+  `fifoPaidCtes` fragment — confirmed via a direct search
+  (`grep -rl fifoPaidCtes`), not assumed. PDF/WhatsApp never
+  recompute anything — they consume the already-computed
+  `amountPaid`/`paid` fields from the same `InvoiceWithItems`/
+  `InvoiceListEntry` objects.
+- **Live reproduction, independent of the test suite** (a standalone
+  script, not committed): the exact report scenario (invoice 100,
+  later debit adjustment 100, payment 100) — invoice detail
+  `amountPaid: 100.00`, list `paid: 100.00`/`paymentStatus: PAID`,
+  dashboard `unpaidOrPartialInvoiceCount: 0`, delete correctly
+  rejected (400, payment applied). Also reproduced the three ordering
+  variants the report calls out by name: opening balance *before* the
+  invoice (older debt absorbs the payment, invoice stays `0.00` paid);
+  a debit adjustment *before* the invoice (same); a debit adjustment
+  *after* the invoice (the payment reaches the *older* invoice first,
+  invoice correctly shows partially/fully paid instead of the newer
+  adjustment). All four matched the FIFO policy exactly — **the
+  reported bug does not reproduce on this branch.**
+- **Files changed**: none in production code. New
+  `apps/api/test/invoice-fifo-allocation.test.ts` only — 6 tests
+  matching this report's own A–F lettering exactly (scenario A is the
+  literal report reproduction; B/C/D are the three debt-ordering
+  variants, not previously covered by name anywhere in the suite,
+  even though the underlying `fifoPaidCtes` fix already handled them
+  correctly; E/F reconfirm the unpaid-deletable / partially-paid-
+  rejected cases this report also calls for, alongside the
+  pre-existing, still-passing F04-labeled tests in
+  `invoice-archive.test.ts` and `ledger.test.ts` from Phase 44).
+- `npm run typecheck`, `npm run build`, `npm test` (shared 61/61 + api
+  363/363 + web 25/25, all clean), and `npm run lint` (zero errors,
+  zero warnings) all clean.
+
 ## Known gotchas / things to check before starting work
 
 - **Postgres cluster is often stopped** when a session starts:
@@ -4038,6 +4101,24 @@ fixing the one source of truth fixed all of them automatically.
     fix in the frontend's previewDiscount so the live edit preview
     never disagrees with what gets saved. See "F04 — Discount
     Rounding Must Be Financially Consistent (Phase 55)" below
+
+61. F05 — Paid Invoice Must Not Become Unpaid After Later Debit
+    (re-verification, not a new fix): this report's F05 is the same
+    root cause already fixed as "F04" in Phase 44 — the two review
+    reports number the same finding differently. Independently
+    re-audited `fifoPaidCtes` and live-reproduced every scenario this
+    report lists (A: the exact report reproduction; B/C/D: opening-
+    balance/adjustment-before/adjustment-after orderings) outside the
+    test suite before adding anything — none reproduce the bug.
+    Confirmed the one shared helper is still used by all four
+    consumers (list, detail/delete-guard, dashboard — PDF/WhatsApp
+    only ever consume the result). Added
+    `invoice-fifo-allocation.test.ts` (6 tests, matching this report's
+    own A–F lettering) as committed regression coverage for the B/C/D
+    orderings specifically, which weren't previously tested by name
+    anywhere even though already correctly handled. No production
+    code changed. See "F05 — Paid Invoice Must Not Become Unpaid
+    After Later Debit (Phase 56)" below
 
 Repo also went through a monorepo restructure (`server/` → `apps/api` +
 new `apps/web` + `packages/shared`) between Phase 1 and Phase 2.
