@@ -3737,6 +3737,77 @@ root cause already fixed as "F07" in Phase 52.
   prior to this task, now with additional committed regression
   coverage matching the report's exact test list).
 
+## F07 — Customer-Facing Invoice PDF Link Must Work Without Shop Login (Phase 62)
+
+A re-verification, not a new fix: this report's F07 is the exact same
+root cause already fixed as "F09" in Phase 49 (see that section
+above for the full original writeup).
+
+- **Exact root cause (already fixed)**: the WhatsApp share message's
+  PDF link pointed at `GET /api/invoices/:id/pdf` — the normal,
+  `requirePermission('invoice.view')`-gated download route. A
+  customer following that link from WhatsApp has no company session
+  at all, so it was simply unopenable by its intended recipient.
+- **Public URL design**: `GET /api/public/invoice-pdf/:token` (not
+  the report's own `?token=` example, but equivalent and arguably
+  stronger) — mounted at its own `/api/public` path, never nested
+  under `/api/invoices`, with **no invoice id anywhere in the URL at
+  all**. The token is the sole identifier; there is nothing in the
+  URL for an attacker to swap to try to reach a different invoice,
+  which makes the report's "token for invoice A used against invoice
+  B" attack structurally impossible here rather than merely rejected.
+- **Signing/expiry approach**: not an HMAC-signed JWT-style token —
+  an opaque 32-random-byte token (`node:crypto`'s `randomBytes`, same
+  mechanism this app's login sessions already use), stored only as
+  its SHA-256 hash in `invoice_pdf_share_tokens` (`company_id`,
+  `invoice_id`, `token_hash`, `expires_at`). Unforgeable the same way
+  a signature is (256 bits of entropy, nothing to compute it from),
+  but also revocable/inspectable server-side in a way a pure
+  signature wouldn't be. `expires_at` is set from
+  `config.invoicePdfShareTtlHours` (default 168h) at mint time and
+  checked (`expires_at > now()`) on every resolution; an unknown
+  token, an expired one, and one for a since-deleted invoice all
+  produce the identical `404`, so a public caller learns nothing from
+  the difference.
+- **Files changed**: only `apps/api/test/invoice-pdf-public-link.test.ts`
+  (new, 8 tests). No production code changed — independently
+  re-audited `invoice-share.service.ts`, `invoice-share.routes.ts`,
+  and `whatsapp-share.service.ts`, and confirmed via the Business
+  Cloud API service's source (`business-cloud-api-whatsapp-service.ts`)
+  that it never actually sends the `message` text field (which
+  carries the link) to the customer when it attaches the PDF
+  directly — only the document message is sent; the text is used
+  solely for the manual wa.me fallback and the app's own preview UI,
+  so the report's "don't unnecessarily duplicate the link" concern
+  was already satisfied by construction, not by an explicit
+  conditional.
+- **Tests**: new `invoice-pdf-public-link.test.ts` covers this
+  report's own numbered list (1-8). Points 1, 2, 3, 5, 6 were already
+  covered by the pre-existing "F09"-labeled `invoice-share.test.ts`
+  (confirmed, not re-litigated) — this file adds the two genuine gaps:
+  an explicit tampered-token case (one character flipped in a real
+  token, still a valid-shaped token, rejected with 404 on hash
+  mismatch) and an end-to-end check that the WhatsApp preview message
+  actually embeds a *working* signed link and that GET still never
+  sends anything (F03 preserved) — both of which needed a real
+  `PUBLIC_BASE_URL`, which every other WhatsApp test in this suite
+  deliberately runs without. Set via `process.env.PUBLIC_BASE_URL`
+  before a dynamic `import()` of `app.js` (config reads the env var
+  once, synchronously, at module load — a static import would be
+  hoisted ahead of setting it); `node:test` isolates each test *file*
+  into its own process, so this is scoped to this one file and
+  doesn't affect the rest of the suite's "no PUBLIC_BASE_URL
+  configured" tests.
+- `npm run typecheck`, `npm run build`, `npm test` (shared 61/61 + api
+  399/399 + web 36/36, all clean), and `npm run lint` (zero errors,
+  zero warnings) all clean. **Private PDF route confirmed still
+  protected** (401 with no session). **Customer link confirmed
+  working without shop login** (200/application/pdf from a bare
+  unauthenticated request, and from the real WhatsApp preview
+  message's embedded URL). **F07 is confirmed FIXED** (already fixed
+  prior to this task, now with additional committed regression
+  coverage matching the report's exact test list).
+
 ## Known gotchas / things to check before starting work
 
 - **Postgres cluster is often stopped** when a session starts:
@@ -4559,6 +4630,36 @@ root cause already fixed as "F07" in Phase 52.
     independent of the pre-existing "F07"-labeled coverage in
     invoice-history.test.ts. See "F08 — Quick Invoice Duplicate Must
     Support Manual Items (Phase 61)" below
+
+67. F07 — Customer-Facing Invoice PDF Link Must Work Without Shop
+    Login (re-verification, not a new fix): this report's F07 is the
+    exact same root cause already fixed as "F09" in Phase 49 — the
+    WhatsApp share message's PDF link used to point at the
+    authenticated `GET /api/invoices/:id/pdf`, unopenable by a
+    customer's phone. The existing fix's shape (an opaque, random,
+    hashed, invoice-and-company-scoped, expiring token at
+    `GET /api/public/invoice-pdf/:token`, with no invoice id anywhere
+    in the URL) differs from the report's own `?token=` example but
+    satisfies every requirement it lists, and structurally eliminates
+    one attack class the report worries about ("token for invoice A
+    used against invoice B") since there's no id in the URL to swap
+    in the first place. Confirmed the WhatsApp Business Cloud API path
+    never actually duplicates the link in a sent message either: it
+    attaches the PDF as a real document and never transmits the
+    `message` text field (which carries the link) to the customer at
+    all — that text is only ever used for the manual wa.me fallback
+    and the app's own preview UI. No production code changed. Added
+    `invoice-pdf-public-link.test.ts` (8 tests, matching this report's
+    own numbered test list) covering the two gaps the pre-existing
+    "F09"-labeled coverage (invoice-share.test.ts) didn't: an explicit
+    tampered-token case, and an end-to-end check (with a real
+    `PUBLIC_BASE_URL` configured just for this test file, via dynamic
+    `import()` after setting `process.env` — config reads it once at
+    module load, and `node:test` isolates each file into its own
+    process) that the WhatsApp preview message actually embeds a
+    working signed link, with GET still never sending anything (F03
+    preserved). See "F07 — Customer-Facing Invoice PDF Link Must Work
+    Without Shop Login (Phase 62)" below
 
 Repo also went through a monorepo restructure (`server/` → `apps/api` +
 new `apps/web` + `packages/shared`) between Phase 1 and Phase 2.
