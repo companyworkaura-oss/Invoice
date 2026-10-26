@@ -1,9 +1,11 @@
 import type { CompanyProfile } from '@invoice/shared';
 import { useState } from 'react';
 import { ApiError } from '../../lib/api';
+import { buildFormPatch, type FormPatchState } from '../../lib/form-patch';
 import { INVOICE_TEMPLATES } from '../invoices/templates/registry';
 import * as companyApi from './api';
-import { buildProfilePatch, type FormState } from './profile-patch';
+
+type FormState = FormPatchState;
 
 interface Props {
   profile: CompanyProfile;
@@ -61,7 +63,7 @@ export function CompanyProfileForm({ profile, canEdit, onSaved }: Props) {
     setSaved(false);
     setSaving(true);
     try {
-      const patch = buildProfilePatch(form, original);
+      const patch = buildFormPatch<companyApi.ProfilePatch>(form, original);
       const updated = await companyApi.updateProfile(patch);
       setForm(toFormState(updated));
       setOriginal(toFormState(updated));

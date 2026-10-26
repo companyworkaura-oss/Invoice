@@ -3808,6 +3808,107 @@ above for the full original writeup).
   prior to this task, now with additional committed regression
   coverage matching the report's exact test list).
 
+## F12 — Optional Contact Fields Must Be Clearable (Phase 63)
+
+A correctness fix, customer-side only — company fields were already
+fixed as F08 (Phase 48) and needed no changes here. Found by an
+F01–F12 final re-review's live reproduction (not test reading): the
+one previously-reported "fixed" item that genuinely wasn't.
+
+- **Exact root cause**: the same two-layer bug F08 already fixed for
+  company fields, just never ported to customers.
+  1. `apps/api/src/modules/customers/customer.routes.ts`'s PATCH
+     handler used `optionalString` for `businessName`/`phone`/
+     `whatsapp`/`address`/`notes` — `optionalString` → `requireString`
+     rejects a present-but-blank value outright (`min: 1` default),
+     so `PATCH { phone: "" }` returned 400 instead of clearing it.
+  2. Even with that fixed, `customer.service.ts`'s `updateCustomer`
+     built its SQL as `SET phone = COALESCE($5, phone)` for every
+     field, with `patch.phone ?? null` bound either way —
+     `COALESCE(null, phone)` always keeps the old value, so
+     "omitted" and "explicitly cleared" were indistinguishable at the
+     SQL layer regardless of what the route sent.
+  3. The frontend's `CustomerForm.tsx` papered over #1 with
+     `phone: form.phone || undefined` — so clearing the field in the
+     UI and saving produced **no error and no effect**: the old value
+     silently survived, which is worse than a visible 400.
+- **Fields affected**: `businessName`, `phone`, `whatsapp`, `address`,
+  `notes` — all nullable `text` columns (confirmed against migration
+  003, no migration needed). `name` is `NOT NULL CHECK (length(trim
+  (name)) > 0)` and stays a plain required field, same treatment as
+  company's `name`/`defaultCurrency`/`invoicePrefix`/
+  `defaultInvoiceTemplate`. Customer has **no `email` column at all**
+  (confirmed against `packages/shared/src/entities.ts`'s `Customer`
+  interface) — the report's mention of "customer email" doesn't apply
+  to this schema; `whatsapp` is the closest equivalent optional
+  contact field and was already in scope regardless.
+- **null/undefined semantics used**: identical to F08's — a key
+  *absent* from the PATCH body (`undefined`) leaves the column
+  untouched; a key present as `null`, `""`, or whitespace-only is
+  normalized to `null` (one consistent layer:
+  `optionalClearableString` in `lib/validate.ts`, unchanged, already
+  shared with company) and clears the column; a key present as a
+  non-blank string is trimmed and saved.
+- **Files changed**:
+  - `apps/api/src/modules/customers/customer.routes.ts` — PATCH
+    handler's five fields swapped to `optionalClearableString`.
+  - `apps/api/src/modules/customers/customer.service.ts` —
+    `CustomerPatch`'s five fields widened to `string | null`;
+    `updateCustomer` rewritten with a `PATCH_COLUMNS`
+    dynamic-SET-clause, same shape as `company.service.ts`'s
+    `updateCompany` (F08) — only a key present in `patch` is included
+    in the `SET` clause at all, assigned directly, never `COALESCE`'d.
+  - `apps/web/src/lib/form-patch.ts` (new) — the company-only
+    `buildProfilePatch` generalized into `buildFormPatch<T>`, usable
+    by any edit form with this same omit/clear/set contract.
+  - `apps/web/src/features/company/profile-patch.ts` (deleted) —
+    superseded by the generic helper above.
+  - `apps/web/src/features/company/CompanyProfileForm.tsx` — import
+    switched to the generic helper; behavior unchanged.
+  - `apps/web/src/features/customers/api.ts` — `CustomerPatch` is no
+    longer `Partial<CustomerInput>` (which would make every field
+    `string | undefined`, with no way to express "clear"); it's now
+    its own interface with `businessName`/`phone`/`whatsapp`/
+    `address`/`notes` typed `string | null`.
+  - `apps/web/src/features/customers/CustomerForm.tsx` — added an
+    `original` snapshot (same lifecycle as `CompanyProfileForm`'s) and
+    switched from `form.phone || undefined` to
+    `buildFormPatch(editableForm, editableOriginal)` on edit (create
+    mode keeps its own simpler blank-means-omit rule — there's no
+    "original" to diff against for a brand-new customer);
+    `openingBalance` (disabled, never editable) is excluded from the
+    diff rather than typed into `CustomerPatch`, which has no such
+    field.
+- **Tests**: new `apps/api/test/customer-field-clearing.test.ts` (9
+  tests) — clearing all five fields at once (`null`) and rereading;
+  clearing via empty/whitespace string has the same effect as `null`;
+  updating only `phone` leaves every other field (incl. `whatsapp`,
+  the closest equivalent to "email" on this schema) unchanged;
+  clearing only `address` leaves the rest untouched; omitting a field
+  entirely leaves it unchanged (not cleared); `name` still cannot be
+  cleared (NOT NULL, 400, and the rejected attempt doesn't partially
+  apply); a normal non-empty update to every field still works; and
+  clearing an already-null field is a harmless no-op. Also added 3
+  new cases to the renamed/generalized `form-patch.test.ts` (the old
+  `profile-patch.test.ts`'s 7 F08 cases carried over verbatim,
+  re-targeted at the generic helper) proving the same clear/omit/set
+  semantics for customer-shaped fields, not just company ones.
+  Company-side F08 coverage (`company-profile.test.ts` — explicit
+  null clears, empty-string clears, sibling-field isolation, required
+  fields rejected, malformed email rejected) needed no changes and
+  was confirmed still green, not just left alone.
+- **Live verification** (not just the new tests): reproduced the
+  exact failure from the review first (`PATCH /customers/:id
+  { phone: "" }` → 400), confirmed the fix against the real running
+  app afterward — `phone: null` and `address: ""` both now return 200
+  with the column actually `null`, and a follow-up PATCH omitting
+  both fields leaves them `null` (not resurrected), exactly the
+  omit-vs-clear distinction this fix exists for.
+- `npm run typecheck`, `npm run build`, `npm test` (shared 61/61 + api
+  407/407 + web 39/39, all clean), and `npm run lint` (zero errors,
+  zero warnings) all clean. **Saved optional customer values can now
+  be cleared.** **F12 is confirmed FIXED.**
+
 ## Known gotchas / things to check before starting work
 
 - **Postgres cluster is often stopped** when a session starts:
@@ -4660,6 +4761,47 @@ above for the full original writeup).
     working signed link, with GET still never sending anything (F03
     preserved). See "F07 — Customer-Facing Invoice PDF Link Must Work
     Without Shop Login (Phase 62)" below
+
+68. F12 — Optional Contact Fields Must Be Clearable (correctness fix,
+    customer side only — company side was already fixed as F08 in
+    Phase 48): a final full F01–F12 re-review (no code changes in
+    that pass) found this one genuinely still-open gap by live
+    reproduction, not just reading tests — `PATCH /api/customers/:id`
+    with `phone: ""` returned 400 instead of clearing the field; the
+    frontend's workaround (send `undefined` instead of the blank
+    value) meant a user clearing the field in the UI got no error but
+    also no effect, the old value silently surviving. Same two-layer
+    root cause F08 already fixed for company fields: the route used
+    `optionalString` (rejects blank outright) instead of
+    `optionalClearableString`, and `updateCustomer`'s SQL used
+    `COALESCE($n, column)` for every field, which can't tell "omitted"
+    apart from "explicitly cleared" even if the route were fixed —
+    both arrive as the same SQL NULL parameter. Fixed by mirroring
+    company.routes.ts/company.service.ts's F08 pattern exactly:
+    `customer.routes.ts`'s PATCH handler now uses
+    `optionalClearableString` for `businessName`/`phone`/`whatsapp`/
+    `address`/`notes` (all nullable `text` columns, confirmed against
+    migration 003 — no migration needed); `customer.service.ts`'s
+    `updateCustomer` now builds its `SET` clause only from keys
+    actually present in the patch (direct assignment, never
+    `COALESCE`), same `PATCH_COLUMNS` shape as `updateCompany`.
+    `name` stays a plain required string (NOT NULL with a non-blank
+    CHECK — nothing to clear it to). Customer has no `email` column
+    at all. Also generalized the frontend's company-only
+    `buildProfilePatch` into a shared `buildFormPatch` (new
+    `apps/web/src/lib/form-patch.ts`; old
+    `features/company/profile-patch.ts` deleted) and rewired
+    `CustomerForm.tsx` to the same "diff against an `original`
+    snapshot, clear → `null`, unchanged → omitted" pattern
+    `CompanyProfileForm.tsx` already used, instead of its old
+    `form.phone || undefined` (which could never distinguish "blank
+    because untouched" from "blank because just cleared"). Added
+    `customer-field-clearing.test.ts` (9 tests) plus 3 new cases in
+    the renamed/generalized `form-patch.test.ts`; company-side F08
+    coverage
+    (`company-profile.test.ts`) already existed and needed no changes
+    — confirmed still green. See "F12 — Optional Contact Fields Must
+    Be Clearable (Phase 63)" below
 
 Repo also went through a monorepo restructure (`server/` → `apps/api` +
 new `apps/web` + `packages/shared`) between Phase 1 and Phase 2.

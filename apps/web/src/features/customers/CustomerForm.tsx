@@ -1,6 +1,7 @@
 import type { Customer } from '@invoice/shared';
 import { useState } from 'react';
 import { ApiError } from '../../lib/api';
+import { buildFormPatch } from '../../lib/form-patch';
 import * as customersApi from './api';
 
 interface Props {
@@ -33,6 +34,14 @@ function toFormState(customer?: Customer): FormState {
 
 export function CustomerForm({ customer, onSaved, onCancel }: Props) {
   const [form, setForm] = useState<FormState>(() => toFormState(customer));
+  // F12: the snapshot `form` started from — the one thing that tells
+  // "this field is still blank because nobody touched it" (omit, leave
+  // unchanged server-side) apart from "this field used to have a
+  // value and the user just cleared it" (send null, so the server
+  // actually clears it). Only meaningful in edit mode — a brand-new
+  // customer has no "original" to diff against, so create keeps its
+  // own simpler blank-means-omit rule below.
+  const [original] = useState<FormState>(() => toFormState(customer));
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -45,18 +54,22 @@ export function CustomerForm({ customer, onSaved, onCancel }: Props) {
     setError(null);
     setSaving(true);
     try {
-      const patch: customersApi.CustomerPatch = {
-        name: form.name,
-        businessName: form.businessName || undefined,
-        phone: form.phone || undefined,
-        whatsapp: form.whatsapp || undefined,
-        address: form.address || undefined,
-        openingBalance: form.openingBalance || undefined,
-        notes: form.notes || undefined,
-      };
+      const { openingBalance: _formOpeningBalance, ...editableForm } = form;
+      const { openingBalance: _originalOpeningBalance, ...editableOriginal } = original;
       const saved = customer
-        ? await customersApi.updateCustomer(customer.id, patch)
-        : await customersApi.createCustomer({ name: form.name, ...patch });
+        ? await customersApi.updateCustomer(
+            customer.id,
+            buildFormPatch<customersApi.CustomerPatch>(editableForm, editableOriginal),
+          )
+        : await customersApi.createCustomer({
+            name: form.name,
+            businessName: form.businessName || undefined,
+            phone: form.phone || undefined,
+            whatsapp: form.whatsapp || undefined,
+            address: form.address || undefined,
+            openingBalance: form.openingBalance || undefined,
+            notes: form.notes || undefined,
+          });
       onSaved(saved);
     } catch (err) {
       setError(err instanceof ApiError ? err.body.error : 'Something went wrong');

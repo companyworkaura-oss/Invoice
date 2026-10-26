@@ -30,17 +30,26 @@ export interface CustomerInput {
   notes?: string;
 }
 
+/**
+ * F12: `name` is NOT NULL (with a non-blank CHECK) — there is no
+ * "clear" state for it, so it stays a plain optional string, same as
+ * company.service.ts's name/defaultCurrency/invoicePrefix/
+ * defaultInvoiceTemplate. Every other field here is a nullable
+ * column, so each is `string | null`: omitted (`undefined`, the key
+ * missing from the patch) leaves it unchanged, `null` explicitly
+ * clears it, a non-blank string sets it — see updateCustomer.
+ */
 export interface CustomerPatch {
   name?: string;
-  businessName?: string;
-  phone?: string;
-  whatsapp?: string;
-  address?: string;
+  businessName?: string | null;
+  phone?: string | null;
+  whatsapp?: string | null;
+  address?: string | null;
   // No openingBalance here: once a customer exists, its opening balance
   // is fixed (it already seeded a ledger entry). A later correction is
   // its own ADJUSTMENT entry, posted through the ledger, not a silent
   // edit to this column — see modules/ledger.
-  notes?: string;
+  notes?: string | null;
 }
 
 export interface ListFilter {
@@ -126,28 +135,42 @@ export async function getCustomer(companyId: string, customerId: string): Promis
   return rows[0];
 }
 
+/** `column, patchKey` pairs — same shape/order updateCustomer's columns were always listed in. */
+const PATCH_COLUMNS: readonly [string, keyof CustomerPatch][] = [
+  ['name', 'name'],
+  ['business_name', 'businessName'],
+  ['phone', 'phone'],
+  ['whatsapp', 'whatsapp'],
+  ['address', 'address'],
+  ['notes', 'notes'],
+];
+
+/**
+ * F12: `COALESCE($N, column)` can't tell "omitted" apart from
+ * "explicitly cleared" — both arrive as a SQL NULL parameter, so
+ * COALESCE always falls back to the existing value and a field could
+ * never actually be cleared (see company.service.ts's updateCompany,
+ * fixed the same way for F08). Only a key *present* in `patch` is
+ * included in the UPDATE at all (built dynamically below); its value
+ * — a string, or `null` for an explicit clear — is then assigned
+ * directly, never COALESCE'd. A key missing from `patch` entirely
+ * (`undefined`) is left out of the SET clause, so that column is
+ * untouched, exactly as if this were a single-column UPDATE.
+ */
 export async function updateCustomer(companyId: string, customerId: string, patch: CustomerPatch): Promise<Customer> {
+  const sets: string[] = [];
+  const params: unknown[] = [customerId, companyId];
+  for (const [column, key] of PATCH_COLUMNS) {
+    const value = patch[key];
+    if (value === undefined) continue;
+    params.push(value);
+    sets.push(`${column} = $${params.length}`);
+  }
+  sets.push('updated_at = now()');
+
   const { rows } = await pool.query<Customer>(
-    `UPDATE customers
-        SET name = COALESCE($3, name),
-            business_name = COALESCE($4, business_name),
-            phone = COALESCE($5, phone),
-            whatsapp = COALESCE($6, whatsapp),
-            address = COALESCE($7, address),
-            notes = COALESCE($8, notes),
-            updated_at = now()
-      WHERE id = $1 AND company_id = $2
-      RETURNING ${COLUMNS}`,
-    [
-      customerId,
-      companyId,
-      patch.name ?? null,
-      patch.businessName ?? null,
-      patch.phone ?? null,
-      patch.whatsapp ?? null,
-      patch.address ?? null,
-      patch.notes ?? null,
-    ],
+    `UPDATE customers SET ${sets.join(', ')} WHERE id = $1 AND company_id = $2 RETURNING ${COLUMNS}`,
+    params,
   );
   if (!rows[0]) throw notFound('Customer not found');
   return rows[0];

@@ -11,7 +11,24 @@ export interface CustomerInput {
   notes?: string;
 }
 
-export type CustomerPatch = Partial<CustomerInput>;
+/**
+ * F12: `name` is never nullable (there's nothing to clear it to) and
+ * stays a plain optional string. Every other field here is a nullable
+ * column server-side (customer.service.ts), so each is
+ * `string | null`: omitted (the key missing from the patch) leaves it
+ * unchanged, `null` explicitly clears it, a non-blank string sets it.
+ * `CustomerPatch` is intentionally not `Partial<CustomerInput>` —
+ * that would make every field `string | undefined`, with no way to
+ * express "clear this" at all.
+ */
+export interface CustomerPatch {
+  name?: string;
+  businessName?: string | null;
+  phone?: string | null;
+  whatsapp?: string | null;
+  address?: string | null;
+  notes?: string | null;
+}
 
 export interface ListParams {
   search?: string;

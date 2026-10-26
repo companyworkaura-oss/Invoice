@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { badRequest } from '../../lib/http-error.js';
-import { asBody, optionalMoney, optionalString, requireString, requireUuidParam } from '../../lib/validate.js';
+import { asBody, optionalClearableString, optionalMoney, optionalString, requireString, requireUuidParam } from '../../lib/validate.js';
 import { auth, requireAuth } from '../../middleware/auth.js';
 import { requirePermission } from '../../middleware/permissions.js';
 import * as service from './customer.service.js';
@@ -45,16 +45,23 @@ customersRouter.get('/:customerId', requirePermission('customer.view'), async (r
   res.json(await service.getCustomer(auth(req).companyId, customerId));
 });
 
+// F12: `name` is NOT NULL (with a non-blank CHECK) — optionalString
+// still rejects a present-but-blank value for it (there's nothing to
+// "clear" it to). Every other field below is a nullable column, so it
+// uses optionalClearableString instead: omitted stays omitted
+// (undefined, leave unchanged), but an explicit null/empty value now
+// comes through as `null` — the signal updateCustomer needs to
+// actually clear it — rather than being rejected as invalid.
 customersRouter.patch('/:customerId', requirePermission('customer.edit'), async (req, res) => {
   const customerId = requireUuidParam(req.params.customerId, 'customerId');
   const body = asBody(req.body);
   const customer = await service.updateCustomer(auth(req).companyId, customerId, {
     name: optionalString(body, 'name', { max: 200 }),
-    businessName: optionalString(body, 'businessName', { max: 200 }),
-    phone: optionalString(body, 'phone', { max: 40 }),
-    whatsapp: optionalString(body, 'whatsapp', { max: 40 }),
-    address: optionalString(body, 'address', { max: 500 }),
-    notes: optionalString(body, 'notes', { max: 2000 }),
+    businessName: optionalClearableString(body, 'businessName', { max: 200 }),
+    phone: optionalClearableString(body, 'phone', { max: 40 }),
+    whatsapp: optionalClearableString(body, 'whatsapp', { max: 40 }),
+    address: optionalClearableString(body, 'address', { max: 500 }),
+    notes: optionalClearableString(body, 'notes', { max: 2000 }),
   });
   res.json(customer);
 });
