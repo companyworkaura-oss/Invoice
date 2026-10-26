@@ -859,10 +859,26 @@ export async function getInvoice(companyId: string, invoiceId: string): Promise<
     `SELECT created_at AS "createdAt" FROM ledger_entries WHERE reference_id = $1 AND type = 'INVOICE' LIMIT 1`,
     [invoiceId],
   );
-  // Every invoice posts its own INVOICE entry at creation time (see
-  // createInvoice), so this should always be found; fall back to "now"
-  // defensively rather than fail the whole read if it somehow isn't.
-  const ledgerCreatedAt = ledgerRes.rows[0]?.createdAt ?? new Date().toISOString();
+  // F09: a 100%-discounted invoice (grandTotal '0.00') posts no
+  // ledger entry at all — ledger_entries requires exactly one of
+  // debit/credit to be positive, and there's nothing to bill — so
+  // `ledgerRes` is legitimately empty for it, not a sign anything
+  // went wrong. The old fallback here was `new Date().toISOString()`
+  // ("now"), which made `getBalanceBefore` compute previousBalance
+  // against *today's* ledger state on every reread — a historical
+  // invoice's previous balance would silently drift to match whatever
+  // the customer's balance happens to be at read time, changing every
+  // time a later payment/adjustment/invoice was recorded. The
+  // invoice's own `created_at` (already selected into `header` above,
+  // immutable once the row is inserted) is the correct anchor instead:
+  // for a normal invoice it's the exact same transaction-start
+  // timestamp its ledger entry's `created_at` defaults to (both
+  // columns default to `now()`, and createInvoice posts both inside
+  // one transaction — Postgres's `now()` is constant for the whole
+  // transaction), so this changes nothing for the non-zero-total case
+  // and only fixes the zero-total one, which had no ledger row to
+  // anchor on at all.
+  const ledgerCreatedAt = ledgerRes.rows[0]?.createdAt ?? header.createdAt;
   const summary = await buildLedgerSummary(pool, companyId, header.customerId, invoiceId, grandTotal, ledgerCreatedAt);
 
   return { ...header, items: itemsRes.rows, totalAmount, grandTotal, ...summary };

@@ -3456,6 +3456,73 @@ live-reproduced the report's exact scenario before adding any test.
   370/370 + web 25/25, all clean), and `npm run lint` (zero errors,
   zero warnings) all clean.
 
+## F09 — Zero-Total Invoice Historical Balance Must Remain Stable (Phase 58)
+
+A correctness fix isolated to one line in `getInvoice`
+(`apps/api/src/modules/invoices/invoice.service.ts`) — no schema
+change, no migration.
+
+- **Exact root cause**: a 100%-discounted invoice (`grandTotal`
+  `'0.00'`) posts no `ledger_entries` row at all — the table's check
+  constraint requires exactly one of `debit`/`credit` to be positive,
+  and there's nothing to bill. `getInvoice` looked up that invoice's
+  own `INVOICE`-type ledger entry's `created_at` to anchor
+  `previousBalance` (via `getBalanceBefore(..., beforeCreatedAt)`,
+  which sums every ledger row with `created_at < beforeCreatedAt`),
+  and fell back to `new Date().toISOString()` — **"now," at read
+  time** — whenever no such row existed. Every reread of a zero-total
+  invoice therefore computed `previousBalance` against *today's*
+  ledger state, drifting to match whatever the customer's balance
+  happened to be the moment someone looked, silently rewriting
+  historical invoice metadata every time a later payment, adjustment,
+  or invoice was recorded. `createInvoice`'s own creation-time response
+  was never affected — it already used the invoice's own just-inserted
+  `created_at` for this same zero-total case; the bug was reread-only.
+- **Snapshot vs. timestamp-based solution**: timestamp-based (Option
+  B) — the smallest change consistent with the architecture already
+  in place for every non-zero invoice (which already derives
+  `previousBalance` from `ledger_entries` using a saved creation
+  timestamp, never "now"). No new snapshot columns were needed: the
+  invoice's own `created_at` (already selected into `header` by the
+  existing `INVOICE_HEADER_COLUMNS`, and immutable once the row is
+  inserted — `updateInvoice` only ever touches `updated_at`) is
+  exactly the right anchor and was already sitting right there,
+  unused for this fallback. For a normal invoice it's the identical
+  value its own ledger entry's `created_at` would have anyway — both
+  columns default to `now()`, and `createInvoice` posts the invoice
+  row and its ledger entry inside one transaction, and Postgres's
+  `now()` is constant for an entire transaction — so this changes
+  nothing for the non-zero-total case and fixes only the zero-total
+  one, which had no ledger row to anchor on at all.
+- **Schema/migration changes**: none. No existing data needed
+  touching, and none was.
+- **Files changed**: `apps/api/src/modules/invoices/invoice.service.ts`
+  (`getInvoice`'s fallback, one line) — `createInvoice`'s own
+  zero-total path already used `createdAt` correctly, and
+  `updateInvoice` just calls `getInvoice` at the end, so both the
+  create and edit flows share the fix automatically with zero further
+  changes. `buildInvoiceViewModel` (PDF/WhatsApp) never recomputes
+  `previousBalance` — it only ever passes through whatever
+  `getInvoice` already returned — so fixing the one function fixed
+  every consumer at once, exactly as the task required.
+- **Tests**: new `apps/api/test/invoice-historical-balance.test.ts`
+  (6 new) — the exact report reproduction (opening balance 100, a
+  fully-discounted invoice, a later 50 payment, reread still showing
+  `previousBalance: '100.00'`, confirmed `currentBalance` *does*
+  correctly move to `'50.00'` since that field is deliberately the
+  live overall balance, not a snapshot); a later debit adjustment
+  doesn't disturb the snapshot; a later credit adjustment doesn't;
+  a later invoice doesn't; a normal non-zero invoice stays correct and
+  stable through the same kinds of later activity (no regression);
+  and a PDF-generation check confirming the same stable value feeds
+  the printable view. **Verified the regression test itself**:
+  reverted the one-line fix (`git stash`) and re-ran — reproduces the
+  exact drift (`previousBalance` becomes `'50.00'`); restored the fix
+  and re-ran clean.
+- `npm run typecheck`, `npm run build`, `npm test` (shared 61/61 + api
+  376/376 + web 25/25, all clean), and `npm run lint` (zero errors,
+  zero warnings) all clean.
+
 ## Known gotchas / things to check before starting work
 
 - **Postgres cluster is often stopped** when a session starts:
@@ -4191,6 +4258,24 @@ live-reproduced the report's exact scenario before adding any test.
     list, including a global bounds sweep and a detail/list/PDF
     agreement check. See "F06 — Invoice Amount Paid Must Never Be
     Negative (Phase 57)" below
+
+63. F09 — Zero-Total Invoice Historical Balance Must Remain Stable
+    (correctness fix): a 100%-discounted invoice posts no ledger
+    entry at all (nothing to bill), so `getInvoice`'s lookup of its
+    own ledger entry's `created_at` (used to anchor `previousBalance`)
+    found nothing and fell back to `new Date().toISOString()` — "now"
+    — on every reread, making the historical `previousBalance` drift
+    to match whatever the customer's balance happened to be at read
+    time. Fixed by falling back to the invoice's own immutable
+    `created_at` instead (timestamp-based, Option B — no new
+    snapshot columns, no migration) — identical to what a non-zero
+    invoice's own ledger entry's `created_at` would already be, since
+    both default to `now()` inside the same creation transaction.
+    `createInvoice`'s own creation-time response was never affected;
+    `updateInvoice` and every PDF/WhatsApp consumer share the fix
+    automatically since they all route through this one function. See
+    "F09 — Zero-Total Invoice Historical Balance Must Remain Stable
+    (Phase 58)" below
 
 Repo also went through a monorepo restructure (`server/` → `apps/api` +
 new `apps/web` + `packages/shared`) between Phase 1 and Phase 2.
