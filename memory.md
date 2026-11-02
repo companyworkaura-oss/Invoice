@@ -4016,6 +4016,116 @@ F01–F12 accounting/security list).
   407/407 + web 39/39, all clean), and `npm run lint` (zero errors,
   zero warnings) all clean. **UI/UX-01 is COMPLETE.**
 
+## UI/UX-02 — Put Billable Work Before Optional Metadata (Phase 65)
+
+An information-architecture fix — no accounting, calculation, schema,
+or backend change of any kind; only where fields live on the page and
+what the entry/submit buttons say.
+
+- **Old section order (Standard Invoice)**: a 5-column header
+  (Customer / Invoice date / Invoice number / Internal Lot Number /
+  Customer Lot Number), then an "Invoice Details" box (Bill Number /
+  Gate Pass Number / General Quantity / Sets + four print-display
+  checkboxes), *then* Work Items, Discount, and the totals summary.
+  Quick Invoice had the same shape (Customer + both lot numbers up
+  top, a Bill/Gate Pass/Quantity/Sets box, *then* items).
+- **New section order (both forms)**: Customer (+ date + the
+  auto-generated invoice number) → Work Items (the main visual focus)
+  → Discount & Totals → Job Details (collapsible) → Print Options
+  (collapsible, Standard Invoice only). Quick Invoice's Job Details
+  also folds in Notes, which used to sit between Discount and the
+  summary.
+- **Fields moved into "Job details"**: Internal Lot Number, Customer
+  Lot Number, Bill Number, Gate Pass Number, General Quantity, Sets
+  (read-only derived) — both forms. Quick Invoice also moves Notes in.
+- **Fields moved into "Print options"**: Show Bill Number, Show item
+  quantity, Show unit amount, Show item amount — Standard Invoice
+  only (Quick Invoice has no print-display toggles of its own; it
+  always uses the defaults server-side).
+- **Quick vs. Standard entry wording**: "+ Quick Invoice" / "+ New
+  invoice" (identical outline style, no distinguishing information)
+  became two-line buttons — bold mode name plus a subtitle naming the
+  pricing style ("Simple pricing — description, quantity, unit
+  price" / "Embroidery pricing — category, stitches, rate"), new
+  `EntryModeButton` in `InvoicesPage.tsx`. New `last-invoice-mode.ts`
+  (one `localStorage` key, wrapped in try/catch — never a new
+  preference system) remembers which mode was used last; `InvoicesPage`
+  reads it once per mount and gives that mode's button the filled/
+  primary style, the other staying outline-only — read once, not
+  reactively mid-session, since a tab switch (which unmounts/remounts
+  `InvoicesPage`) is the natural point for the weighting to update,
+  not a click within the same visit. Both forms' primary submit
+  button renamed from "Save invoice"/"Save Invoice" to "Create
+  invoice" (edit mode keeps "Save changes") — one consistent,
+  prominent label; Cancel stays outline-only, unchanged.
+- **Files changed**: `apps/web/src/features/invoices/CollapsibleSection.tsx`
+  (new, shared by both forms — see the live-caught bug below),
+  `create-invoice-payload.ts` / `quick-invoice-payload.ts` (new —
+  handleSubmit's payload-building logic extracted out, unchanged in
+  behavior, now independently testable), `last-invoice-mode.ts` (new),
+  `CreateInvoiceForm.tsx` / `QuickInvoiceForm.tsx` (reorganized JSX,
+  wired to the extracted payload functions) and `InvoicesPage.tsx`
+  (new `EntryModeButton`, remembered-mode wiring).
+- **Tests**: `create-invoice-payload.test.ts` (6) and
+  `quick-invoice-payload.test.ts` (4) pin the exact submit payload
+  shape (blank optional fields omitted as `undefined`, filled ones
+  sent as typed, print toggles as plain booleans, a blank discount
+  value still defaulting to `"0"`, items mapped exactly, Quick
+  Invoice items never carrying `categoryId`) so the reorganization
+  can never silently change what gets sent. `last-invoice-mode.test.ts`
+  (4) covers the get/set round trip, an unexpected stored value
+  falling back rather than being trusted, and — since plain Node has
+  no `localStorage` global at all — that both functions degrade to a
+  harmless fallback rather than throwing when it's unavailable
+  (installs a tiny in-memory `Storage` stand-in per test via
+  `beforeEach`/`afterEach`, removed after each so other test files
+  are unaffected).
+- **Live-verified against the real dev server** (Playwright, already
+  pre-installed in this environment — no new test-framework
+  dependency added to the repo): registered a company, created a
+  category and a customer via the authenticated session's own cookies
+  (`page.request`, which shares the browser context's cookie jar),
+  then drove the actual rendered app.
+  - **Section order, desktop (1280px)**: Invoice date (Customer
+    section) Y=216 < Stitches (Work Items header) Y=286 < Job details
+    Y=658 — correct top-to-bottom order, confirmed on real rendered
+    `boundingBox()` coordinates, not just JSX source order.
+  - **Mobile depth, before vs. after**: stashed the change and
+    re-measured the *old* code's own mobile layout for a true
+    before/after — Work Items landed at Y≈999px on a 390×844 viewport
+    (off the first screen entirely); the new layout's Work Items land
+    at Y≈381px (within the first screen, no scroll needed at all) —
+    popped the stash back after measuring.
+  - **Horizontal overflow, caught and fixed before shipping**: the
+    first version of `CollapsibleSection`'s header row overflowed the
+    page itself at 390px (`document.documentElement.scrollWidth` 430
+    vs. `clientWidth` 390) — root cause was a flex child without
+    `min-w-0`, which let the (collapsed) summary text grow past the
+    button's own width despite `truncate` being set on it (a flex
+    item's default `min-width: auto` overrides `truncate` unless an
+    ancestor explicitly allows shrinking). Fixed by adding `min-w-0`
+    to the two nested flex containers around the summary text;
+    re-measured clean (390 vs. 390). The pre-existing items-table and
+    top-nav bar's own internal `overflow-x-auto` regions (both
+    pre-dating this task, both self-contained) were confirmed to
+    never leak into page-level overflow either way.
+  - **Collapse/expand preserves values**: typed into Internal Lot
+    Number, collapsed Job details, expanded it again — value still
+    there (`LOT-TEST-123`), confirming `CollapsibleSection` never
+    unmounts its children.
+  - **Print options toggle still functional**: clicked "Show Bill
+    Number" — checkbox state actually flipped (`true` → `false`).
+  - **Quick Invoice**: same section order confirmed (Customer/Payment
+    Status → Work Items → Discount/Totals → Job Details); the
+    remembered-mode weighting was confirmed to actually swap after
+    picking "Quick Invoice" once and remounting `InvoicesPage` (a tab
+    switch away and back) — New Invoice (the sensible embroidery-
+    business default) is primary on a fresh/default visit, Quick
+    Invoice becomes primary immediately after being chosen.
+- `npm run typecheck`, `npm run build`, `npm test` (shared 72/72 + api
+  407/407 + web 53/53, all clean), and `npm run lint` (zero errors,
+  zero warnings) all clean. **UI/UX-02 is COMPLETE.**
+
 ## Known gotchas / things to check before starting work
 
 - **Postgres cluster is often stopped** when a session starts:
@@ -4945,6 +5055,45 @@ F01–F12 accounting/security list).
     `greaterThan(0)`, so a zero or negative (credit) balance now
     correctly suggests nothing. See "UI/UX-01 — Clarify Invoice
     Balance vs. Customer Account Balance (Phase 64)" below
+
+70. UI/UX-02 — Put Billable Work Before Optional Metadata (information
+    architecture fix, second finding from the UI/UX report): Standard
+    Invoice used to front-load Internal/Customer Lot Number, Bill
+    Number, Gate Pass Number, General Quantity/Sets, and four print
+    toggles before Work Items — at 390px wide, the first item landed
+    at Y≈999px (live-measured with Playwright against the actual dev
+    server), well off the first screen. Reorganized into 5 sections:
+    Customer (+date+the auto-generated invoice number) → Work Items →
+    Discount & Totals → Job Details (collapsible, the lot/bill/gate
+    pass/quantity fields) → Print Options (collapsible, the four
+    show-toggles) — same re-measurement afterward: Y≈381px, on the
+    first screen with no scrolling. New shared `CollapsibleSection`
+    component never unmounts its children (just a CSS class toggle),
+    so collapsing/expanding can never clear a value; defaults open
+    when editing a draft that already has one of its fields set.
+    Applied the identical reorganization to Quick Invoice Form (no
+    print toggles there — just Job Details, folding in Notes too).
+    Submit payload construction extracted into pure, now-unit-tested
+    functions (`create-invoice-payload.ts`, `quick-invoice-payload.ts`)
+    so the reorganization's "payload unchanged" claim is actually
+    checked, not just asserted. Live Playwright testing against the
+    real dev server caught a genuine bug before it shipped: the new
+    `CollapsibleSection`'s header row lacked `min-w-0` on its flex
+    children, so the collapsed summary text overflowed the page
+    itself at 390px (measured: html `scrollWidth` 430 vs `clientWidth`
+    390) — fixed, re-measured clean (390 vs 390); the pre-existing
+    items-table and top-nav horizontal scroll regions (both
+    `overflow-x-auto`, both self-contained) were confirmed unaffected
+    either way. "+ Quick Invoice"/"+ New invoice" (equal visual
+    weight) became two-line buttons naming both the mode and its
+    pricing style ("Simple pricing" / "Embroidery pricing"), with
+    whichever mode was used last (`last-invoice-mode.ts`, plain
+    localStorage, read once per `InvoicesPage` mount) getting the
+    filled/primary style — live-confirmed the weight actually swaps
+    after picking a mode and remounting (a tab switch away and back).
+    "Save invoice"/"Save Invoice" renamed to "Create invoice" (both
+    forms) to give the primary action one consistent, prominent label.
+    See "UI/UX-02 — Put Billable Work Before Optional Metadata (Phase 65)" below
 
 Repo also went through a monorepo restructure (`server/` → `apps/api` +
 new `apps/web` + `packages/shared`) between Phase 1 and Phase 2.

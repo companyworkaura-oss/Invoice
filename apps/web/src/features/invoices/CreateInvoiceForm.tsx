@@ -6,6 +6,8 @@ import * as customersApi from '../customers/api';
 import * as categoriesApi from '../formulas/api';
 import * as ledgerApi from '../ledger/api';
 import * as invoicesApi from './api';
+import { CollapsibleSection } from './CollapsibleSection';
+import { buildCreateInvoicePayload } from './create-invoice-payload';
 import { previewDiscount, previewItemAmount, sumAmounts } from './preview';
 
 interface Props {
@@ -107,6 +109,14 @@ export function CreateInvoiceForm({ invoice, onSaved, onCancel }: Props) {
   // itself is the saved, authoritative field; Sets is never stored.
   const setsPreview = useMemo(() => calculateSets(generalQuantity), [generalQuantity]);
 
+  // UI/UX-02: "Job details" opens by default whenever editing a draft
+  // that already has one of these fields saved — a user editing an
+  // invoice that already carries a lot number shouldn't have to find
+  // and click to reveal it. A brand-new invoice starts collapsed, so
+  // the billing workflow (customer, items, totals) is what a user
+  // scrolls into first.
+  const jobDetailsHasValue = Boolean(lotNumber || customerLotNumber || billNumber || gatePassNumber || generalQuantity);
+
   // Live preview only — the same formula engine as the server, run
   // client-side purely for feedback. The server recalculates everything
   // from scratch when the invoice is actually saved.
@@ -187,27 +197,21 @@ export function CreateInvoiceForm({ invoice, onSaved, onCancel }: Props) {
 
     setSaving(true);
     try {
-      const payload = {
+      const payload = buildCreateInvoicePayload({
         invoiceDate,
-        lotNumber: lotNumber || undefined,
-        customerLotNumber: customerLotNumber || undefined,
-        billNumber: billNumber || undefined,
-        gatePassNumber: gatePassNumber || undefined,
-        generalQuantity: generalQuantity || undefined,
+        lotNumber,
+        customerLotNumber,
+        billNumber,
+        gatePassNumber,
+        generalQuantity,
         showUnitAmount,
         showItemQuantity,
         showItemAmount,
         showBillNumber,
-        discountType: discountType || undefined,
-        discountValue: discountType ? discountValue || '0' : undefined,
-        items: items.map((row) => ({
-          categoryId: row.categoryId,
-          description: row.description || undefined,
-          quantity: row.quantity || undefined,
-          stitches: Number(row.stitches),
-          rate: row.rate || undefined,
-        })),
-      };
+        discountType,
+        discountValue,
+        items,
+      });
       const saved = invoice
         ? await invoicesApi.updateInvoice(invoice.id, payload)
         : await invoicesApi.createInvoice({ ...payload, customerId });
@@ -221,8 +225,14 @@ export function CreateInvoiceForm({ invoice, onSaved, onCancel }: Props) {
 
   return (
     <form onSubmit={handleSubmit} className="rounded-md border border-slate-200 p-4 md:p-6">
-      {/* Header: customer / date / number / internal lot / customer lot */}
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-5">
+      {/*
+        UI/UX-02 — Section 1: Customer. Kept deliberately small (just
+        customer/date/the auto-generated invoice number) so Work Items
+        below is the next thing a user reaches, on mobile especially —
+        Internal/Customer Lot Number used to sit right here; they now
+        live in the Job Details section below Work Items instead.
+      */}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <Field label="Customer" error={errors.customerId}>
           {editing ? (
             <input
@@ -263,112 +273,10 @@ export function CreateInvoiceForm({ invoice, onSaved, onCancel }: Props) {
             className="w-full rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5 text-sm text-slate-400"
           />
         </Field>
-
-        <Field label="Internal Lot Number">
-          <input
-            type="text"
-            value={lotNumber}
-            onChange={(e) => setLotNumber(e.target.value)}
-            placeholder="e.g. 79"
-            className={inputClass(false)}
-          />
-        </Field>
-
-        <Field label="Customer Lot Number">
-          <input
-            type="text"
-            value={customerLotNumber}
-            onChange={(e) => setCustomerLotNumber(e.target.value)}
-            placeholder="e.g. CUST-458"
-            className={inputClass(false)}
-          />
-        </Field>
       </div>
 
-      {/* Invoice Details: Bill Number, Gate Pass Number, General Quantity (+ derived Sets), and the two print display toggles */}
-      <div className="mt-4 rounded-md border border-slate-200 p-3">
-        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Invoice Details</p>
-        <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <Field label="Bill Number">
-            <input
-              type="text"
-              value={billNumber}
-              onChange={(e) => setBillNumber(e.target.value)}
-              placeholder="e.g. 4587"
-              className={inputClass(false)}
-            />
-          </Field>
-
-          <Field label="Gate Pass Number">
-            <input
-              type="text"
-              value={gatePassNumber}
-              onChange={(e) => setGatePassNumber(e.target.value)}
-              placeholder="e.g. GP-4587"
-              className={inputClass(false)}
-            />
-          </Field>
-
-          <Field label="General Quantity">
-            <input
-              inputMode="decimal"
-              value={generalQuantity}
-              onChange={(e) => setGeneralQuantity(e.target.value)}
-              placeholder="e.g. 504"
-              className={`${inputClass(false)} text-right`}
-            />
-          </Field>
-
-          <Field label="Sets">
-            <input
-              disabled
-              value={setsPreview ?? '—'}
-              className="w-full rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5 text-right text-sm text-slate-500"
-            />
-          </Field>
-        </div>
-
-        <div className="mt-3">
-          <p className="text-xs font-medium text-slate-500">Invoice Display</p>
-          <div className="mt-1 flex flex-wrap gap-4">
-            <label className="flex items-center gap-1.5 text-sm text-slate-700">
-              <input
-                type="checkbox"
-                checked={showBillNumber}
-                onChange={(e) => setShowBillNumber(e.target.checked)}
-              />
-              Show Bill Number
-            </label>
-            <label className="flex items-center gap-1.5 text-sm text-slate-700">
-              <input
-                type="checkbox"
-                checked={showItemQuantity}
-                onChange={(e) => setShowItemQuantity(e.target.checked)}
-              />
-              Show item quantity
-            </label>
-            <label className="flex items-center gap-1.5 text-sm text-slate-700">
-              <input
-                type="checkbox"
-                checked={showUnitAmount}
-                onChange={(e) => setShowUnitAmount(e.target.checked)}
-              />
-              Show unit amount
-            </label>
-            <label className="flex items-center gap-1.5 text-sm text-slate-700">
-              <input
-                type="checkbox"
-                checked={showItemAmount}
-                onChange={(e) => setShowItemAmount(e.target.checked)}
-              />
-              Show item amount
-            </label>
-          </div>
-        </div>
-      </div>
-
-      {/* Items */}
-      <div className="mt-6 overflow-x-auto">
+      {/* UI/UX-02 — Section 2: Work Items, the main visual focus, immediately after Customer. */}
+      <div className="mt-4 overflow-x-auto">
         <table className="w-full min-w-[640px] text-sm">
           <thead>
             <tr className="border-b border-slate-200 text-left text-xs text-slate-500">
@@ -483,7 +391,7 @@ export function CreateInvoiceForm({ invoice, onSaved, onCancel }: Props) {
         + Add Work
       </button>
 
-      {/* Discount */}
+      {/* UI/UX-02 — Section 3: Discount & Totals, directly below Work Items. */}
       <div className="mt-6 flex flex-wrap items-end justify-end gap-3">
         <Field label="Discount Type">
           <select
@@ -531,8 +439,107 @@ export function CreateInvoiceForm({ invoice, onSaved, onCancel }: Props) {
         </dl>
       </div>
 
+      {/*
+        UI/UX-02 — Section 4: Job Details, visually secondary and
+        collapsible — same fields that used to sit above Work Items.
+        Nothing here is deleted or renamed; CollapsibleSection never
+        unmounts its children, so toggling this open/closed can never
+        clear anything typed into it.
+      */}
+      <CollapsibleSection
+        title="Job details"
+        summary="Lot numbers, bill number, gate pass, general quantity"
+        defaultOpen={jobDetailsHasValue}
+      >
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <Field label="Internal Lot Number">
+            <input
+              type="text"
+              value={lotNumber}
+              onChange={(e) => setLotNumber(e.target.value)}
+              placeholder="e.g. 79"
+              className={inputClass(false)}
+            />
+          </Field>
+
+          <Field label="Customer Lot Number">
+            <input
+              type="text"
+              value={customerLotNumber}
+              onChange={(e) => setCustomerLotNumber(e.target.value)}
+              placeholder="e.g. CUST-458"
+              className={inputClass(false)}
+            />
+          </Field>
+
+          <Field label="Bill Number">
+            <input
+              type="text"
+              value={billNumber}
+              onChange={(e) => setBillNumber(e.target.value)}
+              placeholder="e.g. 4587"
+              className={inputClass(false)}
+            />
+          </Field>
+
+          <Field label="Gate Pass Number">
+            <input
+              type="text"
+              value={gatePassNumber}
+              onChange={(e) => setGatePassNumber(e.target.value)}
+              placeholder="e.g. GP-4587"
+              className={inputClass(false)}
+            />
+          </Field>
+
+          <Field label="General Quantity">
+            <input
+              inputMode="decimal"
+              value={generalQuantity}
+              onChange={(e) => setGeneralQuantity(e.target.value)}
+              placeholder="e.g. 504"
+              className={`${inputClass(false)} text-right`}
+            />
+          </Field>
+
+          <Field label="Sets">
+            <input
+              disabled
+              value={setsPreview ?? '—'}
+              className="w-full rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5 text-right text-sm text-slate-500"
+            />
+          </Field>
+        </div>
+      </CollapsibleSection>
+
+      {/*
+        UI/UX-02 — Section 5: Print options — display-only toggles,
+        kept visually separate from every accounting input above.
+      */}
+      <CollapsibleSection title="Print options" summary="Bill number, item quantity, unit amount, item amount">
+        <div className="flex flex-wrap gap-4">
+          <label className="flex items-center gap-1.5 text-sm text-slate-700">
+            <input type="checkbox" checked={showBillNumber} onChange={(e) => setShowBillNumber(e.target.checked)} />
+            Show Bill Number
+          </label>
+          <label className="flex items-center gap-1.5 text-sm text-slate-700">
+            <input type="checkbox" checked={showItemQuantity} onChange={(e) => setShowItemQuantity(e.target.checked)} />
+            Show item quantity
+          </label>
+          <label className="flex items-center gap-1.5 text-sm text-slate-700">
+            <input type="checkbox" checked={showUnitAmount} onChange={(e) => setShowUnitAmount(e.target.checked)} />
+            Show unit amount
+          </label>
+          <label className="flex items-center gap-1.5 text-sm text-slate-700">
+            <input type="checkbox" checked={showItemAmount} onChange={(e) => setShowItemAmount(e.target.checked)} />
+            Show item amount
+          </label>
+        </div>
+      </CollapsibleSection>
+
       {submitError && <p className="mt-3 text-sm text-red-600">{submitError}</p>}
 
+      {/* UI/UX-02: one prominent primary action ("Create invoice"); Cancel stays visually lighter (outline only). */}
       <div className="mt-4 flex justify-end gap-2">
         <button
           type="button"
@@ -546,7 +553,7 @@ export function CreateInvoiceForm({ invoice, onSaved, onCancel }: Props) {
           disabled={saving}
           className="rounded-md bg-slate-900 px-4 py-1.5 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50"
         >
-          {saving ? 'Saving…' : editing ? 'Save changes' : 'Save invoice'}
+          {saving ? 'Saving…' : editing ? 'Save changes' : 'Create invoice'}
         </button>
       </div>
     </form>

@@ -4,6 +4,7 @@ import { ApiError } from '../../lib/api';
 import { CreateInvoiceForm } from './CreateInvoiceForm';
 import { InvoiceDetails } from './InvoiceDetails';
 import { InvoiceList, type InvoiceRowAction } from './InvoiceList';
+import { getLastInvoiceMode, setLastInvoiceMode } from './last-invoice-mode';
 import { QuickInvoiceForm } from './QuickInvoiceForm';
 import { InvoiceTemplateView } from './templates/InvoiceTemplateView';
 import * as invoicesApi from './api';
@@ -35,6 +36,22 @@ export function InvoicesPage({ permissions, onViewPayments, onViewCustomerAccoun
   const [view, setView] = useState<View>({ name: 'list' });
   const [refreshToken, setRefreshToken] = useState(0);
   const [loadError, setLoadError] = useState<string | null>(null);
+  // UI/UX-02: "Quick Invoice" and "New invoice" used to have identical
+  // visual weight with nothing distinguishing them beyond their
+  // labels — read once per mount, not reactively, since this only
+  // ever needs to settle which button looks primary when the list
+  // first renders, not change weight mid-session.
+  const [lastMode] = useState(getLastInvoiceMode);
+
+  function openQuickForm() {
+    setLastInvoiceMode('quick');
+    setView({ name: 'quick-form' });
+  }
+
+  function openStandardForm() {
+    setLastInvoiceMode('standard');
+    setView({ name: 'form' });
+  }
 
   async function openInvoice(id: string) {
     setLoadError(null);
@@ -67,20 +84,15 @@ export function InvoicesPage({ permissions, onViewPayments, onViewCustomerAccoun
         <h2 className="text-sm font-semibold text-slate-900">Invoices</h2>
         {view.name === 'list' && (
           <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={() => setView({ name: 'quick-form' })}
-              className="rounded-md border border-slate-300 px-3 py-1 text-sm text-slate-600 hover:bg-slate-50"
-            >
-              + Quick Invoice
-            </button>
-            <button
-              type="button"
-              onClick={() => setView({ name: 'form' })}
-              className="rounded-md border border-slate-300 px-3 py-1 text-sm text-slate-600 hover:bg-slate-50"
-            >
-              + New invoice
-            </button>
+            {/*
+              UI/UX-02: each button now names both its mode and the
+              pricing style it uses, so the choice is no longer "two
+              identical-looking buttons" — and whichever one was
+              picked last gets the slightly heavier (filled) style
+              next time, without hiding or removing either option.
+            */}
+            <EntryModeButton primary={lastMode === 'quick'} onClick={openQuickForm} title="Quick Invoice" subtitle="Simple pricing — description, quantity, unit price" />
+            <EntryModeButton primary={lastMode === 'standard'} onClick={openStandardForm} title="New Invoice" subtitle="Embroidery pricing — category, stitches, rate" />
           </div>
         )}
       </div>
@@ -183,5 +195,31 @@ export function InvoicesPage({ permissions, onViewPayments, onViewCustomerAccoun
         )}
       </div>
     </div>
+  );
+}
+
+/** UI/UX-02: a two-line entry button — bold mode name, a small subtitle naming its pricing style. `primary` (the last-used mode) gets the filled/dark treatment; the other stays outline-only, so the two never compete at equal visual weight. */
+function EntryModeButton({
+  primary,
+  onClick,
+  title,
+  subtitle,
+}: {
+  primary: boolean;
+  onClick: () => void;
+  title: string;
+  subtitle: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded-md border px-3 py-1.5 text-left ${
+        primary ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-300 text-slate-600 hover:bg-slate-50'
+      }`}
+    >
+      <span className="block text-sm font-medium">+ {title}</span>
+      <span className={`block text-[11px] ${primary ? 'text-slate-300' : 'text-slate-400'}`}>{subtitle}</span>
+    </button>
   );
 }

@@ -4,7 +4,9 @@ import { useMemo, useRef, useState, useEffect } from 'react';
 import { ApiError } from '../../lib/api';
 import * as customersApi from '../customers/api';
 import * as invoicesApi from './api';
+import { CollapsibleSection } from './CollapsibleSection';
 import { previewDiscount, sumAmounts } from './preview';
+import { buildQuickInvoiceSharedFields } from './quick-invoice-payload';
 import { newQuickInvoiceSaveState, saveQuickInvoice } from './quick-save';
 
 /**
@@ -135,6 +137,10 @@ export function QuickInvoiceForm({ invoice, onSaved, onCancel }: Props) {
   // field; Sets is never stored.
   const setsPreview = useMemo(() => calculateSets(generalQuantity), [generalQuantity]);
 
+  // UI/UX-02: same reasoning as CreateInvoiceForm — Job details opens
+  // by default when editing a draft that already has one of these set.
+  const jobDetailsHasValue = Boolean(lotNumber || customerLotNumber || billNumber || gatePassNumber || generalQuantity);
+
   function updateItem(index: number, patch: Partial<QuickItemRow>) {
     setItems((rows) => rows.map((row, i) => (i === index ? { ...row, ...patch } : row)));
   }
@@ -187,26 +193,22 @@ export function QuickInvoiceForm({ invoice, onSaved, onCancel }: Props) {
 
     setSaving(true);
     try {
-      const sharedFields = {
-        lotNumber: lotNumber || undefined,
-        customerLotNumber: customerLotNumber || undefined,
-        billNumber: billNumber || undefined,
-        gatePassNumber: gatePassNumber || undefined,
-        generalQuantity: generalQuantity || undefined,
-        notes: notes || undefined,
-        discountType: discountType || undefined,
-        discountValue: discountType ? discountValue || '0' : undefined,
-        // Never categoryId: a manual item is exactly what keeps this
-        // invoice's invoiceMode 'quick' on the server (see
-        // invoiceModeFromItems in invoice.service.ts) — reopening it
-        // after this save lands back in this editor, never
-        // CreateInvoiceForm.
-        items: items.map((row) => ({
-          description: row.description.trim(),
-          quantity: row.quantity || undefined,
-          unitPrice: row.unitPrice,
-        })),
-      };
+      // Never categoryId: a manual item is exactly what keeps this
+      // invoice's invoiceMode 'quick' on the server (see
+      // invoiceModeFromItems in invoice.service.ts) — reopening it
+      // after this save lands back in this editor, never
+      // CreateInvoiceForm. See quick-invoice-payload.ts.
+      const sharedFields = buildQuickInvoiceSharedFields({
+        lotNumber,
+        customerLotNumber,
+        billNumber,
+        gatePassNumber,
+        generalQuantity,
+        notes,
+        discountType,
+        discountValue,
+        items,
+      });
 
       if (editing && invoice) {
         // Same updateInvoice call CreateInvoiceForm's edit mode makes —
@@ -248,6 +250,12 @@ export function QuickInvoiceForm({ invoice, onSaved, onCancel }: Props) {
 
   return (
     <form onSubmit={handleSubmit} className="rounded-md border border-slate-200 p-4 md:p-6">
+      {/*
+        UI/UX-02 — Section 1: Customer (+ Payment Status/Method, which
+        gate what this save actually does, not optional reference
+        metadata). Internal/Customer Lot Number used to sit right
+        here; they now live in Job details below Work Items instead.
+      */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <Field label="Customer" error={errors.customerId}>
           {editing ? (
@@ -271,26 +279,6 @@ export function QuickInvoiceForm({ invoice, onSaved, onCancel }: Props) {
               ))}
             </select>
           )}
-        </Field>
-
-        <Field label="Internal Lot Number">
-          <input
-            type="text"
-            value={lotNumber}
-            onChange={(e) => setLotNumber(e.target.value)}
-            placeholder="e.g. 79"
-            className={inputClass(false)}
-          />
-        </Field>
-
-        <Field label="Customer Lot Number">
-          <input
-            type="text"
-            value={customerLotNumber}
-            onChange={(e) => setCustomerLotNumber(e.target.value)}
-            placeholder="e.g. CUST-458"
-            className={inputClass(false)}
-          />
         </Field>
 
         {!editing && (
@@ -320,51 +308,7 @@ export function QuickInvoiceForm({ invoice, onSaved, onCancel }: Props) {
         )}
       </div>
 
-      {/* Invoice Details: Bill Number, Gate Pass Number, General Quantity (+ derived Sets) — same fields CreateInvoiceForm shows, no category/formula controls here */}
-      <div className="mt-4 rounded-md border border-slate-200 p-3">
-        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Invoice Details</p>
-        <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <Field label="Bill Number">
-            <input
-              type="text"
-              value={billNumber}
-              onChange={(e) => setBillNumber(e.target.value)}
-              placeholder="e.g. 4587"
-              className={inputClass(false)}
-            />
-          </Field>
-
-          <Field label="Gate Pass Number">
-            <input
-              type="text"
-              value={gatePassNumber}
-              onChange={(e) => setGatePassNumber(e.target.value)}
-              placeholder="e.g. GP-4587"
-              className={inputClass(false)}
-            />
-          </Field>
-
-          <Field label="General Quantity">
-            <input
-              inputMode="decimal"
-              value={generalQuantity}
-              onChange={(e) => setGeneralQuantity(e.target.value)}
-              placeholder="e.g. 504"
-              className={`${inputClass(false)} text-right`}
-            />
-          </Field>
-
-          <Field label="Sets">
-            <input
-              disabled
-              value={setsPreview ?? '—'}
-              className="w-full rounded-md border border-slate-200 bg-slate-50 px-2 py-2 text-right text-sm text-slate-500"
-            />
-          </Field>
-        </div>
-      </div>
-
-      {/* Items — each its own card on mobile, a table on wider screens */}
+      {/* UI/UX-02 — Section 2: Work Items, each its own card on mobile, a table on wider screens. */}
       <div className="mt-6 space-y-3">
         {items.map((row, index) => {
           const amount = lineAmounts[index];
@@ -468,18 +412,7 @@ export function QuickInvoiceForm({ invoice, onSaved, onCancel }: Props) {
         )}
       </div>
 
-      <div className="mt-4">
-        <Field label="Notes">
-          <textarea
-            rows={2}
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            className={inputClass(false)}
-          />
-        </Field>
-      </div>
-
-      {/* Summary */}
+      {/* UI/UX-02 — Section 3: Discount & Totals, directly below Work Items. */}
       <div className="mt-4 flex justify-end">
         <dl className="w-full max-w-xs space-y-1 text-sm">
           <SummaryRow label="Subtotal" value={subtotal} />
@@ -493,8 +426,87 @@ export function QuickInvoiceForm({ invoice, onSaved, onCancel }: Props) {
         </dl>
       </div>
 
+      {/*
+        UI/UX-02 — Section 4: Job details, visually secondary and
+        collapsible — same fields that used to sit above Work Items,
+        plus Notes. CollapsibleSection never unmounts its children, so
+        toggling this open/closed can never clear anything typed here.
+      */}
+      <CollapsibleSection
+        title="Job details"
+        summary="Lot numbers, bill number, gate pass, general quantity, notes"
+        defaultOpen={jobDetailsHasValue || Boolean(notes)}
+      >
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <Field label="Internal Lot Number">
+            <input
+              type="text"
+              value={lotNumber}
+              onChange={(e) => setLotNumber(e.target.value)}
+              placeholder="e.g. 79"
+              className={inputClass(false)}
+            />
+          </Field>
+
+          <Field label="Customer Lot Number">
+            <input
+              type="text"
+              value={customerLotNumber}
+              onChange={(e) => setCustomerLotNumber(e.target.value)}
+              placeholder="e.g. CUST-458"
+              className={inputClass(false)}
+            />
+          </Field>
+
+          <Field label="Bill Number">
+            <input
+              type="text"
+              value={billNumber}
+              onChange={(e) => setBillNumber(e.target.value)}
+              placeholder="e.g. 4587"
+              className={inputClass(false)}
+            />
+          </Field>
+
+          <Field label="Gate Pass Number">
+            <input
+              type="text"
+              value={gatePassNumber}
+              onChange={(e) => setGatePassNumber(e.target.value)}
+              placeholder="e.g. GP-4587"
+              className={inputClass(false)}
+            />
+          </Field>
+
+          <Field label="General Quantity">
+            <input
+              inputMode="decimal"
+              value={generalQuantity}
+              onChange={(e) => setGeneralQuantity(e.target.value)}
+              placeholder="e.g. 504"
+              className={`${inputClass(false)} text-right`}
+            />
+          </Field>
+
+          <Field label="Sets">
+            <input
+              disabled
+              value={setsPreview ?? '—'}
+              className="w-full rounded-md border border-slate-200 bg-slate-50 px-2 py-2 text-right text-sm text-slate-500"
+            />
+          </Field>
+        </div>
+
+        <div className="mt-3">
+          <Field label="Notes">
+            <textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} className={inputClass(false)} />
+          </Field>
+        </div>
+      </CollapsibleSection>
+
       {submitError && <p className="mt-3 text-sm text-red-600">{submitError}</p>}
 
+      {/* UI/UX-02: one prominent primary action ("Create invoice"); Cancel stays visually lighter (outline only). */}
       <div className="mt-4 flex flex-wrap justify-end gap-2">
         <button
           type="button"
@@ -508,7 +520,7 @@ export function QuickInvoiceForm({ invoice, onSaved, onCancel }: Props) {
           disabled={saving}
           className="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50"
         >
-          {saving ? 'Saving…' : editing ? 'Save changes' : 'Save Invoice'}
+          {saving ? 'Saving…' : editing ? 'Save changes' : 'Create invoice'}
         </button>
       </div>
     </form>
