@@ -29,6 +29,24 @@ export interface QuickInvoiceFormState {
  * Straight extraction: the reorganization only moved where Job
  * details are shown, never what gets sent.
  */
+/** UI/UX-03 Part 5: what gets saved to/restored from localStorage for a Quick Invoice still being entered — the shared fields plus customerId, paid, and paymentMethod (not part of QuickInvoiceFormState itself, but part of what this draft needs to recover). */
+export interface QuickInvoiceDraftData extends QuickInvoiceFormState {
+  customerId: string;
+  paid: boolean;
+  paymentMethod: string;
+}
+
+/** Same reasoning as create-invoice-payload.ts's isStandardDraftMeaningful — an untouched form (default customer, one blank item row) must never prompt or persist. */
+export function isQuickDraftMeaningful(data: QuickInvoiceDraftData): boolean {
+  if (data.customerId) return true;
+  if (data.discountType) return true;
+  if (data.paid) return true;
+  if (data.lotNumber || data.customerLotNumber || data.billNumber || data.gatePassNumber || data.generalQuantity || data.notes) return true;
+  return data.items.some(
+    (item) => Boolean(item.description || item.unitPrice) || (item.quantity !== '' && item.quantity !== '1'),
+  );
+}
+
 export function buildQuickInvoiceSharedFields(form: QuickInvoiceFormState): Omit<InvoiceInput, 'customerId'> {
   return {
     lotNumber: form.lotNumber || undefined,

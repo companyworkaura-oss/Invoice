@@ -1,5 +1,6 @@
 import type { Me } from '@invoice/shared';
 import { useEffect, useState } from 'react';
+import { Navigate, NavLink, Route, Routes, useSearchParams } from 'react-router-dom';
 import { AuditLogPage } from './features/audit/AuditLogPage';
 import * as authApi from './features/auth/api';
 import { LoginForm } from './features/auth/LoginForm';
@@ -14,29 +15,34 @@ import { InvoicesPage } from './features/invoices/InvoicesPage';
 import { PaymentsPage } from './features/payments/PaymentsPage';
 
 type AuthView = 'login' | 'register';
-type DashboardTab = 'dashboard' | 'overview' | 'customers' | 'categories' | 'invoices' | 'payments' | 'audit';
+
+/**
+ * UI/UX-03 Part 1: one real route per major screen (previously plain
+ * `tab` local state — a refresh always landed back on Dashboard, and
+ * nothing about "which screen" survived in the URL at all). Nested
+ * `/invoices/*` routes are handled inside InvoicesPage itself (list,
+ * detail, new, quick, edit — see that file). Customers/Payments/
+ * Categories/Settings/Activity get one top-level route each; their
+ * own internal navigation (customer detail/edit/statement, the
+ * payments "new payment" form) stays local component state, same as
+ * before — nothing in this task's acceptance scenarios needs those
+ * sub-screens individually addressable by URL, and adding that for
+ * every screen here would be over-engineering a task scoped around
+ * invoices specifically.
+ */
+const NAV_ITEMS = [
+  { path: '/dashboard', label: 'Dashboard' },
+  { path: '/settings', label: 'Overview' },
+  { path: '/customers', label: 'Customers' },
+  { path: '/categories', label: 'Categories' },
+  { path: '/invoices', label: 'Invoices' },
+  { path: '/payments', label: 'Payments' },
+] as const;
 
 function App() {
   const [me, setMe] = useState<Me | null | undefined>(undefined); // undefined = still checking
   const [authView, setAuthView] = useState<AuthView>('login');
   const [showProfile, setShowProfile] = useState(false);
-  const [tab, setTab] = useState<DashboardTab>('dashboard');
-  const [paymentsCustomerFilter, setPaymentsCustomerFilter] = useState<string | undefined>(undefined);
-  // UI/UX-01: the "View customer account" action on an invoice's
-  // Customer Account panel — same lifecycle as paymentsCustomerFilter
-  // above, consumed by CustomersPage to jump straight to that
-  // customer's statement instead of the plain list.
-  const [customerAccountToOpen, setCustomerAccountToOpen] = useState<string | undefined>(undefined);
-
-  function viewPaymentsForCustomer(customerId: string) {
-    setPaymentsCustomerFilter(customerId);
-    setTab('payments');
-  }
-
-  function viewCustomerAccount(customerId: string) {
-    setCustomerAccountToOpen(customerId);
-    setTab('customers');
-  }
 
   function refreshMe() {
     authApi
@@ -47,28 +53,22 @@ function App() {
 
   useEffect(refreshMe, []);
 
-  // Collapse the profile panel and clear the payments customer filter
-  // (F10) whenever the active company changes — switching companies (or
-  // logging out and back in: `me?.company.id` always passes through
-  // undefined first, so that counts as a change too, even into the same
-  // company) must never leave a previous company's profile panel open
-  // or carry its "View payments" shortcut into the next one.
+  // Collapse the profile panel whenever the active company changes —
+  // switching companies (or logging out and back in: `me?.company.id`
+  // always passes through undefined first, so that counts as a
+  // change too, even into the same company) must never leave a
+  // previous company's profile panel open.
   //
   // Adjusted during render rather than in a useEffect — the
   // React-recommended way to reset state in response to a prop/value
-  // changing ("Adjusting state when a prop changes" in the React docs):
-  // a *state* variable (never a ref — reading a ref's current value
-  // during render is unreliable, since mutating it doesn't itself
-  // schedule the re-render a render-phase read depends on) tracks the
-  // last-seen company id, and setState is called conditionally, right
-  // here, so this resets in the very same render the company id
-  // changes in, with no extra commit-then-effect round trip.
+  // changing ("Adjusting state when a prop changes" in the React
+  // docs): a *state* variable (never a ref) tracks the last-seen
+  // company id, and setState is called conditionally, right here, so
+  // this resets in the very same render the company id changes in.
   const [lastSeenCompanyId, setLastSeenCompanyId] = useState(me?.company.id);
   if (lastSeenCompanyId !== me?.company.id) {
     setLastSeenCompanyId(me?.company.id);
     setShowProfile(false);
-    setPaymentsCustomerFilter(undefined);
-    setCustomerAccountToOpen(undefined);
   }
 
   async function handleLogout() {
@@ -139,95 +139,91 @@ function App() {
         </div>
 
         <div className="mt-4 flex gap-4 overflow-x-auto border-b border-slate-200 print:hidden">
-          {(
-            [
-              'dashboard',
-              'overview',
-              'customers',
-              'categories',
-              'invoices',
-              'payments',
-              ...(me.permissions.includes('audit.view') ? (['audit'] as const) : []),
-            ] as const
-          ).map((t) => (
-            <button
-              key={t}
-              type="button"
-              onClick={() => setTab(t)}
-              className={`-mb-px shrink-0 border-b-2 px-1 pb-2 text-sm font-medium capitalize ${
-                tab === t ? 'border-slate-900 text-slate-900' : 'border-transparent text-slate-500 hover:text-slate-700'
-              }`}
+          {NAV_ITEMS.map((item) => (
+            <NavLink
+              key={item.path}
+              to={item.path}
+              className={({ isActive }) =>
+                `-mb-px shrink-0 border-b-2 px-1 pb-2 text-sm font-medium ${
+                  isActive ? 'border-slate-900 text-slate-900' : 'border-transparent text-slate-500 hover:text-slate-700'
+                }`
+              }
             >
-              {t}
-            </button>
+              {item.label}
+            </NavLink>
           ))}
+          {me.permissions.includes('audit.view') && (
+            <NavLink
+              to="/activity"
+              className={({ isActive }) =>
+                `-mb-px shrink-0 border-b-2 px-1 pb-2 text-sm font-medium ${
+                  isActive ? 'border-slate-900 text-slate-900' : 'border-transparent text-slate-500 hover:text-slate-700'
+                }`
+              }
+            >
+              Audit
+            </NavLink>
+          )}
         </div>
 
-        {tab === 'dashboard' && (
-          <div className="mt-4 print:mt-0">
-            <DashboardPage key={me.company.id} />
-          </div>
-        )}
+        <div className="mt-4 print:mt-0">
+          <Routes>
+            <Route path="/" element={<Navigate to="/dashboard" replace />} />
+            <Route path="/dashboard" element={<DashboardPage key={me.company.id} />} />
+            <Route
+              path="/settings"
+              element={
+                <div>
+                  <button
+                    type="button"
+                    onClick={() => setShowProfile((s) => !s)}
+                    className="text-sm font-medium text-slate-900 underline"
+                  >
+                    {showProfile ? 'Hide company profile' : 'Company profile'}
+                  </button>
+                  {showProfile && <CompanyProfilePanel key={`profile-${me.company.id}`} permissions={me.permissions} />}
 
-        {tab === 'overview' && (
-          <div className="mt-4 print:mt-0">
-            <button
-              type="button"
-              onClick={() => setShowProfile((s) => !s)}
-              className="text-sm font-medium text-slate-900 underline"
-            >
-              {showProfile ? 'Hide company profile' : 'Company profile'}
-            </button>
-            {showProfile && <CompanyProfilePanel key={`profile-${me.company.id}`} permissions={me.permissions} />}
+                  <CompanyDangerZone
+                    key={`danger-${me.company.id}`}
+                    companyName={me.company.name}
+                    permissions={me.permissions}
+                    onCompanyChanged={refreshMe}
+                  />
 
-            <CompanyDangerZone
-              key={`danger-${me.company.id}`}
-              companyName={me.company.name}
-              permissions={me.permissions}
-              onCompanyChanged={refreshMe}
+                  <CompanySwitcher activeCompanyId={me.company.id} onSwitched={refreshMe} />
+                </div>
+              }
             />
-
-            <CompanySwitcher activeCompanyId={me.company.id} onSwitched={refreshMe} />
-          </div>
-        )}
-
-        {tab === 'customers' && (
-          <div className="mt-4 print:mt-0">
-            <CustomersPage key={me.company.id} permissions={me.permissions} openCustomerId={customerAccountToOpen} />
-          </div>
-        )}
-
-        {tab === 'categories' && (
-          <div className="mt-4 print:mt-0">
-            <CategoriesPage key={me.company.id} />
-          </div>
-        )}
-
-        {tab === 'invoices' && (
-          <div className="mt-4 print:mt-0">
-            <InvoicesPage
-              key={me.company.id}
-              permissions={me.permissions}
-              onViewPayments={viewPaymentsForCustomer}
-              onViewCustomerAccount={viewCustomerAccount}
-            />
-          </div>
-        )}
-
-        {tab === 'payments' && (
-          <div className="mt-4 print:mt-0">
-            <PaymentsPage key={me.company.id} permissions={me.permissions} initialCustomerId={paymentsCustomerFilter} />
-          </div>
-        )}
-
-        {tab === 'audit' && me.permissions.includes('audit.view') && (
-          <div className="mt-4 print:mt-0">
-            <AuditLogPage key={me.company.id} />
-          </div>
-        )}
+            <Route path="/customers/*" element={<CustomersRoute key={me.company.id} permissions={me.permissions} />} />
+            <Route path="/categories" element={<CategoriesPage key={me.company.id} />} />
+            <Route path="/invoices/*" element={<InvoicesPage key={me.company.id} permissions={me.permissions} />} />
+            <Route path="/payments" element={<PaymentsRoute key={me.company.id} permissions={me.permissions} />} />
+            {me.permissions.includes('audit.view') && <Route path="/activity" element={<AuditLogPage key={me.company.id} />} />}
+            <Route path="*" element={<Navigate to="/dashboard" replace />} />
+          </Routes>
+        </div>
       </div>
     </div>
   );
+}
+
+/**
+ * UI/UX-01's "View customer account" action (from an invoice's
+ * Customer Account panel) now just navigates to
+ * `/customers?openCustomerId=...` instead of threading a prop through
+ * App.tsx's own state — the query param is this route's entire input,
+ * read once here rather than passed down as a stateful prop kept in
+ * sync by hand.
+ */
+function CustomersRoute({ permissions }: { permissions: Me['permissions'] }) {
+  const [params] = useSearchParams();
+  return <CustomersPage permissions={permissions} openCustomerId={params.get('openCustomerId') ?? undefined} />;
+}
+
+/** Same pattern as CustomersRoute, for the existing "View payments" shortcut (`?customerId=`). */
+function PaymentsRoute({ permissions }: { permissions: Me['permissions'] }) {
+  const [params] = useSearchParams();
+  return <PaymentsPage permissions={permissions} initialCustomerId={params.get('customerId') ?? undefined} />;
 }
 
 export default App;

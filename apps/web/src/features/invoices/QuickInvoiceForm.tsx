@@ -2,12 +2,18 @@ import type { Customer, DiscountType, InvoiceWithItems, PaymentMethod } from '@i
 import { Decimal, calculateSets, formatNumber, roundMoney } from '@invoice/shared';
 import { useMemo, useRef, useState, useEffect } from 'react';
 import { ApiError } from '../../lib/api';
+import { useCurrentIdentity } from '../../lib/use-current-identity';
+import { useDirtyFormGuard } from '../../lib/use-dirty-form-guard';
 import * as customersApi from '../customers/api';
 import * as invoicesApi from './api';
 import { CollapsibleSection } from './CollapsibleSection';
+import { DraftRecoveryBanner } from './DraftRecoveryBanner';
+import { clearInvoiceDraft, loadInvoiceDraft, saveInvoiceDraft } from './invoice-draft';
 import { previewDiscount, sumAmounts } from './preview';
-import { buildQuickInvoiceSharedFields } from './quick-invoice-payload';
+import { buildQuickInvoiceSharedFields, isQuickDraftMeaningful, type QuickInvoiceDraftData } from './quick-invoice-payload';
 import { newQuickInvoiceSaveState, saveQuickInvoice } from './quick-save';
+
+const DRAFT_SAVE_DEBOUNCE_MS = 500;
 
 /**
  * A faster, single-purpose UI for the common case (one customer, a
@@ -88,6 +94,24 @@ function todayLocal(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
+/** The current form state, shaped for draft storage/dirty comparison — `key` (a React-only identity, never meaningful content) is stripped from every item row. */
+function currentDraftData(form: {
+  customerId: string;
+  lotNumber: string;
+  customerLotNumber: string;
+  billNumber: string;
+  gatePassNumber: string;
+  generalQuantity: string;
+  notes: string;
+  discountType: DiscountType | '';
+  discountValue: string;
+  items: QuickItemRow[];
+  paid: boolean;
+  paymentMethod: PaymentMethod;
+}): QuickInvoiceDraftData {
+  return { ...form, items: form.items.map(({ key: _key, ...rest }) => rest) };
+}
+
 /** quantity * unitPrice, or null while either field isn't a valid positive number yet — never a separate calculation path from what the server redoes on save. */
 function previewLineAmount(quantity: string, unitPrice: string): string | null {
   const qty = Number(quantity);
@@ -121,9 +145,72 @@ export function QuickInvoiceForm({ invoice, onSaved, onCancel }: Props) {
   // needs. See saveQuickInvoice's doc comment.
   const saveStateRef = useRef(newQuickInvoiceSaveState());
 
+  // UI/UX-03 Part 5/9: same draft-recovery/dirty-guard shape as
+  // CreateInvoiceForm, scoped to this user/company's *Quick* Invoice
+  // draft specifically — separate storage key, never shared with Standard.
+  const identity = useCurrentIdentity();
+  const [draftChecked, setDraftChecked] = useState(editing);
+  const [pendingDraft, setPendingDraft] = useState<{ savedAt: string; data: QuickInvoiceDraftData } | null>(null);
+  const [pristineSnapshot] = useState(() =>
+    JSON.stringify(currentDraftData({ customerId, lotNumber, customerLotNumber, billNumber, gatePassNumber, generalQuantity, notes, discountType, discountValue, items, paid, paymentMethod })),
+  );
+
   useEffect(() => {
     customersApi.listCustomers({ status: 'active' }).then(setCustomers).catch(() => setCustomers([]));
   }, []);
+
+  useEffect(() => {
+    if (editing || !identity || draftChecked) return;
+    const envelope = loadInvoiceDraft<QuickInvoiceDraftData>(identity.userId, identity.companyId, 'quick');
+    if (envelope && isQuickDraftMeaningful(envelope.data)) {
+      setPendingDraft({ savedAt: envelope.savedAt, data: envelope.data });
+    }
+    setDraftChecked(true);
+  }, [editing, identity, draftChecked]);
+
+  useEffect(() => {
+    if (editing || !identity || !draftChecked || pendingDraft) return;
+    const data = currentDraftData({ customerId, lotNumber, customerLotNumber, billNumber, gatePassNumber, generalQuantity, notes, discountType, discountValue, items, paid, paymentMethod });
+    const timer = setTimeout(() => {
+      if (isQuickDraftMeaningful(data)) {
+        saveInvoiceDraft(identity.userId, identity.companyId, 'quick', data);
+      } else {
+        clearInvoiceDraft(identity.userId, identity.companyId, 'quick');
+      }
+    }, DRAFT_SAVE_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editing, identity, draftChecked, pendingDraft, customerId, lotNumber, customerLotNumber, billNumber, gatePassNumber, generalQuantity, notes, discountType, discountValue, items, paid, paymentMethod]);
+
+  function resumeDraft() {
+    if (!pendingDraft) return;
+    const d = pendingDraft.data;
+    setCustomerId(d.customerId);
+    setLotNumber(d.lotNumber);
+    setCustomerLotNumber(d.customerLotNumber);
+    setBillNumber(d.billNumber);
+    setGatePassNumber(d.gatePassNumber);
+    setGeneralQuantity(d.generalQuantity);
+    setNotes(d.notes);
+    setDiscountType(d.discountType);
+    setDiscountValue(d.discountValue);
+    setItems(d.items.length > 0 ? d.items.map((item) => ({ ...item, key: nextRowKey++ })) : [newRow()]);
+    setPaid(d.paid);
+    setPaymentMethod(d.paymentMethod as PaymentMethod);
+    setPendingDraft(null);
+  }
+
+  function discardDraft() {
+    if (identity) clearInvoiceDraft(identity.userId, identity.companyId, 'quick');
+    setPendingDraft(null);
+  }
+
+  const isDirty =
+    !pendingDraft &&
+    JSON.stringify(
+      currentDraftData({ customerId, lotNumber, customerLotNumber, billNumber, gatePassNumber, generalQuantity, notes, discountType, discountValue, items, paid, paymentMethod }),
+    ) !== pristineSnapshot;
+  const { confirmLeaveIfDirty } = useDirtyFormGuard(isDirty, 'You have unsaved invoice changes. Leave without saving?');
 
   const lineAmounts = useMemo(() => items.map((row) => previewLineAmount(row.quantity, row.unitPrice)), [items]);
   const subtotal = useMemo(() => sumAmounts(lineAmounts), [lineAmounts]);
@@ -240,6 +327,9 @@ export function QuickInvoiceForm({ invoice, onSaved, onCancel }: Props) {
         { createInvoice: invoicesApi.createInvoice },
       );
       saveStateRef.current = newQuickInvoiceSaveState();
+      // UI/UX-03 Part 6: a successful save clears this user/company's
+      // Quick Invoice draft — there's nothing left to recover.
+      if (identity) clearInvoiceDraft(identity.userId, identity.companyId, 'quick');
       onSaved(saved);
     } catch (err) {
       setSubmitError(err instanceof ApiError ? err.body.error : 'Something went wrong saving this invoice');
@@ -250,6 +340,8 @@ export function QuickInvoiceForm({ invoice, onSaved, onCancel }: Props) {
 
   return (
     <form onSubmit={handleSubmit} className="rounded-md border border-slate-200 p-4 md:p-6">
+      {pendingDraft && <DraftRecoveryBanner savedAt={pendingDraft.savedAt} onResume={resumeDraft} onDiscard={discardDraft} />}
+
       {/*
         UI/UX-02 — Section 1: Customer (+ Payment Status/Method, which
         gate what this save actually does, not optional reference
@@ -510,8 +602,11 @@ export function QuickInvoiceForm({ invoice, onSaved, onCancel }: Props) {
       <div className="mt-4 flex flex-wrap justify-end gap-2">
         <button
           type="button"
-          onClick={onCancel}
-          className="rounded-md border border-slate-300 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50"
+          disabled={saving}
+          onClick={() => {
+            if (confirmLeaveIfDirty()) onCancel();
+          }}
+          className="rounded-md border border-slate-300 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 disabled:opacity-50"
         >
           Cancel
         </button>

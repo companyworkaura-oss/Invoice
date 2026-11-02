@@ -4126,6 +4126,172 @@ what the entry/submit buttons say.
   407/407 + web 53/53, all clean), and `npm run lint` (zero errors,
   zero warnings) all clean. **UI/UX-02 is COMPLETE.**
 
+## UI/UX-03 — Preserve Draft Work, Filters, and Navigation Context (Phase 66)
+
+The largest of the three UI/UX findings — real routing, URL-backed
+list filters, scroll restoration, recoverable invoice drafts, and
+dirty-form protection. No accounting/calculation/schema change; added
+one new dependency (`react-router-dom`), this app's first router.
+
+- **Routing approach**: `react-router-dom` v7, plain declarative
+  `<BrowserRouter>` (wrapped around `<App />` in `main.tsx`) — not a
+  data router (`createBrowserRouter`). A data router would unlock
+  `useBlocker` for the dirty-form guard, but converting the whole
+  app's render tree to route `loader`/`element` config to get it was
+  a disproportionate amount of restructuring for one feature;
+  `useDirtyFormGuard` (below) gets the same user-facing protection
+  with a plain `popstate`/`beforeunload` listener instead, no data
+  router required. "If React Router is already present, extend it;
+  if not, add a lightweight routing solution only if necessary" — a
+  *real* 10-screen app with a mobile-friendly 390px target needs an
+  actual router, not a hand-rolled one; `react-router-dom` is the
+  standard choice here, not over-engineering.
+- **Routes added**: `/dashboard`, `/settings` (the former "Overview"
+  tab), `/customers/*`, `/categories`, `/invoices/*`, `/payments`,
+  `/activity` (gated by `audit.view`, same as before) — each replacing
+  one branch of App.tsx's old `tab` switch; `/` and any unmatched path
+  redirect to `/dashboard`. Under `/invoices/*` (`InvoicesPage.tsx`,
+  now a `<Routes>` of its own): index → list, `new` → Standard create,
+  `quick` → Quick create, `:id` → detail, `:id/edit` → edit (routes to
+  `QuickInvoiceForm` or `CreateInvoiceForm` by `invoiceMode`, exactly
+  as the old `view.name === 'edit'` branch did), `:id/print` → the
+  template view (`?action=print|download|whatsapp` carries a row
+  action's auto-fired action across the navigation, replacing the old
+  `initialAction` passed through local state). `/customers/*` and
+  `/payments` kept their pre-existing internal local-state navigation
+  (customer detail/edit/statement; the "new payment" form) — nothing
+  in this task's acceptance scenarios needed those individually
+  addressable by URL, and doing it for every screen here would be
+  over-engineering a task scoped around invoices specifically. The
+  existing `onViewPayments`/`onViewCustomerAccount` cross-screen
+  shortcuts now navigate to `/payments?customerId=...` /
+  `/customers?openCustomerId=...` instead of threading App.tsx state
+  down as props — `PaymentsPage`/`CustomersPage` themselves are
+  unchanged, just fed by a route wrapper reading the query param once.
+- **Invoice filters preserved**: search/customerId/status(paymentStatus)/
+  view(archived)/from/to all live in `/invoices`'s own query string,
+  via two pure functions in `invoice-list-filters.ts`
+  (`parseInvoiceListFilters`, `withInvoiceListFilterPatch` — `replace`s
+  the URL on every filter tweak, so adjusting a filter doesn't itself
+  clutter the back-stack). Opening an invoice is a *real* navigation
+  (`/invoices/:id`, pushed), so Browser Back from there needs no
+  separate "remember the list state" mechanism at all — it just pops
+  back to whatever `/invoices?search=...&status=...` URL was already
+  there. The search box keeps its own fast-typing local state to
+  debounce (300ms) against; only the settled value reaches the URL.
+- **Scroll/context restoration**: `use-scroll-restoration.ts` — a
+  single-purpose hook for one named list, not a history-wide scroll
+  manager (deliberately, per the task's own "do not make this
+  fragile" guidance). Saves `window.scrollY` to `sessionStorage` on
+  scroll (`requestAnimationFrame`-throttled, not a timer), keyed by
+  `invoices:${the filter query string itself}` so scrolling down one
+  search's results and returning to a *different* search starts at
+  the top, restores once on mount.
+- **Draft storage design**: `invoice-draft.ts` — a versioned envelope
+  (`{version: 1, savedAt, data}`) in `localStorage`, keyed
+  `invoice-draft:<userId>:<companyId>:<mode>` (`mode` is `'standard'`
+  or `'quick'` — never shared). `loadInvoiceDraft`/`saveInvoiceDraft`/
+  `clearInvoiceDraft` never throw (try/catch, same convention as this
+  session's other localStorage helpers — `last-invoice-mode.ts`,
+  `form-patch.ts`) and treat a wrong-version or corrupted envelope as
+  "no draft", never a crash or a misread. `CreateInvoiceForm`/
+  `QuickInvoiceForm` each: check once per mount (skipped entirely in
+  edit mode — an existing invoice already persists server-side, there
+  is nothing client-side to recover) for a draft that's actually
+  `isStandardDraftMeaningful`/`isQuickDraftMeaningful` (an untouched
+  form — default customer, one blank item row — is never shown as
+  "Unsaved invoice found", and is never even written to storage);
+  show `DraftRecoveryBanner` with Resume/Discard (never auto-applied);
+  auto-save debounced (500ms) while typing, skipped while a draft is
+  still awaiting its Resume/Discard decision (so the still-blank live
+  form never silently overwrites the one just recovered); clear on a
+  successful save. `useCurrentIdentity` (new, `lib/`) supplies the
+  `userId`/`companyId` a draft is scoped to via one more `/auth/me`
+  call, rather than threading the full `Me` object down through
+  `InvoicesPage` → its route wrappers → the forms just for two ids.
+- **Dirty-form protection**: `useDirtyFormGuard(isDirty, message)`
+  (new, `lib/`) — `isDirty` itself is computed the same way in both
+  forms: a snapshot of the relevant fields taken once at mount
+  (`pristineSnapshot`, via a `useState` initializer — correctly blank
+  for create, correctly pre-filled for edit) compared by
+  `JSON.stringify` equality against the live, current values on every
+  render; resuming a draft after that snapshot is taken correctly
+  ends up "dirty" even though the user didn't type any of it just
+  now. The hook adds a `beforeunload` listener while dirty (covers
+  refresh/close) and a `popstate`-based Back-button interception
+  (pushes one extra history entry while dirty; the first Back press
+  fires a `confirm()`; declining re-pushes the guard entry so the next
+  Back press is caught again too) — see the hook's own doc comment
+  for the one accepted limitation (an extra history entry can linger
+  if the form goes clean some other way, e.g. a successful save,
+  rather than the guard's own entry being consumed by a Back press;
+  live-confirmed this doesn't block or corrupt navigation, just
+  occasionally costs one extra Back press on whatever screen comes
+  after). Both forms' Cancel buttons call the hook's
+  `confirmLeaveIfDirty()` before actually invoking `onCancel`, and are
+  `disabled` while `saving` (Part 8 — no ambiguous Cancel mid-save;
+  F11's createInvoice idempotency, used by both forms' actual save
+  calls, is completely untouched).
+- **Files changed**: `apps/web/package.json` (+`react-router-dom`),
+  `main.tsx` (`<BrowserRouter>`), `App.tsx` (tab switch → `<Routes>`),
+  `InvoicesPage.tsx` (nested `<Routes>`, route-wrapper components
+  replacing the old `view` union), `InvoiceList.tsx` (filters moved to
+  `useSearchParams`, scroll restoration wired in), `CreateInvoiceForm.tsx`/
+  `QuickInvoiceForm.tsx` (draft recovery + dirty-guard wiring),
+  `create-invoice-payload.ts`/`quick-invoice-payload.ts` (new
+  `StandardInvoiceDraftData`/`QuickInvoiceDraftData` types +
+  `isStandardDraftMeaningful`/`isQuickDraftMeaningful`). New:
+  `invoice-draft.ts`, `invoice-list-filters.ts`,
+  `DraftRecoveryBanner.tsx`, `lib/use-dirty-form-guard.ts`,
+  `lib/use-scroll-restoration.ts`, `lib/use-current-identity.ts`.
+- **Tests**: `invoice-draft.test.ts` (10) — save/load/clear round
+  trip, Standard vs. Quick never colliding, company isolation, user
+  isolation, corrupted/wrong-version envelopes treated as no draft,
+  never throwing without `localStorage` (a tiny in-memory `Storage`
+  stand-in installed per test, since plain Node has none at all, same
+  convention as `last-invoice-mode.test.ts`). `invoice-draft-meaningful.test.ts`
+  (10) — an untouched form of either mode is never "meaningful";
+  a customer, a category pick, a discount, a Job Details field, or a
+  non-default quantity each alone makes one meaningful.
+  `invoice-list-filters.test.ts` (8) — the exact Scenario A query
+  string parses back correctly, patches apply/clear keys without
+  disturbing siblings, never mutate their input. 28 new tests total.
+- **Live-verified against the real dev server** (Playwright, no new
+  framework dependency added to the repo — the same approach UI/UX-02
+  used): registered, created a category/customers, then drove the
+  actual running app through every acceptance scenario.
+  - **Scenario A**: filtered `/invoices` to `?search=Bilal&status=UNPAID`,
+    opened an invoice, pressed Back — landed back on the exact same
+    `?search=Bilal&status=UNPAID` URL, search box still reading
+    "Bilal".
+  - **Scenario B**: opened `/invoices/:id`, refreshed — same invoice
+    still open afterward.
+  - **Scenario C**: started a Standard Invoice, picked a customer,
+    let the debounced auto-save fire, navigated away (Back) —
+    returning to `/invoices/new` showed "Unsaved invoice found";
+    Resume correctly repopulated the customer selection.
+  - **Scenario D**: started an unsaved Standard draft under Company
+    A, created and switched to Company B via the real API (same
+    session) — `/invoices/new` under Company B showed no banner at
+    all.
+  - **Scenario E**: completed a full valid Standard Invoice save —
+    revisiting `/invoices/new` afterward showed no banner (draft
+    cleared).
+  - Also confirmed live: an untouched form triggers zero `confirm()`
+    dialogs on Back (Part 7's "untouched form does not warn"), and a
+    Quick Invoice draft never surfaces on the Standard form or
+    vice versa (Part 5).
+- `npm run typecheck`, `npm run build`, `npm test` (shared 72/72 + api
+  407/407 + web 80/80, all clean), and `npm run lint` (zero errors,
+  zero warnings — one `react/set-state-in-effect` warning from the
+  new company-switch-redirect effect suppressed with an
+  `oxlint-disable-next-line`, matching this file's existing
+  `exhaustive-deps` suppression convention; the pattern itself —
+  reset state at the top of an effect before an async refetch keyed
+  by a changing id — is the same one `CreateInvoiceForm`'s own
+  `previousBalance` effect already used before this phase). **UI/UX-03
+  is COMPLETE.**
+
 ## Known gotchas / things to check before starting work
 
 - **Postgres cluster is often stopped** when a session starts:
@@ -5094,6 +5260,61 @@ what the entry/submit buttons say.
     "Save invoice"/"Save Invoice" renamed to "Create invoice" (both
     forms) to give the primary action one consistent, prominent label.
     See "UI/UX-02 — Put Billable Work Before Optional Metadata (Phase 65)" below
+
+71. UI/UX-03 — Preserve Draft Work, Filters, and Navigation Context
+    (routing + resilience fix, third finding from the UI/UX report —
+    the largest of the three): the app had no real URLs at all — one
+    `tab` state in App.tsx and one `view` union per page — so a
+    refresh anywhere always bounced to Dashboard, Browser Back meant
+    nothing, invoice list filters lived in local state with nothing
+    to restore them, and a partially-typed invoice had no recovery
+    path if the tab closed or the user navigated away. Added
+    `react-router-dom` (this app's first routing dependency) and
+    converted `App.tsx`'s tab switch into real routes
+    (`/dashboard`, `/settings`, `/customers`, `/categories`,
+    `/invoices`, `/payments`, `/activity`); `InvoicesPage.tsx` grew
+    its own nested routes (`/invoices`, `/invoices/new`,
+    `/invoices/quick`, `/invoices/:id`, `/invoices/:id/edit`,
+    `/invoices/:id/print`), each fetching its own invoice by `:id` on
+    mount so a refresh on any of them lands right back where it was
+    instead of the list. "Back"/"Cancel" everywhere call
+    `navigate(-1)` rather than a fixed path, so popping one history
+    entry lands on whatever `/invoices?search=...` URL the user
+    actually came from. Invoice list filters (search/customerId/
+    status/view/from/to) moved from component state into the URL's
+    query string (`invoice-list-filters.ts`, pure parse/patch
+    functions, `replace`d so adjusting a filter doesn't itself
+    clutter the back-stack); scroll position restores via a small,
+    deliberately simple `useScrollRestoration` hook (sessionStorage,
+    keyed by the filter query string itself). Standard and Quick
+    Invoice both gained recoverable localStorage drafts
+    (`invoice-draft.ts`, versioned envelope, keyed
+    `invoice-draft:<userId>:<companyId>:<mode>` — never trusted for
+    authorization, purely a convenience the real createInvoice/
+    updateInvoice call still goes through normal session/tenant/
+    permission checks regardless of what a draft says), auto-saved
+    debounced while typing, surfaced via a shared
+    `DraftRecoveryBanner` ("Unsaved invoice found" / Resume / Discard
+    — never auto-applied or auto-discarded), and cleared on a
+    successful save. A new `useDirtyFormGuard` hook warns before
+    `beforeunload` (refresh/close) and intercepts the Browser Back
+    button (a pushState/popstate trick — accepted, documented
+    limitation: the one extra history entry it pushes while dirty can
+    need an extra Back press on the *next* screen if the form became
+    clean some other way, e.g. a successful save, rather than by the
+    guard popping its own entry) with "You have unsaved invoice
+    changes. Leave without saving?"; both Cancel buttons route through
+    it, and both are disabled while a save is in flight (Part 8 — no
+    ambiguous Cancel mid-save, F11's idempotency untouched). A new
+    `useCurrentIdentity` hook (one more `/auth/me` call, not prop-
+    drilled through every layer) supplies the userId/companyId a
+    draft is scoped to. Company isolation of drafts is automatic from
+    the storage key alone (confirmed live, not just by construction);
+    an invoice route whose `:id` 404s under a newly-switched company
+    (tenant isolation itself unchanged) auto-redirects to `/invoices`
+    rather than showing a dead page.
+    See "UI/UX-03 — Preserve Draft Work, Filters, and Navigation
+    Context (Phase 66)" below
 
 Repo also went through a monorepo restructure (`server/` → `apps/api` +
 new `apps/web` + `packages/shared`) between Phase 1 and Phase 2.

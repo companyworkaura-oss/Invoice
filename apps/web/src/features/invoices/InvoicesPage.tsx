@@ -1,5 +1,6 @@
 import type { InvoiceListEntry, InvoiceWithItems, Permission } from '@invoice/shared';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { Navigate, Route, Routes, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { ApiError } from '../../lib/api';
 import { CreateInvoiceForm } from './CreateInvoiceForm';
 import { InvoiceDetails } from './InvoiceDetails';
@@ -11,14 +12,6 @@ import * as invoicesApi from './api';
 
 type TemplateInitialAction = 'print' | 'download' | 'whatsapp';
 
-type View =
-  | { name: 'list' }
-  | { name: 'details'; invoice: InvoiceWithItems }
-  | { name: 'template'; invoice: InvoiceWithItems; initialAction?: TemplateInitialAction; returnTo: 'list' | 'details' }
-  | { name: 'form' }
-  | { name: 'quick-form' }
-  | { name: 'edit'; invoice: InvoiceWithItems };
-
 const ROW_ACTION_TO_INITIAL_ACTION: Record<InvoiceRowAction, TemplateInitialAction | undefined> = {
   print: 'print',
   pdf: 'download',
@@ -28,38 +21,57 @@ const ROW_ACTION_TO_INITIAL_ACTION: Record<InvoiceRowAction, TemplateInitialActi
 
 interface Props {
   permissions: Permission[];
-  onViewPayments: (customerId: string) => void;
-  onViewCustomerAccount: (customerId: string) => void;
 }
 
-export function InvoicesPage({ permissions, onViewPayments, onViewCustomerAccount }: Props) {
-  const [view, setView] = useState<View>({ name: 'list' });
+/**
+ * UI/UX-03 Part 1/2/3: `/invoices`, `/invoices/new`, `/invoices/quick`,
+ * `/invoices/:id`, `/invoices/:id/edit`, and `/invoices/:id/print` are
+ * now real, addressable, refreshable URLs — this used to be one
+ * `view` union kept entirely in local state, so a refresh anywhere
+ * but the bare list lost whatever the user was looking at, and
+ * Browser Back didn't correspond to anything (there was nothing to
+ * go "back" to; the URL never changed). Each sub-route below fetches
+ * its own invoice by `:id` on mount, so a refresh on
+ * `/invoices/:id` (or `/edit`, or `/print`) re-fetches and lands
+ * right back where it was instead of bouncing to the list.
+ *
+ * "Back" from detail/edit/print — and Cancel from new/quick/edit —
+ * all call `navigate(-1)` rather than `navigate('/invoices')`: popping
+ * one history entry lands exactly on whatever `/invoices?search=...`
+ * URL the user actually came from, filters and all, which is what
+ * makes Scenario A (search + filter + open + Back) work for free
+ * once the list's own filters live in the URL (see InvoiceList.tsx)
+ * — there is no separate "remembered list state" to keep in sync.
+ */
+export function InvoicesPage({ permissions }: Props) {
+  return (
+    <Routes>
+      <Route index element={<InvoiceListRoute permissions={permissions} />} />
+      <Route path="new" element={<CreateInvoiceRoute />} />
+      <Route path="quick" element={<QuickInvoiceRoute />} />
+      <Route path=":id" element={<InvoiceDetailRoute permissions={permissions} />} />
+      <Route path=":id/edit" element={<InvoiceEditRoute />} />
+      <Route path=":id/print" element={<InvoiceTemplateRoute />} />
+      <Route path="*" element={<Navigate to="/invoices" replace />} />
+    </Routes>
+  );
+}
+
+function InvoiceListRoute({ permissions }: { permissions: Permission[] }) {
+  const navigate = useNavigate();
   const [refreshToken, setRefreshToken] = useState(0);
   const [loadError, setLoadError] = useState<string | null>(null);
-  // UI/UX-02: "Quick Invoice" and "New invoice" used to have identical
-  // visual weight with nothing distinguishing them beyond their
-  // labels — read once per mount, not reactively, since this only
-  // ever needs to settle which button looks primary when the list
-  // first renders, not change weight mid-session.
+  // UI/UX-02: read once per mount, not reactively — see EntryModeButton's doc comment.
   const [lastMode] = useState(getLastInvoiceMode);
 
   function openQuickForm() {
     setLastInvoiceMode('quick');
-    setView({ name: 'quick-form' });
+    navigate('/invoices/quick');
   }
 
   function openStandardForm() {
     setLastInvoiceMode('standard');
-    setView({ name: 'form' });
-  }
-
-  async function openInvoice(id: string) {
-    setLoadError(null);
-    try {
-      setView({ name: 'details', invoice: await invoicesApi.getInvoice(id) });
-    } catch {
-      setLoadError('Could not load that invoice.');
-    }
+    navigate('/invoices/new');
   }
 
   async function handleRowAction(action: InvoiceRowAction, entry: InvoiceListEntry) {
@@ -68,11 +80,11 @@ export function InvoicesPage({ permissions, onViewPayments, onViewCustomerAccoun
       if (action === 'duplicate') {
         const created = await invoicesApi.duplicateInvoice(entry.id);
         setRefreshToken((t) => t + 1);
-        setView({ name: 'details', invoice: created });
+        navigate(`/invoices/${created.id}`);
         return;
       }
-      const full = await invoicesApi.getInvoice(entry.id);
-      setView({ name: 'template', invoice: full, initialAction: ROW_ACTION_TO_INITIAL_ACTION[action], returnTo: 'list' });
+      const initialAction = ROW_ACTION_TO_INITIAL_ACTION[action];
+      navigate(`/invoices/${entry.id}/print${initialAction ? `?action=${initialAction}` : ''}`);
     } catch (err) {
       setLoadError(err instanceof ApiError ? err.body.details?.items ?? err.body.error : 'Something went wrong');
     }
@@ -82,119 +94,147 @@ export function InvoicesPage({ permissions, onViewPayments, onViewCustomerAccoun
     <div>
       <div className="flex items-center justify-between print:hidden">
         <h2 className="text-sm font-semibold text-slate-900">Invoices</h2>
-        {view.name === 'list' && (
-          <div className="flex gap-2">
-            {/*
-              UI/UX-02: each button now names both its mode and the
-              pricing style it uses, so the choice is no longer "two
-              identical-looking buttons" — and whichever one was
-              picked last gets the slightly heavier (filled) style
-              next time, without hiding or removing either option.
-            */}
-            <EntryModeButton primary={lastMode === 'quick'} onClick={openQuickForm} title="Quick Invoice" subtitle="Simple pricing — description, quantity, unit price" />
-            <EntryModeButton primary={lastMode === 'standard'} onClick={openStandardForm} title="New Invoice" subtitle="Embroidery pricing — category, stitches, rate" />
-          </div>
-        )}
+        <div className="flex gap-2">
+          {/*
+            UI/UX-02: each button names both its mode and the pricing
+            style it uses; whichever was picked last gets the
+            slightly heavier (filled) style next time.
+          */}
+          <EntryModeButton primary={lastMode === 'quick'} onClick={openQuickForm} title="Quick Invoice" subtitle="Simple pricing — description, quantity, unit price" />
+          <EntryModeButton primary={lastMode === 'standard'} onClick={openStandardForm} title="New Invoice" subtitle="Embroidery pricing — category, stitches, rate" />
+        </div>
       </div>
 
       {loadError && <p className="mt-2 text-sm text-red-600">{loadError}</p>}
 
       <div className="mt-3 print:mt-0">
-        {view.name === 'list' && (
-          <InvoiceList
-            refreshToken={refreshToken}
-            permissions={permissions}
-            onSelect={(entry) => openInvoice(entry.id)}
-            onAction={handleRowAction}
-            onViewPayments={onViewPayments}
-          />
-        )}
-
-        {view.name === 'details' && (
-          <InvoiceDetails
-            invoice={view.invoice}
-            permissions={permissions}
-            onBack={() => {
-              setRefreshToken((t) => t + 1);
-              setView({ name: 'list' });
-            }}
-            onViewTemplate={() => setView({ name: 'template', invoice: view.invoice, returnTo: 'details' })}
-            onInvoiceUpdated={(invoice) => setView({ name: 'details', invoice })}
-            onEdit={() => setView({ name: 'edit', invoice: view.invoice })}
-            onViewCustomerAccount={onViewCustomerAccount}
-          />
-        )}
-
-        {view.name === 'template' && (
-          <InvoiceTemplateView
-            invoice={view.invoice}
-            initialAction={view.initialAction}
-            onBack={() => {
-              if (view.returnTo === 'details') {
-                setView({ name: 'details', invoice: view.invoice });
-              } else {
-                setRefreshToken((t) => t + 1);
-                setView({ name: 'list' });
-              }
-            }}
-          />
-        )}
-
-        {view.name === 'form' && (
-          <CreateInvoiceForm
-            onSaved={(invoice) => {
-              setRefreshToken((t) => t + 1);
-              setView({ name: 'details', invoice });
-            }}
-            onCancel={() => setView({ name: 'list' })}
-          />
-        )}
-
-        {view.name === 'quick-form' && (
-          <QuickInvoiceForm
-            onSaved={(invoice) => {
-              // Straight into the printable template — Print/Download
-              // PDF/Share via WhatsApp right away, the same component
-              // and actions a normal invoice's row buttons use.
-              setView({ name: 'template', invoice, returnTo: 'list' });
-            }}
-            onCancel={() => setView({ name: 'list' })}
-          />
-        )}
-
-        {/*
-          invoice.invoiceMode decides the editor — never inferred from
-          item shape here. A 'quick' invoice (manual description/
-          quantity/unit-price items, no category) reopens in
-          QuickInvoiceForm; everything else ('standard') reopens in
-          CreateInvoiceForm exactly as before. Saving either one keeps
-          sending the same item shape it always has, so the server
-          re-derives the same invoiceMode and reopening it again lands
-          back in the same editor.
-        */}
-        {view.name === 'edit' && view.invoice.invoiceMode === 'quick' && (
-          <QuickInvoiceForm
-            invoice={view.invoice}
-            onSaved={(invoice) => {
-              setRefreshToken((t) => t + 1);
-              setView({ name: 'details', invoice });
-            }}
-            onCancel={() => setView({ name: 'details', invoice: view.invoice })}
-          />
-        )}
-
-        {view.name === 'edit' && view.invoice.invoiceMode !== 'quick' && (
-          <CreateInvoiceForm
-            invoice={view.invoice}
-            onSaved={(invoice) => {
-              setRefreshToken((t) => t + 1);
-              setView({ name: 'details', invoice });
-            }}
-            onCancel={() => setView({ name: 'details', invoice: view.invoice })}
-          />
-        )}
+        <InvoiceList
+          refreshToken={refreshToken}
+          permissions={permissions}
+          onSelect={(entry) => navigate(`/invoices/${entry.id}`)}
+          onAction={handleRowAction}
+          onViewPayments={(customerId) => navigate(`/payments?customerId=${customerId}`)}
+        />
       </div>
     </div>
+  );
+}
+
+/**
+ * UI/UX-03 Part 9: fetches the invoice this route's `:id` names, and —
+ * since that id lives entirely in the URL, not in any per-company
+ * component state — automatically redirects to the plain invoice list
+ * if it 404s. The one time this actually happens is switching to a
+ * company that doesn't have (or can no longer see) this invoice: the
+ * URL itself doesn't change on a company switch, but the session
+ * backing `getInvoice` now belongs to the new company, so the exact
+ * same tenant-isolation check that already protects every invoice
+ * route server-side naturally turns into "safely redirect" here —
+ * this never has to special-case "did the company just change", it
+ * just reacts to the fetch failing.
+ */
+function useInvoiceFromParam(): { invoice: InvoiceWithItems | null; error: string | null; setInvoice: (invoice: InvoiceWithItems) => void } {
+  const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
+  const [invoice, setInvoice] = useState<InvoiceWithItems | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!id) return;
+    // oxlint-disable-next-line react/set-state-in-effect
+    setInvoice(null);
+    setError(null);
+    invoicesApi
+      .getInvoice(id)
+      .then(setInvoice)
+      .catch(() => {
+        setError('Could not load that invoice.');
+        navigate('/invoices', { replace: true });
+      });
+  }, [id, navigate]);
+
+  return { invoice, error, setInvoice };
+}
+
+function InvoiceDetailRoute({ permissions }: { permissions: Permission[] }) {
+  const navigate = useNavigate();
+  const { invoice, error, setInvoice } = useInvoiceFromParam();
+
+  if (error) return <p className="text-sm text-red-600">{error}</p>;
+  if (!invoice) return <p className="text-sm text-slate-400">Loading…</p>;
+
+  return (
+    <InvoiceDetails
+      invoice={invoice}
+      permissions={permissions}
+      onBack={() => navigate(-1)}
+      onViewTemplate={() => navigate(`/invoices/${invoice.id}/print`)}
+      onInvoiceUpdated={setInvoice}
+      onEdit={() => navigate(`/invoices/${invoice.id}/edit`)}
+      onViewCustomerAccount={(customerId) => navigate(`/customers?openCustomerId=${customerId}`)}
+    />
+  );
+}
+
+function InvoiceTemplateRoute() {
+  const navigate = useNavigate();
+  const [params] = useSearchParams();
+  const { invoice, error } = useInvoiceFromParam();
+  const initialAction = params.get('action');
+  const validInitialAction: TemplateInitialAction | undefined =
+    initialAction === 'print' || initialAction === 'download' || initialAction === 'whatsapp' ? initialAction : undefined;
+
+  if (error) return <p className="text-sm text-red-600">{error}</p>;
+  if (!invoice) return <p className="text-sm text-slate-400">Loading…</p>;
+
+  return <InvoiceTemplateView invoice={invoice} initialAction={validInitialAction} onBack={() => navigate(-1)} />;
+}
+
+function CreateInvoiceRoute() {
+  const navigate = useNavigate();
+  return (
+    <CreateInvoiceForm
+      onSaved={(invoice) => navigate(`/invoices/${invoice.id}`)}
+      onCancel={() => navigate(-1)}
+    />
+  );
+}
+
+function QuickInvoiceRoute() {
+  const navigate = useNavigate();
+  return (
+    <QuickInvoiceForm
+      onSaved={(invoice) => {
+        // Straight into the printable template — Print/Download
+        // PDF/Share via WhatsApp right away, the same component and
+        // actions a normal invoice's row buttons use.
+        navigate(`/invoices/${invoice.id}/print`);
+      }}
+      onCancel={() => navigate(-1)}
+    />
+  );
+}
+
+/**
+ * invoice.invoiceMode decides the editor — never inferred from item
+ * shape here. A 'quick' invoice (manual description/quantity/unit-
+ * price items, no category) reopens in QuickInvoiceForm; everything
+ * else ('standard') reopens in CreateInvoiceForm exactly as before.
+ */
+function InvoiceEditRoute() {
+  const navigate = useNavigate();
+  const { invoice, error } = useInvoiceFromParam();
+
+  if (error) return <p className="text-sm text-red-600">{error}</p>;
+  if (!invoice) return <p className="text-sm text-slate-400">Loading…</p>;
+
+  const onSaved = (saved: InvoiceWithItems) => navigate(`/invoices/${saved.id}`);
+  const onCancel = () => navigate(`/invoices/${invoice.id}`);
+
+  return invoice.invoiceMode === 'quick' ? (
+    <QuickInvoiceForm invoice={invoice} onSaved={onSaved} onCancel={onCancel} />
+  ) : (
+    <CreateInvoiceForm invoice={invoice} onSaved={onSaved} onCancel={onCancel} />
   );
 }
 

@@ -1,9 +1,12 @@
 import type { Customer, InvoiceArchivedFilter, InvoiceListEntry, InvoicePaymentStatus, Permission } from '@invoice/shared';
 import { formatNumber } from '@invoice/shared';
 import { useEffect, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { ApiError } from '../../lib/api';
+import { useScrollRestoration } from '../../lib/use-scroll-restoration';
 import * as customersApi from '../customers/api';
 import * as invoicesApi from './api';
+import { DEFAULT_ARCHIVED_FILTER, parseInvoiceListFilters, withInvoiceListFilterPatch } from './invoice-list-filters';
 
 export type InvoiceRowAction = 'print' | 'pdf' | 'whatsapp' | 'duplicate';
 
@@ -117,13 +120,37 @@ function RowActionsMenu({ items }: { items: RowMenuItem[] }) {
 }
 
 export function InvoiceList({ onSelect, onAction, onViewPayments, permissions, refreshToken }: Props) {
-  const [searchInput, setSearchInput] = useState('');
-  const search = useDebounced(searchInput, 300);
-  const [customerId, setCustomerId] = useState('');
-  const [from, setFrom] = useState('');
-  const [to, setTo] = useState('');
-  const [paymentStatus, setPaymentStatus] = useState<InvoicePaymentStatus | ''>('');
-  const [archived, setArchived] = useState<InvoiceArchivedFilter>('active');
+  // UI/UX-03 Part 3: every filter lives in the URL's query string
+  // (?search=&customerId=&status=&view=&from=&to=), not component
+  // local state — opening an invoice navigates to a *new* URL
+  // (/invoices/:id), so pressing Browser Back lands back on this
+  // exact query string, filters and all, with nothing to separately
+  // remember or restore. Filter changes use `replace` (not `push`) so
+  // adjusting a filter doesn't itself clutter the back-stack — only
+  // real navigation away from this list does.
+  const [params, setParams] = useSearchParams();
+  const { search, customerId, from, to, paymentStatus, archived } = parseInvoiceListFilters(params);
+
+  // The search box still needs its own fast-typing local state to
+  // debounce against — only the settled value is written to the URL.
+  const [searchInput, setSearchInput] = useState(search);
+  const debouncedSearchInput = useDebounced(searchInput, 300);
+
+  function setFilter(patch: Record<string, string>) {
+    setParams((prev) => withInvoiceListFilterPatch(prev, patch), { replace: true });
+  }
+
+  useEffect(() => {
+    if (debouncedSearchInput !== search) setFilter({ search: debouncedSearchInput });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedSearchInput]);
+
+  // UI/UX-03 Part 3: scroll position, keyed by the filter state itself
+  // — scrolling down one search's results and returning to a
+  // *different* search starts at the top, not wherever the last
+  // search happened to be scrolled to.
+  useScrollRestoration(`invoices:${params.toString()}`);
+
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [invoices, setInvoices] = useState<InvoiceListEntry[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -217,7 +244,7 @@ export function InvoiceList({ onSelect, onAction, onViewPayments, permissions, r
           <button
             key={t.value}
             type="button"
-            onClick={() => setArchived(t.value)}
+            onClick={() => setFilter({ view: t.value === DEFAULT_ARCHIVED_FILTER ? '' : t.value })}
             className={`-mb-px border-b-2 px-2 pb-2 text-sm font-medium ${
               archived === t.value ? 'border-slate-900 text-slate-900' : 'border-transparent text-slate-500 hover:text-slate-700'
             }`}
@@ -241,7 +268,7 @@ export function InvoiceList({ onSelect, onAction, onViewPayments, permissions, r
         </div>
         <select
           value={customerId}
-          onChange={(e) => setCustomerId(e.target.value)}
+          onChange={(e) => setFilter({ customerId: e.target.value })}
           className="flex-1 basis-[150px] rounded-md border border-slate-300 px-2 py-1 text-sm"
         >
           <option value="">All customers</option>
@@ -253,7 +280,7 @@ export function InvoiceList({ onSelect, onAction, onViewPayments, permissions, r
         </select>
         <select
           value={paymentStatus}
-          onChange={(e) => setPaymentStatus(e.target.value as InvoicePaymentStatus | '')}
+          onChange={(e) => setFilter({ status: e.target.value })}
           className="flex-1 basis-[130px] rounded-md border border-slate-300 px-2 py-1 text-sm"
         >
           <option value="">All statuses</option>
@@ -269,7 +296,7 @@ export function InvoiceList({ onSelect, onAction, onViewPayments, permissions, r
             type="date"
             value={from}
             max={to || undefined}
-            onChange={(e) => setFrom(e.target.value)}
+            onChange={(e) => setFilter({ from: e.target.value })}
             className="mt-1 block w-[130px] rounded-md border border-slate-300 px-2 py-1 text-sm"
           />
         </label>
@@ -279,7 +306,7 @@ export function InvoiceList({ onSelect, onAction, onViewPayments, permissions, r
             type="date"
             value={to}
             min={from || undefined}
-            onChange={(e) => setTo(e.target.value)}
+            onChange={(e) => setFilter({ to: e.target.value })}
             className="mt-1 block w-[130px] rounded-md border border-slate-300 px-2 py-1 text-sm"
           />
         </label>

@@ -2,13 +2,19 @@ import type { Customer, DiscountType, EmbroideryCategory, InvoiceWithItems } fro
 import { calculateSets, formatNumber } from '@invoice/shared';
 import { useEffect, useMemo, useState } from 'react';
 import { ApiError } from '../../lib/api';
+import { useCurrentIdentity } from '../../lib/use-current-identity';
+import { useDirtyFormGuard } from '../../lib/use-dirty-form-guard';
 import * as customersApi from '../customers/api';
 import * as categoriesApi from '../formulas/api';
 import * as ledgerApi from '../ledger/api';
 import * as invoicesApi from './api';
 import { CollapsibleSection } from './CollapsibleSection';
-import { buildCreateInvoicePayload } from './create-invoice-payload';
+import { buildCreateInvoicePayload, isStandardDraftMeaningful, type StandardInvoiceDraftData } from './create-invoice-payload';
+import { clearInvoiceDraft, loadInvoiceDraft, saveInvoiceDraft } from './invoice-draft';
+import { DraftRecoveryBanner } from './DraftRecoveryBanner';
 import { previewDiscount, previewItemAmount, sumAmounts } from './preview';
+
+const DRAFT_SAVE_DEBOUNCE_MS = 500;
 
 interface Props {
   /** Present in edit mode: prefills the form from this draft and saves via PATCH instead of POST. The customer can't be changed. */
@@ -51,6 +57,26 @@ function todayLocal(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
+/** The current form state, shaped for draft storage/dirty comparison — `key` (a React-only identity, never meaningful content) is stripped from every item row. */
+function currentDraftData(form: {
+  customerId: string;
+  invoiceDate: string;
+  lotNumber: string;
+  customerLotNumber: string;
+  billNumber: string;
+  gatePassNumber: string;
+  generalQuantity: string;
+  showUnitAmount: boolean;
+  showItemQuantity: boolean;
+  showItemAmount: boolean;
+  showBillNumber: boolean;
+  discountType: DiscountType | '';
+  discountValue: string;
+  items: ItemRow[];
+}): StandardInvoiceDraftData {
+  return { ...form, items: form.items.map(({ key: _key, ...rest }) => rest) };
+}
+
 export function CreateInvoiceForm({ invoice, onSaved, onCancel }: Props) {
   const editing = Boolean(invoice);
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -74,10 +100,110 @@ export function CreateInvoiceForm({ invoice, onSaved, onCancel }: Props) {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
+  // UI/UX-03 Part 4: scoped to this exact user/company — see
+  // invoice-draft.ts. `editing` never reads or writes a draft at all:
+  // an existing invoice already persists server-side the moment it's
+  // saved, so there's nothing client-side to recover.
+  const identity = useCurrentIdentity();
+  const [draftChecked, setDraftChecked] = useState(editing);
+  const [pendingDraft, setPendingDraft] = useState<{ savedAt: string; data: StandardInvoiceDraftData } | null>(null);
+  // Captured once, at mount, from whatever the form's initial values
+  // already were (blank when creating, the invoice's own values when
+  // editing) — compared against the live, current values below to
+  // decide `isDirty`. Resuming a draft after this snapshot is taken
+  // correctly ends up "dirty": there is now unsaved work to protect,
+  // even though the user didn't type any of it themselves just now.
+  const [pristineSnapshot] = useState(() =>
+    JSON.stringify(currentDraftData({ customerId, invoiceDate, lotNumber, customerLotNumber, billNumber, gatePassNumber, generalQuantity, showUnitAmount, showItemQuantity, showItemAmount, showBillNumber, discountType, discountValue, items })),
+  );
+
   useEffect(() => {
     customersApi.listCustomers({ status: 'active' }).then(setCustomers).catch(() => setCustomers([]));
     categoriesApi.listCategories('active').then(setCategories).catch(() => setCategories([]));
   }, []);
+
+  // One-time check for a recoverable draft, as soon as we know who's
+  // asking — never auto-applied; see DraftRecoveryBanner.
+  useEffect(() => {
+    if (editing || !identity || draftChecked) return;
+    const envelope = loadInvoiceDraft<StandardInvoiceDraftData>(identity.userId, identity.companyId, 'standard');
+    if (envelope && isStandardDraftMeaningful(envelope.data)) {
+      setPendingDraft({ savedAt: envelope.savedAt, data: envelope.data });
+    }
+    setDraftChecked(true);
+  }, [editing, identity, draftChecked]);
+
+  // Auto-save, debounced — skipped entirely while a recovered draft
+  // is still awaiting a Resume/Discard decision, so it's never
+  // silently overwritten with the (still blank) live form before the
+  // user has chosen.
+  useEffect(() => {
+    if (editing || !identity || !draftChecked || pendingDraft) return;
+    const data = currentDraftData({ customerId, invoiceDate, lotNumber, customerLotNumber, billNumber, gatePassNumber, generalQuantity, showUnitAmount, showItemQuantity, showItemAmount, showBillNumber, discountType, discountValue, items });
+    const timer = setTimeout(() => {
+      if (isStandardDraftMeaningful(data)) {
+        saveInvoiceDraft(identity.userId, identity.companyId, 'standard', data);
+      } else {
+        clearInvoiceDraft(identity.userId, identity.companyId, 'standard');
+      }
+    }, DRAFT_SAVE_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    editing,
+    identity,
+    draftChecked,
+    pendingDraft,
+    customerId,
+    invoiceDate,
+    lotNumber,
+    customerLotNumber,
+    billNumber,
+    gatePassNumber,
+    generalQuantity,
+    showUnitAmount,
+    showItemQuantity,
+    showItemAmount,
+    showBillNumber,
+    discountType,
+    discountValue,
+    items,
+  ]);
+
+  function resumeDraft() {
+    if (!pendingDraft) return;
+    const d = pendingDraft.data;
+    setCustomerId(d.customerId);
+    setInvoiceDate(d.invoiceDate);
+    setLotNumber(d.lotNumber);
+    setCustomerLotNumber(d.customerLotNumber);
+    setBillNumber(d.billNumber);
+    setGatePassNumber(d.gatePassNumber);
+    setGeneralQuantity(d.generalQuantity);
+    setShowUnitAmount(d.showUnitAmount);
+    setShowItemQuantity(d.showItemQuantity);
+    setShowItemAmount(d.showItemAmount);
+    setShowBillNumber(d.showBillNumber);
+    setDiscountType(d.discountType);
+    setDiscountValue(d.discountValue);
+    setItems(d.items.length > 0 ? d.items.map((item) => ({ ...item, key: nextRowKey++ })) : [newRow()]);
+    setPendingDraft(null);
+  }
+
+  function discardDraft() {
+    if (identity) clearInvoiceDraft(identity.userId, identity.companyId, 'standard');
+    setPendingDraft(null);
+  }
+
+  // UI/UX-03 Part 7: untouched (still equal to the pristine snapshot)
+  // or still waiting on a draft decision never warns; editing *or*
+  // resuming a draft does.
+  const isDirty =
+    !pendingDraft &&
+    JSON.stringify(
+      currentDraftData({ customerId, invoiceDate, lotNumber, customerLotNumber, billNumber, gatePassNumber, generalQuantity, showUnitAmount, showItemQuantity, showItemAmount, showBillNumber, discountType, discountValue, items }),
+    ) !== pristineSnapshot;
+  const { confirmLeaveIfDirty } = useDirtyFormGuard(isDirty, 'You have unsaved invoice changes. Leave without saving?');
 
   useEffect(() => {
     // Editing: the "previous balance" is the customer's balance immediately
@@ -215,6 +341,9 @@ export function CreateInvoiceForm({ invoice, onSaved, onCancel }: Props) {
       const saved = invoice
         ? await invoicesApi.updateInvoice(invoice.id, payload)
         : await invoicesApi.createInvoice({ ...payload, customerId });
+      // UI/UX-03 Part 6: a successful save clears this user/company's
+      // Standard Invoice draft — there's nothing left to recover.
+      if (!editing && identity) clearInvoiceDraft(identity.userId, identity.companyId, 'standard');
       onSaved(saved);
     } catch (err) {
       setSubmitError(err instanceof ApiError ? err.body.error : 'Something went wrong saving this invoice');
@@ -225,6 +354,8 @@ export function CreateInvoiceForm({ invoice, onSaved, onCancel }: Props) {
 
   return (
     <form onSubmit={handleSubmit} className="rounded-md border border-slate-200 p-4 md:p-6">
+      {pendingDraft && <DraftRecoveryBanner savedAt={pendingDraft.savedAt} onResume={resumeDraft} onDiscard={discardDraft} />}
+
       {/*
         UI/UX-02 — Section 1: Customer. Kept deliberately small (just
         customer/date/the auto-generated invoice number) so Work Items
@@ -543,8 +674,15 @@ export function CreateInvoiceForm({ invoice, onSaved, onCancel }: Props) {
       <div className="mt-4 flex justify-end gap-2">
         <button
           type="button"
-          onClick={onCancel}
-          className="rounded-md border border-slate-300 px-4 py-1.5 text-sm text-slate-600 hover:bg-slate-50"
+          disabled={saving}
+          onClick={() => {
+            // UI/UX-03 Part 7/8: never leave unsaved work behind
+            // without asking, and never let Cancel be clicked while a
+            // save is already in flight (avoids any doubt over
+            // whether the invoice ended up saved or not).
+            if (confirmLeaveIfDirty()) onCancel();
+          }}
+          className="rounded-md border border-slate-300 px-4 py-1.5 text-sm text-slate-600 hover:bg-slate-50 disabled:opacity-50"
         >
           Cancel
         </button>

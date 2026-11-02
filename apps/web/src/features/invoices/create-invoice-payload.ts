@@ -38,6 +38,28 @@ export interface CreateInvoiceFormState {
  * what they mean, what their defaults are, or what gets sent — same
  * `|| undefined` blank-means-omit rule every field already had.
  */
+/** UI/UX-03 Part 4: what gets saved to/restored from localStorage for a Standard Invoice still being entered — the form state plus `customerId` (not part of the submit payload type itself, since that's added separately at submit time, but very much part of what a draft needs to recover). */
+export interface StandardInvoiceDraftData extends CreateInvoiceFormState {
+  customerId: string;
+}
+
+/**
+ * Whether a draft (or the current in-progress form) actually has
+ * anything worth prompting the user about or persisting — an
+ * untouched form (default customer/discount, the one default blank
+ * item row) must never trigger "Unsaved invoice found" on its own
+ * next visit, and must never get written to storage as a draft in
+ * the first place.
+ */
+export function isStandardDraftMeaningful(data: StandardInvoiceDraftData): boolean {
+  if (data.customerId) return true;
+  if (data.discountType) return true;
+  if (data.lotNumber || data.customerLotNumber || data.billNumber || data.gatePassNumber || data.generalQuantity) return true;
+  return data.items.some(
+    (item) => Boolean(item.categoryId || item.description || item.stitches || item.rate) || (item.quantity !== '' && item.quantity !== '1'),
+  );
+}
+
 export function buildCreateInvoicePayload(form: CreateInvoiceFormState): Omit<InvoiceInput, 'customerId'> {
   return {
     invoiceDate: form.invoiceDate,
