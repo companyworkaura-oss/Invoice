@@ -1,8 +1,10 @@
-import type { Customer, InvoiceArchivedFilter, InvoiceListEntry, InvoicePaymentStatus, Permission } from '@invoice/shared';
+import type { InvoiceArchivedFilter, InvoiceListEntry, InvoicePaymentStatus, Permission } from '@invoice/shared';
 import { formatNumber } from '@invoice/shared';
 import { useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { ApiError } from '../../lib/api';
+import { EmptyState, ErrorState, InlineErrorBanner, LoadingState, UpdatingIndicator } from '../../lib/AsyncState';
+import { EMPTY_LIST, useAsyncList } from '../../lib/use-async-list';
 import { useScrollRestoration } from '../../lib/use-scroll-restoration';
 import * as customersApi from '../customers/api';
 import * as invoicesApi from './api';
@@ -14,6 +16,8 @@ interface Props {
   onSelect: (invoice: InvoiceListEntry) => void;
   onAction: (action: InvoiceRowAction, invoice: InvoiceListEntry) => void;
   onViewPayments: (customerId: string) => void;
+  /** Invoked by the "Create invoice" action shown in the truly-empty state (no invoices at all, not merely none matching the current filters). */
+  onCreateInvoice?: () => void;
   permissions: Permission[];
   refreshToken: number;
 }
@@ -119,7 +123,7 @@ function RowActionsMenu({ items }: { items: RowMenuItem[] }) {
   );
 }
 
-export function InvoiceList({ onSelect, onAction, onViewPayments, permissions, refreshToken }: Props) {
+export function InvoiceList({ onSelect, onAction, onViewPayments, onCreateInvoice, permissions, refreshToken }: Props) {
   // UI/UX-03 Part 3: every filter lives in the URL's query string
   // (?search=&customerId=&status=&view=&from=&to=), not component
   // local state — opening an invoice navigates to a *new* URL
@@ -151,9 +155,8 @@ export function InvoiceList({ onSelect, onAction, onViewPayments, permissions, r
   // search happened to be scrolled to.
   useScrollRestoration(`invoices:${params.toString()}`);
 
-  const [customers, setCustomers] = useState<Customer[]>([]);
-  const [invoices, setInvoices] = useState<InvoiceListEntry[] | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const customersList = useAsyncList(() => customersApi.listCustomers({ status: 'all' }), [], 'Could not load customers.');
+  const customers = customersList.data ?? EMPTY_LIST;
   const [localRefresh, setLocalRefresh] = useState(0);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -161,35 +164,36 @@ export function InvoiceList({ onSelect, onAction, onViewPayments, permissions, r
   const canArchive = permissions.includes('invoice.archive');
   const canDelete = permissions.includes('invoice.delete');
 
-  useEffect(() => {
-    customersApi.listCustomers({ status: 'all' }).then(setCustomers).catch(() => setCustomers([]));
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    invoicesApi
-      .listInvoices({
+  const {
+    data: invoices,
+    isFetching: invoicesFetching,
+    error: loadError,
+    retry: retryInvoices,
+  } = useAsyncList(
+    () =>
+      invoicesApi.listInvoices({
         search: search || undefined,
         customerId: customerId || undefined,
         from: from || undefined,
         to: to || undefined,
         paymentStatus: paymentStatus || undefined,
         archived,
-      })
-      .then((result) => {
-        if (cancelled) return;
-        setInvoices(result);
-        setLoadError(null);
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setInvoices([]);
-        setLoadError('Could not load invoices.');
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [search, customerId, from, to, paymentStatus, archived, refreshToken, localRefresh]);
+      }),
+    [search, customerId, from, to, paymentStatus, archived, refreshToken, localRefresh],
+    'Could not load invoices.',
+  );
+
+  // A filter is "active" beyond the default archived='active' view the
+  // moment any of these narrows the result set — decides whether a
+  // zero-row response reads as "no invoices yet" or "no matches".
+  const hasActiveFilter = Boolean(search || customerId || from || to || paymentStatus || archived !== DEFAULT_ARCHIVED_FILTER);
+
+  function clearFilters() {
+    setSearchInput('');
+    setParams((prev) => withInvoiceListFilterPatch(prev, { search: '', customerId: '', from: '', to: '', status: '', view: '' }), {
+      replace: true,
+    });
+  }
 
   async function handleArchive(invoice: InvoiceListEntry) {
     if (!window.confirm('Archive this invoice? It will be hidden from the normal invoice list but all accounting records will remain.')) {
@@ -271,7 +275,7 @@ export function InvoiceList({ onSelect, onAction, onViewPayments, permissions, r
           onChange={(e) => setFilter({ customerId: e.target.value })}
           className="flex-1 basis-[150px] rounded-md border border-slate-300 px-2 py-1 text-sm"
         >
-          <option value="">All customers</option>
+          <option value="">{customersList.data === null ? 'Loading…' : 'All customers'}</option>
           {customers.map((c) => (
             <option key={c.id} value={c.id}>
               {c.name}
@@ -312,14 +316,36 @@ export function InvoiceList({ onSelect, onAction, onViewPayments, permissions, r
         </label>
       </div>
 
-      {loadError && <p className="mt-2 text-sm text-red-600">{loadError}</p>}
+      {customersList.error && (
+        <p className="mt-2 text-xs text-amber-700">
+          {customersList.error} The customer filter above may be incomplete.{' '}
+          <button type="button" onClick={customersList.retry} className="underline hover:text-amber-900">
+            Retry
+          </button>
+        </p>
+      )}
       {actionError && <p className="mt-2 text-sm text-red-600">{actionError}</p>}
 
       {invoices === null ? (
-        <p className="mt-3 text-sm text-slate-400">Loading…</p>
-      ) : invoices.length === 0 ? (
-        <p className="mt-3 text-sm text-slate-400">No invoices match these filters.</p>
+        loadError ? (
+          <div className="mt-3">
+            <ErrorState message={loadError} onRetry={retryInvoices} />
+          </div>
+        ) : (
+          <LoadingState label="Loading invoices…" />
+        )
       ) : (
+        <>
+          {invoicesFetching && <UpdatingIndicator />}
+          {!invoicesFetching && loadError && <InlineErrorBanner message={loadError} onRetry={retryInvoices} />}
+
+          {invoices.length === 0 ? (
+            hasActiveFilter ? (
+              <EmptyState message="No invoices match these filters." actionLabel="Clear filters" onAction={clearFilters} />
+            ) : (
+              <EmptyState message="No invoices yet." actionLabel={onCreateInvoice ? 'Create invoice' : undefined} onAction={onCreateInvoice} />
+            )
+          ) : (
         <div className="mt-3 overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
@@ -428,6 +454,8 @@ export function InvoiceList({ onSelect, onAction, onViewPayments, permissions, r
             </tbody>
           </table>
         </div>
+          )}
+        </>
       )}
     </div>
   );

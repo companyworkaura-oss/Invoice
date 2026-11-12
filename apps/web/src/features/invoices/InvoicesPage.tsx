@@ -1,7 +1,8 @@
 import type { InvoiceListEntry, InvoiceWithItems, Permission } from '@invoice/shared';
 import { useEffect, useState } from 'react';
-import { Navigate, Route, Routes, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { Navigate, Route, Routes, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { ApiError } from '../../lib/api';
+import { SuccessBanner } from '../../lib/AsyncState';
 import { CreateInvoiceForm } from './CreateInvoiceForm';
 import { InvoiceDetails } from './InvoiceDetails';
 import { InvoiceList, type InvoiceRowAction } from './InvoiceList';
@@ -114,6 +115,7 @@ function InvoiceListRoute({ permissions }: { permissions: Permission[] }) {
           onSelect={(entry) => navigate(`/invoices/${entry.id}`)}
           onAction={handleRowAction}
           onViewPayments={(customerId) => navigate(`/payments?customerId=${customerId}`)}
+          onCreateInvoice={openStandardForm}
         />
       </div>
     </div>
@@ -156,23 +158,49 @@ function useInvoiceFromParam(): { invoice: InvoiceWithItems | null; error: strin
   return { invoice, error, setInvoice };
 }
 
+/**
+ * UI/UX-04: a save that landed here via `navigate(path, { state: { flash } })`
+ * shows that confirmation once — e.g. "Invoice INV-001 created." using the
+ * real invoice number, never a bare "Success" — then clears it from
+ * history state so refreshing this URL doesn't resurrect it.
+ */
+function useFlashMessage(): [string | null, () => void] {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [flash, setFlash] = useState<string | null>(() => (location.state as { flash?: string } | null)?.flash ?? null);
+
+  useEffect(() => {
+    if ((location.state as { flash?: string } | null)?.flash) {
+      navigate(location.pathname + location.search, { replace: true, state: {} });
+    }
+    // Runs once, right after mount — not on every location change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  return [flash, () => setFlash(null)];
+}
+
 function InvoiceDetailRoute({ permissions }: { permissions: Permission[] }) {
   const navigate = useNavigate();
   const { invoice, error, setInvoice } = useInvoiceFromParam();
+  const [flash, dismissFlash] = useFlashMessage();
 
   if (error) return <p className="text-sm text-red-600">{error}</p>;
   if (!invoice) return <p className="text-sm text-slate-400">Loading…</p>;
 
   return (
-    <InvoiceDetails
-      invoice={invoice}
-      permissions={permissions}
-      onBack={() => navigate(-1)}
-      onViewTemplate={() => navigate(`/invoices/${invoice.id}/print`)}
-      onInvoiceUpdated={setInvoice}
-      onEdit={() => navigate(`/invoices/${invoice.id}/edit`)}
-      onViewCustomerAccount={(customerId) => navigate(`/customers?openCustomerId=${customerId}`)}
-    />
+    <>
+      {flash && <SuccessBanner message={flash} onDismiss={dismissFlash} />}
+      <InvoiceDetails
+        invoice={invoice}
+        permissions={permissions}
+        onBack={() => navigate(-1)}
+        onViewTemplate={() => navigate(`/invoices/${invoice.id}/print`)}
+        onInvoiceUpdated={setInvoice}
+        onEdit={() => navigate(`/invoices/${invoice.id}/edit`)}
+        onViewCustomerAccount={(customerId) => navigate(`/customers?openCustomerId=${customerId}`)}
+      />
+    </>
   );
 }
 
@@ -180,6 +208,7 @@ function InvoiceTemplateRoute() {
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const { invoice, error } = useInvoiceFromParam();
+  const [flash, dismissFlash] = useFlashMessage();
   const initialAction = params.get('action');
   const validInitialAction: TemplateInitialAction | undefined =
     initialAction === 'print' || initialAction === 'download' || initialAction === 'whatsapp' ? initialAction : undefined;
@@ -187,14 +216,25 @@ function InvoiceTemplateRoute() {
   if (error) return <p className="text-sm text-red-600">{error}</p>;
   if (!invoice) return <p className="text-sm text-slate-400">Loading…</p>;
 
-  return <InvoiceTemplateView invoice={invoice} initialAction={validInitialAction} onBack={() => navigate(-1)} />;
+  return (
+    <>
+      {flash && (
+        <div className="print:hidden">
+          <SuccessBanner message={flash} onDismiss={dismissFlash} />
+        </div>
+      )}
+      <InvoiceTemplateView invoice={invoice} initialAction={validInitialAction} onBack={() => navigate(-1)} />
+    </>
+  );
 }
 
 function CreateInvoiceRoute() {
   const navigate = useNavigate();
   return (
     <CreateInvoiceForm
-      onSaved={(invoice) => navigate(`/invoices/${invoice.id}`)}
+      onSaved={(invoice) =>
+        navigate(`/invoices/${invoice.id}`, { state: { flash: `Invoice ${invoice.invoiceNumber} created.` } })
+      }
       onCancel={() => navigate(-1)}
     />
   );
@@ -208,7 +248,7 @@ function QuickInvoiceRoute() {
         // Straight into the printable template — Print/Download
         // PDF/Share via WhatsApp right away, the same component and
         // actions a normal invoice's row buttons use.
-        navigate(`/invoices/${invoice.id}/print`);
+        navigate(`/invoices/${invoice.id}/print`, { state: { flash: `Invoice ${invoice.invoiceNumber} created.` } });
       }}
       onCancel={() => navigate(-1)}
     />
@@ -228,7 +268,8 @@ function InvoiceEditRoute() {
   if (error) return <p className="text-sm text-red-600">{error}</p>;
   if (!invoice) return <p className="text-sm text-slate-400">Loading…</p>;
 
-  const onSaved = (saved: InvoiceWithItems) => navigate(`/invoices/${saved.id}`);
+  const onSaved = (saved: InvoiceWithItems) =>
+    navigate(`/invoices/${saved.id}`, { state: { flash: `Invoice ${saved.invoiceNumber} updated.` } });
   const onCancel = () => navigate(`/invoices/${invoice.id}`);
 
   return invoice.invoiceMode === 'quick' ? (

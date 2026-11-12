@@ -1,7 +1,8 @@
-import type { Customer, DiscountType, EmbroideryCategory, InvoiceWithItems } from '@invoice/shared';
+import type { DiscountType, InvoiceWithItems } from '@invoice/shared';
 import { calculateSets, formatNumber } from '@invoice/shared';
 import { useEffect, useMemo, useState } from 'react';
 import { ApiError } from '../../lib/api';
+import { EMPTY_LIST, useAsyncList } from '../../lib/use-async-list';
 import { useCurrentIdentity } from '../../lib/use-current-identity';
 import { useDirtyFormGuard } from '../../lib/use-dirty-form-guard';
 import * as customersApi from '../customers/api';
@@ -79,8 +80,17 @@ function currentDraftData(form: {
 
 export function CreateInvoiceForm({ invoice, onSaved, onCancel }: Props) {
   const editing = Boolean(invoice);
-  const [customers, setCustomers] = useState<Customer[]>([]);
-  const [categories, setCategories] = useState<EmbroideryCategory[]>([]);
+  const customersList = useAsyncList(() => customersApi.listCustomers({ status: 'active' }), [], 'Could not load customers.');
+  const categoriesList = useAsyncList(() => categoriesApi.listCategories('active'), [], 'Could not load categories.');
+  const customers = customersList.data ?? EMPTY_LIST;
+  const categories = categoriesList.data ?? EMPTY_LIST;
+  // Picking a customer/category is required to create an invoice — never
+  // let submission go through while either list is still loading or
+  // failed to load, even though the <select>s themselves just render
+  // empty in that case (see the disabled state on each below).
+  const customersReady = editing || customersList.data !== null;
+  const categoriesReady = categoriesList.data !== null;
+  const pickersReady = customersReady && categoriesReady;
   const [customerId, setCustomerId] = useState(invoice?.customerId ?? '');
   const [invoiceDate, setInvoiceDate] = useState(invoice?.invoiceDate ?? todayLocal());
   const [lotNumber, setLotNumber] = useState(invoice?.lotNumber ?? '');
@@ -116,11 +126,6 @@ export function CreateInvoiceForm({ invoice, onSaved, onCancel }: Props) {
   const [pristineSnapshot] = useState(() =>
     JSON.stringify(currentDraftData({ customerId, invoiceDate, lotNumber, customerLotNumber, billNumber, gatePassNumber, generalQuantity, showUnitAmount, showItemQuantity, showItemAmount, showBillNumber, discountType, discountValue, items })),
   );
-
-  useEffect(() => {
-    customersApi.listCustomers({ status: 'active' }).then(setCustomers).catch(() => setCustomers([]));
-    categoriesApi.listCategories('active').then(setCategories).catch(() => setCategories([]));
-  }, []);
 
   // One-time check for a recoverable draft, as soon as we know who's
   // asking — never auto-applied; see DraftRecoveryBanner.
@@ -314,12 +319,32 @@ export function CreateInvoiceForm({ invoice, onSaved, onCancel }: Props) {
     return next;
   }
 
+  function focusFirstInvalidField(fieldErrors: FieldErrors) {
+    if (fieldErrors.customerId) {
+      document.querySelector<HTMLElement>('[data-customer-select]')?.focus();
+      return;
+    }
+    if (fieldErrors.items) {
+      const firstIndex = Math.min(...Object.keys(fieldErrors.items).map(Number));
+      const rowErrors = fieldErrors.items[firstIndex];
+      const selector = rowErrors.categoryId ? '[data-item-category]' : rowErrors.quantity ? '[data-item-quantity]' : '[data-item-stitches]';
+      document.querySelectorAll<HTMLElement>(selector)[firstIndex]?.focus();
+      return;
+    }
+    if (fieldErrors.discountValue) {
+      document.querySelector<HTMLElement>('[data-discount-value]')?.focus();
+    }
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setSubmitError(null);
     const fieldErrors = validate();
     setErrors(fieldErrors);
-    if (Object.keys(fieldErrors).length > 0) return;
+    if (Object.keys(fieldErrors).length > 0) {
+      focusFirstInvalidField(fieldErrors);
+      return;
+    }
 
     setSaving(true);
     try {
@@ -372,19 +397,39 @@ export function CreateInvoiceForm({ invoice, onSaved, onCancel }: Props) {
               className="w-full rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5 text-sm text-slate-500"
             />
           ) : (
-            <select
-              autoFocus
-              value={customerId}
-              onChange={(e) => setCustomerId(e.target.value)}
-              className={inputClass(Boolean(errors.customerId))}
-            >
-              <option value="">Select…</option>
-              {customers.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
+            <>
+              <select
+                data-customer-select
+                autoFocus
+                disabled={customersList.data === null}
+                value={customerId}
+                onChange={(e) => setCustomerId(e.target.value)}
+                className={inputClass(Boolean(errors.customerId))}
+              >
+                <option value="">
+                  {customersList.data === null
+                    ? customersList.error
+                      ? 'Could not load customers'
+                      : 'Loading customers…'
+                    : customers.length === 0
+                      ? 'No customers available'
+                      : 'Select…'}
                 </option>
-              ))}
-            </select>
+                {customers.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+              {customersList.error && (
+                <p className="mt-1 text-xs text-red-600">
+                  {customersList.error}{' '}
+                  <button type="button" onClick={customersList.retry} className="underline hover:text-red-900">
+                    Retry
+                  </button>
+                </p>
+              )}
+            </>
           )}
         </Field>
 
@@ -407,6 +452,14 @@ export function CreateInvoiceForm({ invoice, onSaved, onCancel }: Props) {
       </div>
 
       {/* UI/UX-02 — Section 2: Work Items, the main visual focus, immediately after Customer. */}
+      {categoriesList.error && (
+        <p className="mt-3 text-sm text-red-600">
+          {categoriesList.error}{' '}
+          <button type="button" onClick={categoriesList.retry} className="underline hover:text-red-900">
+            Retry
+          </button>
+        </p>
+      )}
       <div className="mt-4 overflow-x-auto">
         <table className="w-full min-w-[640px] text-sm">
           <thead>
@@ -430,6 +483,7 @@ export function CreateInvoiceForm({ invoice, onSaved, onCancel }: Props) {
                   <td className="py-1.5 pr-2">
                     <select
                       data-item-category
+                      disabled={categoriesList.data === null}
                       value={row.categoryId}
                       onChange={(e) => {
                         const cat = categoryById.get(e.target.value);
@@ -447,7 +501,15 @@ export function CreateInvoiceForm({ invoice, onSaved, onCancel }: Props) {
                       }}
                       className={inputClass(Boolean(rowErrors?.categoryId))}
                     >
-                      <option value="">Select…</option>
+                      <option value="">
+                        {categoriesList.data === null
+                          ? categoriesList.error
+                            ? 'Could not load categories'
+                            : 'Loading categories…'
+                          : categories.length === 0
+                            ? 'No categories available'
+                            : 'Select…'}
+                      </option>
                       {categories.map((c) => (
                         <option key={c.id} value={c.id}>
                           {c.name}
@@ -466,6 +528,7 @@ export function CreateInvoiceForm({ invoice, onSaved, onCancel }: Props) {
                   </td>
                   <td className="py-1.5 pr-2">
                     <input
+                      data-item-quantity
                       inputMode="decimal"
                       value={row.quantity}
                       onChange={(e) => updateItem(index, { quantity: e.target.value })}
@@ -475,6 +538,7 @@ export function CreateInvoiceForm({ invoice, onSaved, onCancel }: Props) {
                   </td>
                   <td className="py-1.5 pr-2">
                     <input
+                      data-item-stitches
                       inputMode="numeric"
                       value={row.stitches}
                       onChange={(e) => updateItem(index, { stitches: e.target.value })}
@@ -542,6 +606,7 @@ export function CreateInvoiceForm({ invoice, onSaved, onCancel }: Props) {
         {discountType && (
           <Field label="Discount" error={errors.discountValue}>
             <input
+              data-discount-value
               inputMode="decimal"
               value={discountValue}
               onChange={(e) => setDiscountValue(e.target.value)}
@@ -688,7 +753,8 @@ export function CreateInvoiceForm({ invoice, onSaved, onCancel }: Props) {
         </button>
         <button
           type="submit"
-          disabled={saving}
+          disabled={saving || !pickersReady}
+          title={!pickersReady ? 'Waiting for customers and categories to load' : undefined}
           className="rounded-md bg-slate-900 px-4 py-1.5 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50"
         >
           {saving ? 'Saving…' : editing ? 'Save changes' : 'Create invoice'}

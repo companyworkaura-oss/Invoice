@@ -1,6 +1,7 @@
 import type { Customer, Payment, PaymentMethod } from '@invoice/shared';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { ApiError } from '../../lib/api';
+import { EMPTY_LIST, useAsyncList } from '../../lib/use-async-list';
 import * as customersApi from '../customers/api';
 import * as paymentsApi from './api';
 
@@ -47,7 +48,12 @@ export function PaymentForm({
   onRecorded,
   onCancel,
 }: Props) {
-  const [customers, setCustomers] = useState<Customer[]>([]);
+  const customersList = useAsyncList(
+    () => (customerId ? Promise.resolve<Customer[]>([]) : customersApi.listCustomers({ status: 'active' })),
+    [customerId],
+    'Could not load customers.',
+  );
+  const customers = customersList.data ?? EMPTY_LIST;
   const [selectedCustomerId, setSelectedCustomerId] = useState(customerId ?? '');
   const [amount, setAmount] = useState(suggestedAmount ?? '');
   const [date, setDate] = useState(todayLocal);
@@ -56,11 +62,6 @@ export function PaymentForm({
   const [notes, setNotes] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    if (customerId) return; // fixed customer — no need to fetch a list to pick from
-    customersApi.listCustomers({ status: 'active' }).then(setCustomers).catch(() => setCustomers([]));
-  }, [customerId]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -98,17 +99,34 @@ export function PaymentForm({
           <select
             id="pay-customer"
             required
+            disabled={customersList.data === null}
             value={selectedCustomerId}
             onChange={(e) => setSelectedCustomerId(e.target.value)}
             className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-slate-500 focus:outline-none"
           >
-            <option value="">Select…</option>
+            <option value="">
+              {customersList.data === null
+                ? customersList.error
+                  ? 'Could not load customers'
+                  : 'Loading customers…'
+                : customers.length === 0
+                  ? 'No customers available'
+                  : 'Select…'}
+            </option>
             {customers.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.name}
               </option>
             ))}
           </select>
+          {customersList.error && (
+            <p className="mt-1 text-xs text-red-600">
+              {customersList.error}{' '}
+              <button type="button" onClick={customersList.retry} className="underline hover:text-red-900">
+                Retry
+              </button>
+            </p>
+          )}
         </div>
       )}
 
@@ -195,7 +213,8 @@ export function PaymentForm({
       <div className="flex gap-2">
         <button
           type="submit"
-          disabled={saving}
+          disabled={saving || (!customerId && customersList.data === null)}
+          title={!customerId && customersList.data === null ? 'Waiting for customers to load' : undefined}
           className="rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50"
         >
           {saving ? 'Recording…' : 'Record payment'}

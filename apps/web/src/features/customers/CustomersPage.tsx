@@ -1,5 +1,6 @@
 import type { Customer, Permission } from '@invoice/shared';
 import { useEffect, useState } from 'react';
+import { SuccessBanner } from '../../lib/AsyncState';
 import { CustomerStatementView } from '../ledger/CustomerStatementView';
 import * as customersApi from './api';
 import { CustomerDetails } from './CustomerDetails';
@@ -29,6 +30,7 @@ interface Props {
 export function CustomersPage({ permissions, openCustomerId }: Props) {
   const [view, setView] = useState<View>({ name: 'list' });
   const [refreshToken, setRefreshToken] = useState(0);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   useEffect(() => {
     if (!openCustomerId) return;
@@ -57,9 +59,15 @@ export function CustomersPage({ permissions, openCustomerId }: Props) {
         )}
       </div>
 
+      {successMessage && <SuccessBanner message={successMessage} onDismiss={() => setSuccessMessage(null)} />}
+
       <div className="mt-3 print:mt-0">
         {view.name === 'list' && (
-          <CustomerList refreshToken={refreshToken} onSelect={(customer) => setView({ name: 'details', customer })} />
+          <CustomerList
+            refreshToken={refreshToken}
+            onSelect={(customer) => setView({ name: 'details', customer })}
+            onAddCustomer={() => setView({ name: 'form' })}
+          />
         )}
 
         {view.name === 'details' && (
@@ -81,6 +89,7 @@ export function CustomersPage({ permissions, openCustomerId }: Props) {
             customer={view.customer}
             onSaved={(customer) => {
               refreshList();
+              setSuccessMessage(view.customer ? `Customer ${customer.name} updated.` : `Customer ${customer.name} created.`);
               setView({ name: 'details', customer });
             }}
             onCancel={() => setView(view.customer ? { name: 'details', customer: view.customer } : { name: 'list' })}

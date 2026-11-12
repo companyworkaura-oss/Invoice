@@ -4292,6 +4292,169 @@ one new dependency (`react-router-dom`), this app's first router.
   `previousBalance` effect already used before this phase). **UI/UX-03
   is COMPLETE.**
 
+## UI/UX-04 — Separate Error States From Empty States (Phase 67)
+
+Several screens were converting a failed API request into the same
+empty array as a genuine zero-record response (`.catch(() =>
+setX([]))`), so a down backend or a network failure rendered as "No
+customers found."/"No payments recorded yet." — indistinguishable from
+there really being nothing there. No accounting/calculation/ledger
+change; purely a frontend state-handling fix.
+
+- **Shared pieces** (new, deliberately small — not a framework):
+  - `apps/web/src/lib/use-async-list.ts` — `useAsyncList(fetcher, deps,
+    errorMessage)`. Returns `{ data: T[] | null, isFetching, error,
+    retry }`. `data` stays whatever it was from the last *successful*
+    fetch through a failed refetch — a refresh never blanks previously
+    loaded rows back to `null`; only a fetch that has never once
+    succeeded leaves `data` at `null`. `retry()` just bumps an internal
+    counter that's one of the effect's own deps, so it re-runs the
+    exact same `fetcher` closure.
+  - `apps/web/src/lib/list-view-state.ts` — `deriveListViewState(data,
+    error, hasActiveFilter)`, a pure function (unit-tested,
+    `list-view-state.test.ts`) that turns those three inputs into one
+    of `loading | error | empty | no-match | ready`. Deliberately
+    doesn't take `isFetching`: a screen renders `ready` the moment
+    `data` is non-null and layers its own "Updating…"/inline-error-
+    banner on top while refetching, which is what keeps rows visible
+    during a refresh instead of collapsing back to a blocking error
+    panel.
+  - `apps/web/src/lib/AsyncState.tsx` — presentational-only
+    `LoadingState`, `ErrorState` (message + Retry button, used when
+    there's nothing previously loaded to fall back on),
+    `InlineErrorBanner` (non-destructive, shown above still-visible
+    rows when a refresh fails), `UpdatingIndicator` ("Updating…" while
+    a refetch is in flight with rows already on screen), `EmptyState`
+    (message + optional action button — used for both the truly-empty
+    and no-match cases, just with different message/action), and
+    `SuccessBanner` (dismissible, for save-success feedback below).
+- **Customers** (`CustomerList.tsx`, rewritten): search/status filters
+  stayed local + debounced exactly as before; the fetch now goes
+  through `useAsyncList` + `deriveListViewState`. Five-way outcome:
+  loading → "Loading customers…"; load-failed → `ErrorState` ("Could
+  not load customers." + Retry); refreshing with rows already visible
+  → rows stay, `UpdatingIndicator` shown; truly empty (zero customers,
+  no filter narrowing beyond the default `status=active`) → "No
+  customers yet." + "Add customer" (new `onAddCustomer` prop, wired
+  from `CustomersPage` to open the create form); no-filter-match (a
+  search or non-default status filter is active) → "No matching
+  customers." + "Clear filters" (resets both).
+- **Payments** (`PaymentsPage.tsx`, rewritten): same five-way split via
+  the same two shared pieces. The one existing filter is
+  `customerFilter` (arrives via `initialCustomerId` from an invoice's
+  "View payments" link) — zero rows with that filter active now reads
+  "No payments recorded for this customer." + "Show all payments"
+  rather than the same generic "No payments recorded yet." a totally
+  empty payments list shows.
+- **Invoice forms' customer/category pickers**
+  (`CreateInvoiceForm.tsx`, `QuickInvoiceForm.tsx`, and the fixed-
+  customer-less path of `PaymentForm.tsx`): each `<select>` is
+  `disabled` while its list hasn't loaded successfully yet, and its
+  placeholder `<option>` text itself carries the state — "Loading
+  customers…" / "Could not load customers" (with a Retry link right
+  below) / "No customers available" / "Select…" — so a failed fetch
+  never silently renders an empty, seemingly-fine dropdown. Submission
+  on `CreateInvoiceForm` is blocked (`disabled`, with a `title`
+  explaining why) until *both* customers and categories have loaded
+  successfully (customers only matters when creating — editing fixes
+  the customer already); `QuickInvoiceForm` and `PaymentForm` gate the
+  same way on just customers. `InvoiceList.tsx`'s own customer *filter*
+  dropdown (non-blocking — it only narrows an already-loaded list)
+  gets the same loading-aware placeholder plus a small non-blocking
+  amber note if it fails, but never disables the rest of the page.
+  `InvoiceList.tsx`'s main invoice fetch itself was already halfway
+  there (a separate `loadError` string existed) but still rendered
+  "No invoices match these filters." underneath the error on every
+  failure — fixed by routing it through the same
+  `useAsyncList`/`deriveListViewState` pair, so a failure is `ErrorState`
+  + Retry with nothing else underneath it, and a successful empty
+  result still distinguishes "No invoices yet." (+ "Create invoice",
+  new `onCreateInvoice` prop wired to the existing "New Invoice"
+  button's handler) from "No invoices match these filters." (+ "Clear
+  filters") exactly like the other lists.
+- **Other list/picker sweep**: grepped the whole of `apps/web/src` for
+  `catch(() => set*([]))` beyond the four files the report named.
+  Found and fixed the same pattern in `CategoryList.tsx` (same
+  loading/error/empty/no-match split, status filter plays the same
+  role `search`/`status` does for customers) and `CompanySwitcher.tsx`
+  (loading/error states added around the company list; the
+  create-company form stays usable even if the list itself fails to
+  load, since it's an unrelated action). Left single-record fetches
+  that already fell back to `null` rather than `[]`
+  (`CustomerLedgerPanel`, `CompanyProfilePanel`, `CustomerStatementView`,
+  `use-current-identity.ts`, App.tsx's `/auth/me` call) out of scope —
+  these aren't the "list renders as if genuinely empty" failure mode
+  this task is about; they already show their own
+  loading/null-handling and aren't lists or pickers.
+- **Retry**: every `ErrorState`/`InlineErrorBanner` calls the same
+  `retry()` from `useAsyncList`, which re-invokes the exact same
+  fetcher closure (so it retries with whatever filters/params were
+  active at the time of failure, not a reset to defaults).
+- **Save-success feedback** — specific, with the real created
+  identifier, never a bare "Success":
+  - Invoice create → `/invoices/:id`, carrying `{ state: { flash:
+    "Invoice INV-00xx created." } }` through `navigate()`; a new
+    `useFlashMessage()` hook (in `InvoicesPage.tsx`) reads
+    `location.state.flash` once on mount and immediately clears it via
+    a `replace` navigation (so refreshing that URL doesn't resurrect
+    the banner), shown via the shared `SuccessBanner`. Wired on
+    `InvoiceDetailRoute` (Standard create's destination),
+    `InvoiceTemplateRoute` (Quick create's destination — it still
+    navigates straight to the printable template as UI/UX-03 set up,
+    just now also carrying the flash), and `InvoiceEditRoute` ("Invoice
+    INV-00xx updated.").
+  - Payment recorded → `PaymentsPage` shows "Payment recorded." via
+    `SuccessBanner` the moment `PaymentForm`'s `onRecorded` fires.
+  - Customer created/updated → `CustomersPage` shows "Customer <name>
+    created."/"Customer <name> updated." the same way.
+- **Validation focus-on-failure**: both `CreateInvoiceForm.tsx` and
+  `QuickInvoiceForm.tsx` gained a `focusFirstInvalidField(fieldErrors)`
+  called right after `validate()` returns a non-empty error set —
+  focuses the customer select (`data-customer-select`) first if that's
+  invalid, else the first invalid item field in document order
+  (`data-item-category`/`data-item-quantity`/`data-item-stitches` on
+  Standard; `data-quick-item-description`/`-quantity`/`-unit-price` on
+  Quick), else the discount field (`data-discount-value`) — reusing the
+  same `document.querySelectorAll` + index convention `addItem`'s
+  existing focus-the-new-row behavior already used, rather than
+  introducing a parallel ref-array mechanism. Existing per-field error
+  text/value-preservation (already correct — errors render next to
+  each field, typed values were never cleared on a failed submit) was
+  untouched.
+- **Accessibility, where practical**: `ErrorState`/`InlineErrorBanner`
+  use `role="alert"`; `UpdatingIndicator`/`SuccessBanner` use
+  `role="status"` — no change beyond adding these roles to the new
+  shared components; this task explicitly leaves full a11y work to a
+  later UI/UX-09.
+- **Verified live** (Playwright against a running dev stack — this
+  repo still has no component-test runner, so DOM-level behavior is
+  verified this way, same convention as UI/UX-02/03): intercepted
+  `/api/customers*` and `/api/payments*` with a 500 response and
+  confirmed the error+Retry panel appears (never the old "No customers
+  found."/empty text), that un-intercepting + clicking Retry recovers
+  into the correct empty state ("No customers yet." + "Add customer"),
+  that searching for a non-existent name shows "No matching
+  customers." + "Clear filters" (and clearing restores the real row),
+  same error/empty split for Payments, that the Standard invoice
+  form's customer `<select>` is disabled with "Could not load
+  customers" as its placeholder and "Create invoice" itself disabled
+  while the customers API is down, that a successful Standard invoice
+  save shows "Invoice INV-00xx created." with the real invoice number,
+  and that submitting an empty Standard invoice form moves focus to
+  the customer select.
+- `npm run typecheck`, `npm run build`, `npm test` (shared + api + web
+  87/87, all clean — 7 new `list-view-state.test.ts` cases), and `npm
+  run lint` (zero errors, zero warnings — two warnings introduced along
+  the way were fixed properly rather than suppressed: a `useMemo`
+  depending on a fresh `[]` fallback array every render was fixed by a
+  shared stable `EMPTY_LIST` constant in `use-async-list.ts` instead of
+  a new array literal per call site, and a `set-state-in-effect`
+  warning in `CategoryList.tsx`'s optimistic-update reset was replaced
+  with the same "track last-seen value in state, compare during
+  render" pattern `PaymentsPage` already uses for
+  `initialCustomerId`/`lastSeenInitialCustomerId`, rather than
+  suppressing it). **UI/UX-04 is COMPLETE.**
+
 ## Known gotchas / things to check before starting work
 
 - **Postgres cluster is often stopped** when a session starts:
@@ -5315,6 +5478,23 @@ one new dependency (`react-router-dom`), this app's first router.
     rather than showing a dead page.
     See "UI/UX-03 — Preserve Draft Work, Filters, and Navigation
     Context (Phase 66)" below
+72. UI/UX-04 — Separate Error States From Empty States (information-
+    scent fix, fourth finding from the UI/UX report): several lists
+    (Customers, Payments, InvoiceList) and pickers (customer/category
+    selects in both invoice forms, and `PaymentForm`'s own customer
+    select) caught a failed API request and rendered it as the exact
+    same empty array as a genuine zero-record response — a down
+    backend read as "No customers found." New shared
+    `useAsyncList`/`deriveListViewState`/`AsyncState.tsx` pieces give
+    every one of these a real five-way split (loading / refreshing-
+    with-rows-still-visible / load-failed+Retry / truly-empty+primary-
+    action / no-filter-match+Clear-filters) instead. Save success
+    (invoice/payment/customer) now shows a specific confirmation with
+    the real created identifier instead of a bare "Success", and both
+    invoice forms focus the first invalid field on a failed submit.
+    No accounting/calculation/ledger change.
+    See "UI/UX-04 — Separate Error States From Empty States
+    (Phase 67)" below
 
 Repo also went through a monorepo restructure (`server/` → `apps/api` +
 new `apps/web` + `packages/shared`) between Phase 1 and Phase 2.

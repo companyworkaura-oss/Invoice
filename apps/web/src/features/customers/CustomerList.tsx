@@ -1,28 +1,44 @@
 import type { Customer, CustomerStatus } from '@invoice/shared';
 import { useEffect, useState } from 'react';
+import { EmptyState, ErrorState, InlineErrorBanner, LoadingState, UpdatingIndicator } from '../../lib/AsyncState';
+import { deriveListViewState } from '../../lib/list-view-state';
+import { useAsyncList } from '../../lib/use-async-list';
 import * as customersApi from './api';
 
 interface Props {
   onSelect: (customer: Customer) => void;
+  onAddCustomer: () => void;
   refreshToken: number;
 }
 
 type StatusFilter = CustomerStatus | 'all';
 
-export function CustomerList({ onSelect, refreshToken }: Props) {
-  const [customers, setCustomers] = useState<Customer[] | null>(null);
-  const [search, setSearch] = useState('');
-  const [status, setStatus] = useState<StatusFilter>('active');
+const DEFAULT_STATUS: StatusFilter = 'active';
 
+export function CustomerList({ onSelect, onAddCustomer, refreshToken }: Props) {
+  const [search, setSearch] = useState('');
+  const [status, setStatus] = useState<StatusFilter>(DEFAULT_STATUS);
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+
+  // 200ms debounce, same as before — delays the *fetch*, not the input itself.
   useEffect(() => {
-    const handle = setTimeout(() => {
-      customersApi
-        .listCustomers({ search: search || undefined, status })
-        .then(setCustomers)
-        .catch(() => setCustomers([]));
-    }, 200); // debounce search-as-you-type
+    const handle = setTimeout(() => setDebouncedSearch(search), 200);
     return () => clearTimeout(handle);
-  }, [search, status, refreshToken]);
+  }, [search]);
+
+  const { data: customers, isFetching, error, retry } = useAsyncList(
+    () => customersApi.listCustomers({ search: debouncedSearch || undefined, status }),
+    [debouncedSearch, status, refreshToken],
+    'Could not load customers.',
+  );
+
+  const hasActiveFilter = debouncedSearch.trim() !== '' || status !== DEFAULT_STATUS;
+  const viewState = deriveListViewState(customers, error, hasActiveFilter);
+
+  function clearFilters() {
+    setSearch('');
+    setStatus(DEFAULT_STATUS);
+  }
 
   return (
     <div>
@@ -45,32 +61,44 @@ export function CustomerList({ onSelect, refreshToken }: Props) {
         </select>
       </div>
 
-      {customers === null ? (
-        <p className="mt-3 text-sm text-slate-400">Loading…</p>
-      ) : customers.length === 0 ? (
-        <p className="mt-3 text-sm text-slate-400">No customers found.</p>
-      ) : (
-        <ul className="mt-3 divide-y divide-slate-100">
-          {customers.map((c) => (
-            <li key={c.id}>
-              <button
-                type="button"
-                onClick={() => onSelect(c)}
-                className="flex w-full items-center justify-between py-2 text-left hover:bg-slate-50"
-              >
-                <span>
-                  <span className="block text-sm font-medium text-slate-900">{c.name}</span>
-                  <span className="block text-xs text-slate-500">
-                    {c.businessName ?? c.phone ?? '—'}
-                    {c.status === 'archived' ? ' · archived' : ''}
-                  </span>
-                </span>
-                <span className="text-xs text-slate-400">{c.openingBalance}</span>
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
+      <div className="mt-3">
+        {viewState.kind === 'loading' && <LoadingState label="Loading customers…" />}
+        {viewState.kind === 'error' && <ErrorState message={viewState.message} onRetry={retry} />}
+
+        {(viewState.kind === 'empty' || viewState.kind === 'no-match' || viewState.kind === 'ready') && (
+          <>
+            {isFetching && <UpdatingIndicator />}
+            {!isFetching && error && <InlineErrorBanner message={error} onRetry={retry} />}
+
+            {viewState.kind === 'no-match' ? (
+              <EmptyState message="No matching customers." actionLabel="Clear filters" onAction={clearFilters} />
+            ) : viewState.kind === 'empty' ? (
+              <EmptyState message="No customers yet." actionLabel="Add customer" onAction={onAddCustomer} />
+            ) : (
+              <ul className="divide-y divide-slate-100">
+                {viewState.items.map((c) => (
+                  <li key={c.id}>
+                    <button
+                      type="button"
+                      onClick={() => onSelect(c)}
+                      className="flex w-full items-center justify-between py-2 text-left hover:bg-slate-50"
+                    >
+                      <span>
+                        <span className="block text-sm font-medium text-slate-900">{c.name}</span>
+                        <span className="block text-xs text-slate-500">
+                          {c.businessName ?? c.phone ?? '—'}
+                          {c.status === 'archived' ? ' · archived' : ''}
+                        </span>
+                      </span>
+                      <span className="text-xs text-slate-400">{c.openingBalance}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </>
+        )}
+      </div>
     </div>
   );
 }

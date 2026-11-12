@@ -1,5 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { ApiError } from '../../lib/api';
+import { ErrorState, LoadingState } from '../../lib/AsyncState';
+import { useAsyncList } from '../../lib/use-async-list';
 import * as companiesApi from './api';
 
 interface Props {
@@ -9,17 +11,18 @@ interface Props {
 
 /** Minimal list of the user's companies, with switch, create-new, and reactivate actions. */
 export function CompanySwitcher({ activeCompanyId, onSwitched }: Props) {
-  const [companies, setCompanies] = useState<companiesApi.CompanyMembershipWithStatus[]>([]);
   const [newName, setNewName] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    companiesApi.listCompanies().then(setCompanies).catch(() => setCompanies([]));
-  }, [activeCompanyId]);
+  const {
+    data: companies,
+    error: loadError,
+    retry,
+  } = useAsyncList(() => companiesApi.listCompanies(), [activeCompanyId], 'Could not load your companies.');
 
-  const active = companies.filter((c) => c.status === 'active');
-  const deactivated = companies.filter((c) => c.status === 'deactivated');
+  const active = (companies ?? []).filter((c) => c.status === 'active');
+  const deactivated = (companies ?? []).filter((c) => c.status === 'deactivated');
 
   async function handleSwitch(companyId: string) {
     if (companyId === activeCompanyId) return;
@@ -56,7 +59,7 @@ export function CompanySwitcher({ activeCompanyId, onSwitched }: Props) {
     setBusy(true);
     try {
       await companiesApi.reactivateCompany(companyId);
-      companiesApi.listCompanies().then(setCompanies).catch(() => undefined);
+      retry();
     } catch (err) {
       setError(err instanceof ApiError ? err.body.error : 'Could not reactivate company');
     } finally {
@@ -68,6 +71,18 @@ export function CompanySwitcher({ activeCompanyId, onSwitched }: Props) {
     <div className="mt-4 border-t border-slate-200 pt-4">
       <p className="text-xs font-medium uppercase tracking-wide text-slate-400">Your companies</p>
       {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
+      {companies === null ? (
+        loadError ? (
+          <div className="mt-2">
+            <ErrorState message={loadError} onRetry={retry} />
+          </div>
+        ) : (
+          <div className="mt-2">
+            <LoadingState label="Loading companies…" />
+          </div>
+        )
+      ) : (
+        <>
       <ul className="mt-2 space-y-1">
         {active.map((c) => (
           <li key={c.id}>
@@ -106,6 +121,8 @@ export function CompanySwitcher({ activeCompanyId, onSwitched }: Props) {
             ))}
           </ul>
         </div>
+      )}
+        </>
       )}
 
       <form onSubmit={handleCreate} className="mt-3 flex gap-2">

@@ -1,24 +1,40 @@
 import type { EmbroideryCategory } from '@invoice/shared';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { ApiError } from '../../lib/api';
+import { EmptyState, ErrorState, InlineErrorBanner, LoadingState, UpdatingIndicator } from '../../lib/AsyncState';
+import { useAsyncList } from '../../lib/use-async-list';
 import * as categoriesApi from './api';
 
 interface Props {
   onSelect: (category: EmbroideryCategory) => void;
+  onAddCategory?: () => void;
   refreshToken: number;
 }
 
-export function CategoryList({ onSelect, refreshToken }: Props) {
-  const [categories, setCategories] = useState<EmbroideryCategory[] | null>(null);
-  const [status, setStatus] = useState<categoriesApi.StatusFilter>('active');
-  const [busyId, setBusyId] = useState<string | null>(null);
+const DEFAULT_STATUS: categoriesApi.StatusFilter = 'active';
 
-  useEffect(() => {
-    categoriesApi
-      .listCategories(status)
-      .then(setCategories)
-      .catch(() => setCategories([]));
-  }, [status, refreshToken]);
+export function CategoryList({ onSelect, onAddCategory, refreshToken }: Props) {
+  const [status, setStatus] = useState<categoriesApi.StatusFilter>(DEFAULT_STATUS);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [localCategories, setLocalCategories] = useState<EmbroideryCategory[] | null>(null);
+
+  const { data: fetchedCategories, isFetching, error, retry } = useAsyncList(
+    () => categoriesApi.listCategories(status),
+    [status, refreshToken],
+    'Could not load categories.',
+  );
+  // toggle() below applies an optimistic update on top of the last
+  // fetched list without waiting for a refetch — reset whenever a fresh
+  // fetch actually lands. Tracked via a "last seen" state comparison
+  // (same reset-on-change pattern PaymentsPage uses for
+  // initialCustomerId) rather than an effect, so this settles within
+  // the render the new fetch result arrives in.
+  const [lastSeenFetched, setLastSeenFetched] = useState(fetchedCategories);
+  if (lastSeenFetched !== fetchedCategories) {
+    setLastSeenFetched(fetchedCategories);
+    setLocalCategories(null);
+  }
+  const categories = localCategories ?? fetchedCategories;
 
   async function toggle(category: EmbroideryCategory) {
     setBusyId(category.id);
@@ -26,7 +42,11 @@ export function CategoryList({ onSelect, refreshToken }: Props) {
       const updated = category.active
         ? await categoriesApi.disableCategory(category.id)
         : await categoriesApi.enableCategory(category.id);
-      setCategories((list) => list?.map((c) => (c.id === updated.id ? updated : c)).filter((c) => matchesFilter(c, status)) ?? null);
+      setLocalCategories(
+        (categories ?? [])
+          .map((c) => (c.id === updated.id ? updated : c))
+          .filter((c) => matchesFilter(c, status)),
+      );
     } catch (err) {
       if (err instanceof ApiError) window.alert(err.body.error);
     } finally {
@@ -49,10 +69,23 @@ export function CategoryList({ onSelect, refreshToken }: Props) {
       </div>
 
       {categories === null ? (
-        <p className="mt-3 text-sm text-slate-400">Loading…</p>
-      ) : categories.length === 0 ? (
-        <p className="mt-3 text-sm text-slate-400">No categories yet.</p>
+        error ? (
+          <ErrorState message={error} onRetry={retry} />
+        ) : (
+          <LoadingState label="Loading categories…" />
+        )
       ) : (
+        <>
+          {isFetching && <UpdatingIndicator />}
+          {!isFetching && error && <InlineErrorBanner message={error} onRetry={retry} />}
+
+          {categories.length === 0 ? (
+            status !== DEFAULT_STATUS ? (
+              <EmptyState message="No matching categories." actionLabel="Clear filters" onAction={() => setStatus(DEFAULT_STATUS)} />
+            ) : (
+              <EmptyState message="No categories yet." actionLabel={onAddCategory ? 'Add category' : undefined} onAction={onAddCategory} />
+            )
+          ) : (
         <ul className="mt-3 divide-y divide-slate-100">
           {categories.map((c) => (
             <li key={c.id} className="flex items-center justify-between py-2">
@@ -76,6 +109,8 @@ export function CategoryList({ onSelect, refreshToken }: Props) {
             </li>
           ))}
         </ul>
+          )}
+        </>
       )}
     </div>
   );

@@ -1,7 +1,8 @@
-import type { Customer, DiscountType, InvoiceWithItems, PaymentMethod } from '@invoice/shared';
+import type { DiscountType, InvoiceWithItems, PaymentMethod } from '@invoice/shared';
 import { Decimal, calculateSets, formatNumber, roundMoney } from '@invoice/shared';
-import { useMemo, useRef, useState, useEffect } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ApiError } from '../../lib/api';
+import { EMPTY_LIST, useAsyncList } from '../../lib/use-async-list';
 import { useCurrentIdentity } from '../../lib/use-current-identity';
 import { useDirtyFormGuard } from '../../lib/use-dirty-form-guard';
 import * as customersApi from '../customers/api';
@@ -123,7 +124,9 @@ function previewLineAmount(quantity: string, unitPrice: string): string | null {
 
 export function QuickInvoiceForm({ invoice, onSaved, onCancel }: Props) {
   const editing = Boolean(invoice);
-  const [customers, setCustomers] = useState<Customer[]>([]);
+  const customersList = useAsyncList(() => customersApi.listCustomers({ status: 'active' }), [], 'Could not load customers.');
+  const customers = customersList.data ?? EMPTY_LIST;
+  const customersReady = editing || customersList.data !== null;
   const [customerId, setCustomerId] = useState(invoice?.customerId ?? '');
   const [lotNumber, setLotNumber] = useState(invoice?.lotNumber ?? '');
   const [customerLotNumber, setCustomerLotNumber] = useState(invoice?.customerLotNumber ?? '');
@@ -154,10 +157,6 @@ export function QuickInvoiceForm({ invoice, onSaved, onCancel }: Props) {
   const [pristineSnapshot] = useState(() =>
     JSON.stringify(currentDraftData({ customerId, lotNumber, customerLotNumber, billNumber, gatePassNumber, generalQuantity, notes, discountType, discountValue, items, paid, paymentMethod })),
   );
-
-  useEffect(() => {
-    customersApi.listCustomers({ status: 'active' }).then(setCustomers).catch(() => setCustomers([]));
-  }, []);
 
   useEffect(() => {
     if (editing || !identity || draftChecked) return;
@@ -271,12 +270,36 @@ export function QuickInvoiceForm({ invoice, onSaved, onCancel }: Props) {
     return next;
   }
 
+  function focusFirstInvalidField(fieldErrors: FieldErrors) {
+    if (fieldErrors.customerId) {
+      document.querySelector<HTMLElement>('[data-customer-select]')?.focus();
+      return;
+    }
+    if (fieldErrors.items) {
+      const firstIndex = Math.min(...Object.keys(fieldErrors.items).map(Number));
+      const rowErrors = fieldErrors.items[firstIndex];
+      const selector = rowErrors.description
+        ? '[data-quick-item-description]'
+        : rowErrors.quantity
+          ? '[data-quick-item-quantity]'
+          : '[data-quick-item-unit-price]';
+      document.querySelectorAll<HTMLElement>(selector)[firstIndex]?.focus();
+      return;
+    }
+    if (fieldErrors.discountValue) {
+      document.querySelector<HTMLElement>('[data-discount-value]')?.focus();
+    }
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setSubmitError(null);
     const fieldErrors = validate();
     setErrors(fieldErrors);
-    if (Object.keys(fieldErrors).length > 0) return;
+    if (Object.keys(fieldErrors).length > 0) {
+      focusFirstInvalidField(fieldErrors);
+      return;
+    }
 
     setSaving(true);
     try {
@@ -357,19 +380,39 @@ export function QuickInvoiceForm({ invoice, onSaved, onCancel }: Props) {
               className="w-full rounded-md border border-slate-200 bg-slate-50 px-2 py-2 text-sm text-slate-500"
             />
           ) : (
-            <select
-              autoFocus
-              value={customerId}
-              onChange={(e) => setCustomerId(e.target.value)}
-              className={inputClass(Boolean(errors.customerId))}
-            >
-              <option value="">Select…</option>
-              {customers.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
+            <>
+              <select
+                data-customer-select
+                autoFocus
+                disabled={customersList.data === null}
+                value={customerId}
+                onChange={(e) => setCustomerId(e.target.value)}
+                className={inputClass(Boolean(errors.customerId))}
+              >
+                <option value="">
+                  {customersList.data === null
+                    ? customersList.error
+                      ? 'Could not load customers'
+                      : 'Loading customers…'
+                    : customers.length === 0
+                      ? 'No customers available'
+                      : 'Select…'}
                 </option>
-              ))}
-            </select>
+                {customers.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+              {customersList.error && (
+                <p className="mt-1 text-xs text-red-600">
+                  {customersList.error}{' '}
+                  <button type="button" onClick={customersList.retry} className="underline hover:text-red-900">
+                    Retry
+                  </button>
+                </p>
+              )}
+            </>
           )}
         </Field>
 
@@ -420,6 +463,7 @@ export function QuickInvoiceForm({ invoice, onSaved, onCancel }: Props) {
 
                 <Field label="Quantity" error={rowErrors?.quantity}>
                   <input
+                    data-quick-item-quantity
                     inputMode="decimal"
                     value={row.quantity}
                     onChange={(e) => updateItem(index, { quantity: e.target.value })}
@@ -429,6 +473,7 @@ export function QuickInvoiceForm({ invoice, onSaved, onCancel }: Props) {
 
                 <Field label="Unit Price" error={rowErrors?.unitPrice}>
                   <input
+                    data-quick-item-unit-price
                     inputMode="decimal"
                     placeholder="0.00"
                     value={row.unitPrice}
@@ -494,6 +539,7 @@ export function QuickInvoiceForm({ invoice, onSaved, onCancel }: Props) {
         {discountType && (
           <Field label="Discount" error={errors.discountValue}>
             <input
+              data-discount-value
               inputMode="decimal"
               value={discountValue}
               onChange={(e) => setDiscountValue(e.target.value)}
@@ -612,7 +658,8 @@ export function QuickInvoiceForm({ invoice, onSaved, onCancel }: Props) {
         </button>
         <button
           type="submit"
-          disabled={saving}
+          disabled={saving || !customersReady}
+          title={!customersReady ? 'Waiting for customers to load' : undefined}
           className="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50"
         >
           {saving ? 'Saving…' : editing ? 'Save changes' : 'Create invoice'}
