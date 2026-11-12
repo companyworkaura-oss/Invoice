@@ -2,6 +2,8 @@ import type { Customer, Payment, PaymentMethod } from '@invoice/shared';
 import { useState } from 'react';
 import { ApiError } from '../../lib/api';
 import { EMPTY_LIST, useAsyncList } from '../../lib/use-async-list';
+import { FormField, PrimaryButton, SecondaryButton, SectionHeading } from '../../lib/ui';
+import { FIELD_INPUT_CLASS } from '../../lib/ui-tokens';
 import * as customersApi from '../customers/api';
 import * as paymentsApi from './api';
 
@@ -85,24 +87,21 @@ export function PaymentForm({
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-3 rounded-md border border-slate-200 p-4">
+    <form onSubmit={handleSubmit} className="space-y-4 rounded-md border border-slate-200 p-4 sm:p-5">
       <div>
-        <h3 className="text-sm font-semibold text-slate-900">{title}</h3>
-        {helperText && <p className="mt-0.5 text-xs text-slate-500">{helperText}</p>}
+        <SectionHeading>{title}</SectionHeading>
+        {helperText && <p className="mt-1 text-sm text-slate-500">{helperText}</p>}
       </div>
 
       {!customerId && (
-        <div>
-          <label htmlFor="pay-customer" className="block text-xs font-medium text-slate-500">
-            Customer
-          </label>
+        <FormField label="Customer" htmlFor="pay-customer">
           <select
             id="pay-customer"
             required
             disabled={customersList.data === null}
             value={selectedCustomerId}
             onChange={(e) => setSelectedCustomerId(e.target.value)}
-            className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-slate-500 focus:outline-none"
+            className={FIELD_INPUT_CLASS}
           >
             <option value="">
               {customersList.data === null
@@ -127,14 +126,15 @@ export function PaymentForm({
               </button>
             </p>
           )}
-        </div>
+        </FormField>
       )}
 
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label htmlFor="pay-amount" className="block text-xs font-medium text-slate-500">
-            Amount
-          </label>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <FormField
+          label="Amount"
+          htmlFor="pay-amount"
+          helperText={suggestedAmount !== undefined ? suggestedAmountLabel : undefined}
+        >
           <input
             id="pay-amount"
             required
@@ -142,37 +142,28 @@ export function PaymentForm({
             placeholder="0.00"
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
-            className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-slate-500 focus:outline-none"
+            className={FIELD_INPUT_CLASS}
           />
-          {suggestedAmount !== undefined && suggestedAmountLabel && (
-            <p className="mt-1 text-xs text-slate-500">{suggestedAmountLabel}</p>
-          )}
-        </div>
-        <div>
-          <label htmlFor="pay-date" className="block text-xs font-medium text-slate-500">
-            Date
-          </label>
+        </FormField>
+        <FormField label="Date" htmlFor="pay-date">
           <input
             id="pay-date"
             type="date"
             required
             value={date}
             onChange={(e) => setDate(e.target.value)}
-            className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-slate-500 focus:outline-none"
+            className={FIELD_INPUT_CLASS}
           />
-        </div>
+        </FormField>
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label htmlFor="pay-method" className="block text-xs font-medium text-slate-500">
-            Payment method
-          </label>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <FormField label="Payment method" htmlFor="pay-method">
           <select
             id="pay-method"
             value={paymentMethod}
             onChange={(e) => setPaymentMethod(e.target.value as PaymentMethod)}
-            className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-slate-500 focus:outline-none"
+            className={FIELD_INPUT_CLASS}
           >
             {PAYMENT_METHODS.map((m) => (
               <option key={m.value} value={m.value}>
@@ -180,54 +171,39 @@ export function PaymentForm({
               </option>
             ))}
           </select>
-        </div>
-        <div>
-          <label htmlFor="pay-reference" className="block text-xs font-medium text-slate-500">
-            Reference
-          </label>
+        </FormField>
+        <FormField label="Reference" htmlFor="pay-reference" optional>
           <input
             id="pay-reference"
             placeholder="Cheque no., transaction id…"
             value={reference}
             onChange={(e) => setReference(e.target.value)}
-            className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-slate-500 focus:outline-none"
+            className={FIELD_INPUT_CLASS}
           />
-        </div>
+        </FormField>
       </div>
 
-      <div>
-        <label htmlFor="pay-notes" className="block text-xs font-medium text-slate-500">
-          Notes
-        </label>
+      <FormField label="Notes" htmlFor="pay-notes" optional>
         <textarea
           id="pay-notes"
           rows={2}
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
-          className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-slate-500 focus:outline-none"
+          className={FIELD_INPUT_CLASS}
         />
-      </div>
+      </FormField>
 
       {error && <p className="text-sm text-red-600">{error}</p>}
 
       <div className="flex gap-2">
-        <button
+        <PrimaryButton
           type="submit"
           disabled={saving || (!customerId && customersList.data === null)}
           title={!customerId && customersList.data === null ? 'Waiting for customers to load' : undefined}
-          className="rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50"
         >
           {saving ? 'Recording…' : 'Record payment'}
-        </button>
-        {onCancel && (
-          <button
-            type="button"
-            onClick={onCancel}
-            className="rounded-md border border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50"
-          >
-            Cancel
-          </button>
-        )}
+        </PrimaryButton>
+        {onCancel && <SecondaryButton onClick={onCancel}>Cancel</SecondaryButton>}
       </div>
     </form>
   );

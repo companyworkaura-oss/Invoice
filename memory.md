@@ -4455,6 +4455,160 @@ change; purely a frontend state-handling fix.
   `initialCustomerId`/`lastSeenInitialCustomerId`, rather than
   suppressing it). **UI/UX-04 is COMPLETE.**
 
+## UI/UX-05 — Strengthen Visual Hierarchy and Readability (Phase 68)
+
+Fifth UI/UX finding: too many elements (page headings, section headings,
+labels, buttons, table text, secondary text) shared the same small/gray
+visual weight, giving no cue what mattered most. Purely visual — no
+accounting/calculation/schema/auth change.
+
+- **Typography scale**: page title ~24px/semibold (`text-2xl
+  font-semibold text-slate-900`, via the new `PageHeader` component);
+  section title ~16px/semibold (`SectionHeading`, `text-base
+  font-semibold`); table header rows bumped from `text-xs
+  text-slate-500` to `text-xs font-semibold uppercase tracking-wide
+  text-slate-500` (10 occurrences across 8 files) so a header row is
+  never confusable with a data row; body text stayed ~14px (already
+  reasonable) but secondary-but-important text (customer names, dates)
+  moved from `text-slate-400`/`500` up to `slate-600` where it had been
+  too faint to read comfortably.
+- **Spacing/control rules**: form sections moved to a consistent
+  `space-y-4`/`gap-3`/`p-4 sm:p-5` rhythm (was an inconsistent mix of
+  `space-y-3`, `p-4`, `gap-2`); every primary/secondary/danger button
+  now shares one `px-4 py-2.5` base (~40px tall) via the shared button
+  components below — `where practical`: dense per-row/table controls
+  (row delete links, category enable/disable toggles, "+ Add Work/Item"
+  row buttons, the company switcher's row buttons) were deliberately
+  left at their existing compact size, since bumping every one of
+  those to 40–44px would have made already-dense tables and item rows
+  worse to scan, not better — the report's own primary/secondary
+  examples are all page-level actions, not per-row ones. Table header
+  `<th>` padding bumped from `py-1` to `py-2`; table `<td>` row padding
+  bumped from `py-1` to `py-1.5` (mechanical sweep, 33 occurrences) for
+  a touch more breathing room without making rows noticeably taller.
+- **Primary vs. secondary vs. destructive actions**: new
+  `PrimaryButton`/`SecondaryButton`/`DangerButton` components
+  (`apps/web/src/lib/ui.tsx`) — one solid dark style, one outline
+  style, one red-outline style, each with a visible `focus-visible`
+  ring (accessibility baseline). Applied to every top-level
+  create/save/record/add action (Create invoice, Save, Record
+  payment, Add customer, New category, Save profile, Sign
+  in/Create account) and every top-level Cancel/Back; destructive
+  actions (Customer Archive, Company Deactivate/Delete Permanently)
+  use `DangerButton` — Company Delete Permanently's *final confirm*
+  step is deliberately one notch heavier still (solid red, not just
+  outline), since that's the one place a destructive action is also
+  the irreversible, already-confirmed action. Small per-row/contextual
+  controls (row "Delete" links, category Enable/Disable, "+ Add
+  Item/Work") were left as plain styled buttons — consistent with the
+  report's own primary/secondary examples being page-level actions,
+  not per-row ones.
+- **Page headers standardized**: `PageHeader` (title + optional
+  subtitle + right-aligned action, stacks cleanly under `sm:`) applied
+  to Dashboard, Invoices, Customers, Payments, Rates & categories
+  (renamed from "Embroidery categories" per the report's own page
+  list), Company settings, and Activity log (renamed from "Audit Log").
+- **Form hierarchy**: new `FormField` (label + control + one error-or-
+  helper line, with a visible `(optional)` marker on non-required
+  fields) and a shared `FIELD_INPUT_CLASS` (one border/padding/focus
+  recipe) replace the per-file hand-written label/input markup in
+  CustomerForm, CategoryForm, CompanyProfileForm, PaymentForm, and the
+  customer/category pickers in CreateInvoiceForm/QuickInvoiceForm —
+  these five files previously each wrote a near-identical but subtly
+  drifting `block text-xs font-medium text-slate-500` label +
+  `px-2 py-1` input by hand; now there's one definition.
+- **Tables**: numeric/money columns stayed right-aligned with
+  `tabular-nums` (already the convention); text columns stayed left-
+  aligned (unchanged). Any table whose row content could realistically
+  overflow a 390px viewport (invoice items, invoice list, payments,
+  customer ledger, customer statement, dashboard's three recent-
+  activity tables) is now wrapped in `overflow-x-auto` with a sane
+  `min-w-[...]`, matching the pattern InvoiceList/CreateInvoiceForm/
+  AuditLogPage already used — PaymentsPage's table was the one found
+  missing this live (see below) and would have genuinely overflowed
+  the page at 390px once money gained a currency prefix.
+- **Money display**: new `formatMoney(value, currencyCode?)` in
+  `packages/shared/src/money-format.ts` — adds thousands grouping on
+  top of `formatNumber`'s existing trim rule (never changed: a value
+  that trims to one decimal digit still trims to one, "12500.55" stays
+  "12,500.55", never padded to "12,500.60" or similar) and an optional
+  `"PKR "`-style prefix. Never touches stored precision or any
+  calculation — purely a display wrapper one layer above the existing
+  formatter. A new `CurrencyContext`/`useCurrency()`
+  (`apps/web/src/lib/use-currency.ts` + `currency.tsx`), provided once
+  in `App.tsx` from `me.company.defaultCurrency`, feeds a new shared
+  `MoneyText` component (`ui.tsx`) so every money display just renders
+  `<MoneyText value={...} />` without plumbing the currency code
+  through props. Applied to every prominent money value: Dashboard's
+  summary cards and three recent-activity tables, InvoiceList's Grand
+  Total/Paid/Balance columns, InvoiceDetails' item table and both
+  totals panels, PaymentsPage's Amount column, CustomerLedgerPanel's
+  balance and Debit/Credit columns, CustomerStatementView's statement
+  table. Per-item rows within an invoice (rate/unit amount/line total)
+  render with `showCurrency={false}` — repeating "PKR" on every row of
+  a multi-item invoice was noisy; the headline Grand Total still shows
+  it. Deliberately left untouched: the five invoice print templates
+  and the customer statement print document — these are customer-
+  facing printed documents with their own existing, tested formatting
+  conventions, out of this task's scope, and touching them risked a
+  real regression for a cosmetic-only task.
+- **Status badges**: new `StatusBadge` component + one shared
+  `INVOICE_PAYMENT_STATUS_TONE` map (`apps/web/src/lib/ui-tokens.ts`)
+  so PAID/PARTIAL/UNPAID/CANCELLED always maps to the same
+  success/warning/danger/neutral tone in both InvoiceList and
+  InvoiceDetails (previously two separate, silently-drifted color maps
+  — InvoiceDetails had UNPAID as plain gray while InvoiceList had it
+  red). The "Archived" tag on an invoice row and a customer's own
+  archived-status marker both use the same `StatusBadge` now too. The
+  *label text itself* is always the real signal (PAID, not just a
+  color) — color is reinforcement only, never the sole way status is
+  communicated.
+- **Shared components added** (`apps/web/src/lib/`): `ui.tsx`
+  (`PageHeader`, `SectionHeading`, `PrimaryButton`, `SecondaryButton`,
+  `DangerButton`, `FormField`, `StatusBadge`, `MoneyText`) — the
+  component half; `ui-tokens.ts` (`FIELD_INPUT_CLASS`, `BadgeTone`,
+  `INVOICE_PAYMENT_STATUS_TONE`) — the plain-value half, split out
+  purely so `ui.tsx` only exports components (an oxlint
+  `react(only-export-components)` warning otherwise, fixed properly
+  by splitting rather than suppressing — same discipline as UI/UX-04's
+  warning fixes); `use-currency.ts` + `currency.tsx` (context/hook vs.
+  the Provider component, split for the same Fast-Refresh reason).
+  Deliberately not a larger framework: no theming system, no variant
+  props beyond what every call site already needed, no new build
+  tooling.
+- **Pages updated**: App.tsx (nav focus rings, Log out button,
+  Settings page header), DashboardPage, InvoicesPage (list header +
+  entry-mode buttons), InvoiceList, InvoiceDetails, CustomersPage,
+  CustomerList (already had its own states from UI/UX-04 — untouched
+  there), CustomerDetails, CustomerForm, CustomerLedgerPanel,
+  CustomerStatementView, PaymentsPage, PaymentForm, CategoriesPage,
+  CategoryForm, CompanyProfileForm, CompanyDangerZone, AuditLogPage.
+- **Verified live** (Playwright against a running dev stack, same
+  convention as UI/UX-02/03/04 — this repo still has no component-test
+  runner): checked `document.documentElement.scrollWidth <=
+  clientWidth` at both 1366px and 390px across Dashboard, Customers,
+  Categories, Payments, Invoices, Settings, an open invoice detail, a
+  customer's details+ledger, a customer statement — all passed after
+  one real regression was found and fixed live: PaymentsPage's table
+  had no `overflow-x-auto` wrapper, and once the Amount column gained
+  a currency prefix (e.g. "USD 12,500.55") plus a realistic reference
+  string, the table pushed the whole page 3px past 390px width;
+  wrapping it (and, defensively, the four other tables found with the
+  same gap — InvoiceDetails' item table, CustomerLedgerPanel,
+  CustomerStatementView, Dashboard's three tables) in the same
+  `overflow-x-auto` + `min-w-[...]` pattern InvoiceList already used
+  fixed it. Also confirmed: a page title renders at 24px (`text-2xl`),
+  a money value renders with both thousands-grouping and a currency
+  prefix, status badges render with real label text, and primary
+  buttons on mobile have a real tap height (New Invoice ~54px with its
+  two-line label, Customer Form Save 42px).
+- `npm run typecheck`, `npm run build`, `npm test` (shared 79/79 + api
+  407/407 + web 87/87, all clean), and `npm run lint` (zero errors,
+  zero warnings — two `react(only-export-components)` warnings from
+  `ui.tsx`/`currency.tsx` mixing component and non-component exports
+  were fixed by splitting into `ui-tokens.ts`/`use-currency.ts` rather
+  than suppressed). **UI/UX-05 is COMPLETE.**
+
 ## Known gotchas / things to check before starting work
 
 - **Postgres cluster is often stopped** when a session starts:
@@ -5495,6 +5649,26 @@ change; purely a frontend state-handling fix.
     No accounting/calculation/ledger change.
     See "UI/UX-04 — Separate Error States From Empty States
     (Phase 67)" below
+73. UI/UX-05 — Strengthen Visual Hierarchy and Readability (visual-
+    only fix, fifth finding from the UI/UX report): page/section
+    headings, labels, buttons, table text and secondary text all used
+    to share nearly the same small/gray visual weight. New shared
+    `PageHeader`/`SectionHeading`/`PrimaryButton`/`SecondaryButton`/
+    `DangerButton`/`FormField`/`StatusBadge`/`MoneyText`
+    (`apps/web/src/lib/ui.tsx` + `ui-tokens.ts`) establish one
+    typography scale (~24px page titles, ~16px section titles), one
+    button style per action tier, one status-tone mapping, and one
+    money formatter (new `formatMoney` in `packages/shared` — adds
+    thousands grouping + an optional currency-code prefix on top of
+    the existing `formatNumber` trim rule, via a new
+    `CurrencyContext`/`useCurrency()` fed from
+    `me.company.defaultCurrency`). Applied across every major page
+    and form; a real mobile overflow bug was found and fixed live
+    (PaymentsPage's table had no `overflow-x-auto` wrapper and
+    overflowed 390px once Amount gained a currency prefix). No
+    accounting/calculation/schema/auth change.
+    See "UI/UX-05 — Strengthen Visual Hierarchy and Readability
+    (Phase 68)" below
 
 Repo also went through a monorepo restructure (`server/` → `apps/api` +
 new `apps/web` + `packages/shared`) between Phase 1 and Phase 2.

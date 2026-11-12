@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { ApiError } from '../../lib/api';
 import { EmptyState, ErrorState, InlineErrorBanner, LoadingState, SuccessBanner, UpdatingIndicator } from '../../lib/AsyncState';
 import { deriveListViewState } from '../../lib/list-view-state';
+import { MoneyText, PageHeader, PrimaryButton } from '../../lib/ui';
 import { useAsyncList } from '../../lib/use-async-list';
 import * as paymentsApi from './api';
 import { PaymentForm } from './PaymentForm';
@@ -83,18 +84,11 @@ export function PaymentsPage({ permissions, initialCustomerId }: Props) {
 
   return (
     <div>
-      <div className="flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-slate-900">Payments</h2>
-        {!showForm && (
-          <button
-            type="button"
-            onClick={() => setShowForm(true)}
-            className="rounded-md border border-slate-300 px-3 py-1 text-sm text-slate-600 hover:bg-slate-50"
-          >
-            New payment
-          </button>
-        )}
-      </div>
+      <PageHeader
+        title="Payments"
+        subtitle="Payments received from customers and how they were allocated"
+        action={!showForm && <PrimaryButton onClick={() => setShowForm(true)}>Record payment</PrimaryButton>}
+      />
 
       {successMessage && <div className="mt-3"><SuccessBanner message={successMessage} onDismiss={() => setSuccessMessage(null)} /></div>}
 
@@ -134,17 +128,18 @@ export function PaymentsPage({ permissions, initialCustomerId }: Props) {
             {viewState.kind === 'no-match' ? (
               <EmptyState message="No payments recorded for this customer." actionLabel="Show all payments" onAction={() => setCustomerFilter('')} />
             ) : viewState.kind === 'empty' ? (
-              <EmptyState message="No payments recorded yet." actionLabel="New payment" onAction={() => setShowForm(true)} />
+              <EmptyState message="No payments recorded yet." actionLabel="Record payment" onAction={() => setShowForm(true)} />
             ) : (
-              <table className="w-full text-sm">
+              <div className="overflow-x-auto">
+              <table className="w-full min-w-[560px] text-sm">
                 <thead>
-                  <tr className="border-b border-slate-200 text-left text-xs text-slate-500">
-                    <th className="py-1 pr-2 font-medium">Date</th>
-                    <th className="py-1 pr-2 font-medium">Customer</th>
-                    <th className="py-1 pr-2 font-medium">Method</th>
-                    <th className="py-1 pr-2 font-medium">Reference</th>
-                    <th className="py-1 text-right font-medium">Amount</th>
-                    {canDelete && <th className="py-1 pl-2 font-medium" />}
+                  <tr className="border-b border-slate-200 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    <th className="py-2 pr-2 font-semibold">Date</th>
+                    <th className="py-2 pr-2 font-semibold">Customer</th>
+                    <th className="py-2 pr-2 font-semibold">Method</th>
+                    <th className="py-2 pr-2 font-semibold">Reference</th>
+                    <th className="py-2 text-right font-semibold">Amount</th>
+                    {canDelete && <th className="py-2 pl-2 font-semibold" />}
                   </tr>
                 </thead>
                 <tbody>
@@ -152,13 +147,13 @@ export function PaymentsPage({ permissions, initialCustomerId }: Props) {
                     const busy = busyId === p.id;
                     return (
                       <tr key={p.id} className="border-b border-slate-100">
-                        <td className="py-1 pr-2">{p.date}</td>
-                        <td className="py-1 pr-2">{p.customerName}</td>
-                        <td className="py-1 pr-2 text-slate-500">{METHOD_LABEL[p.paymentMethod] ?? p.paymentMethod}</td>
-                        <td className="py-1 pr-2 text-slate-500">{p.reference ?? '—'}</td>
-                        <td className="py-1 text-right">{p.amount}</td>
+                        <td className="py-1.5 pr-2">{p.date}</td>
+                        <td className="py-1.5 pr-2">{p.customerName}</td>
+                        <td className="py-1.5 pr-2 text-slate-500">{METHOD_LABEL[p.paymentMethod] ?? p.paymentMethod}</td>
+                        <td className="py-1.5 pr-2 text-slate-500">{p.reference ?? '—'}</td>
+                        <td className="py-1.5 text-right font-medium text-slate-900"><MoneyText value={p.amount} /></td>
                         {canDelete && (
-                          <td className="py-1 pl-2 text-right">
+                          <td className="py-1.5 pl-2 text-right">
                             <button
                               type="button"
                               onClick={() => handleDelete(p)}
@@ -174,6 +169,7 @@ export function PaymentsPage({ permissions, initialCustomerId }: Props) {
                   })}
                 </tbody>
               </table>
+              </div>
             )}
           </>
         )}

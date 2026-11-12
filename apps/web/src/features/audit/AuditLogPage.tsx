@@ -1,6 +1,7 @@
 import type { AuditAction, AuditEntityType, AuditLogEntry } from '@invoice/shared';
 import { AUDIT_ACTIONS, AUDIT_ENTITY_TYPES } from '@invoice/shared';
 import { useEffect, useState } from 'react';
+import { PageHeader } from '../../lib/ui';
 import * as auditApi from './api';
 
 const ACTION_LABEL: Record<AuditAction, string> = {
@@ -71,9 +72,9 @@ export function AuditLogPage() {
 
   return (
     <div>
-      <h2 className="text-sm font-semibold text-slate-900">Audit Log</h2>
+      <PageHeader title="Activity log" subtitle="Who changed what, and when" />
 
-      <div className="mt-3 flex flex-wrap items-end gap-2">
+      <div className="mt-4 flex flex-wrap items-end gap-2">
         <select
           value={action}
           onChange={(e) => setAction(e.target.value as AuditAction | '')}
@@ -131,7 +132,7 @@ export function AuditLogPage() {
         <div className="mt-4 overflow-x-auto">
           <table className="w-full min-w-[720px] text-sm">
             <thead>
-              <tr className="border-b border-slate-200 text-left text-xs text-slate-500">
+              <tr className="border-b border-slate-200 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
                 <th className="py-1.5 pr-2 font-medium">Time</th>
                 <th className="py-1.5 pr-2 font-medium">User</th>
                 <th className="py-1.5 pr-2 font-medium">Action</th>

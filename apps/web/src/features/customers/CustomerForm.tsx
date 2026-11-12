@@ -2,6 +2,8 @@ import type { Customer } from '@invoice/shared';
 import { useState } from 'react';
 import { ApiError } from '../../lib/api';
 import { buildFormPatch } from '../../lib/form-patch';
+import { FormField, PrimaryButton, SecondaryButton, SectionHeading } from '../../lib/ui';
+import { FIELD_INPUT_CLASS } from '../../lib/ui-tokens';
 import * as customersApi from './api';
 
 interface Props {
@@ -79,71 +81,64 @@ export function CustomerForm({ customer, onSaved, onCancel }: Props) {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-3 rounded-md border border-slate-200 p-4">
-      <h3 className="text-sm font-semibold text-slate-900">{customer ? 'Edit customer' : 'New customer'}</h3>
-      <div>
-        <label htmlFor="cust-name" className="block text-xs font-medium text-slate-500">
-          Name
-        </label>
+    <form onSubmit={handleSubmit} className="space-y-4 rounded-md border border-slate-200 p-4 sm:p-5">
+      <SectionHeading>{customer ? 'Edit customer' : 'New customer'}</SectionHeading>
+
+      <FormField label="Name" htmlFor="cust-name">
         <input
           id="cust-name"
           required
           value={form.name}
           onChange={(e) => field('name', e.target.value)}
-          className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-slate-500 focus:outline-none"
+          className={FIELD_INPUT_CLASS}
         />
-      </div>
-      <div>
-        <label htmlFor="cust-business" className="block text-xs font-medium text-slate-500">
-          Business name
-        </label>
+      </FormField>
+
+      <FormField label="Business name" htmlFor="cust-business" optional>
         <input
           id="cust-business"
           value={form.businessName}
           onChange={(e) => field('businessName', e.target.value)}
-          className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-slate-500 focus:outline-none"
+          className={FIELD_INPUT_CLASS}
         />
-      </div>
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label htmlFor="cust-phone" className="block text-xs font-medium text-slate-500">
-            Phone
-          </label>
+      </FormField>
+
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <FormField label="Phone" htmlFor="cust-phone" optional>
           <input
             id="cust-phone"
             value={form.phone}
             onChange={(e) => field('phone', e.target.value)}
-            className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-slate-500 focus:outline-none"
+            className={FIELD_INPUT_CLASS}
           />
-        </div>
-        <div>
-          <label htmlFor="cust-whatsapp" className="block text-xs font-medium text-slate-500">
-            WhatsApp
-          </label>
+        </FormField>
+
+        <FormField label="WhatsApp" htmlFor="cust-whatsapp" optional>
           <input
             id="cust-whatsapp"
             value={form.whatsapp}
             onChange={(e) => field('whatsapp', e.target.value)}
-            className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-slate-500 focus:outline-none"
+            className={FIELD_INPUT_CLASS}
           />
-        </div>
+        </FormField>
       </div>
-      <div>
-        <label htmlFor="cust-address" className="block text-xs font-medium text-slate-500">
-          Address
-        </label>
+
+      <FormField label="Address" htmlFor="cust-address" optional>
         <textarea
           id="cust-address"
           rows={2}
           value={form.address}
           onChange={(e) => field('address', e.target.value)}
-          className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-slate-500 focus:outline-none"
+          className={FIELD_INPUT_CLASS}
         />
-      </div>
-      <div>
-        <label htmlFor="cust-balance" className="block text-xs font-medium text-slate-500">
-          Opening balance
-        </label>
+      </FormField>
+
+      <FormField
+        label="Opening balance"
+        htmlFor="cust-balance"
+        optional
+        helperText={customer ? 'Set once, when the customer was created — not editable afterward.' : undefined}
+      >
         <input
           id="cust-balance"
           inputMode="decimal"
@@ -151,37 +146,26 @@ export function CustomerForm({ customer, onSaved, onCancel }: Props) {
           disabled={Boolean(customer)}
           value={form.openingBalance}
           onChange={(e) => field('openingBalance', e.target.value)}
-          className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-slate-500 focus:outline-none disabled:bg-slate-50"
+          className={FIELD_INPUT_CLASS}
         />
-      </div>
-      <div>
-        <label htmlFor="cust-notes" className="block text-xs font-medium text-slate-500">
-          Notes
-        </label>
+      </FormField>
+
+      <FormField label="Notes" htmlFor="cust-notes" optional>
         <textarea
           id="cust-notes"
           rows={2}
           value={form.notes}
           onChange={(e) => field('notes', e.target.value)}
-          className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-slate-500 focus:outline-none"
+          className={FIELD_INPUT_CLASS}
         />
-      </div>
+      </FormField>
+
       {error && <p className="text-sm text-red-600">{error}</p>}
       <div className="flex gap-2">
-        <button
-          type="submit"
-          disabled={saving}
-          className="rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50"
-        >
+        <PrimaryButton type="submit" disabled={saving}>
           {saving ? 'Saving…' : 'Save'}
-        </button>
-        <button
-          type="button"
-          onClick={onCancel}
-          className="rounded-md border border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50"
-        >
-          Cancel
-        </button>
+        </PrimaryButton>
+        <SecondaryButton onClick={onCancel}>Cancel</SecondaryButton>
       </div>
     </form>
   );

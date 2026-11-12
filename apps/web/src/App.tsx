@@ -13,6 +13,8 @@ import { DashboardPage } from './features/dashboard/DashboardPage';
 import { CategoriesPage } from './features/formulas/CategoriesPage';
 import { InvoicesPage } from './features/invoices/InvoicesPage';
 import { PaymentsPage } from './features/payments/PaymentsPage';
+import { CurrencyProvider } from './lib/currency';
+import { PageHeader, SecondaryButton } from './lib/ui';
 
 type AuthView = 'login' | 'register';
 
@@ -101,6 +103,7 @@ function App() {
   }
 
   return (
+    <CurrencyProvider currencyCode={me.company.defaultCurrency}>
     <div className="min-h-screen bg-slate-50 p-2 sm:p-3 md:p-4 lg:p-6 print:min-h-0 print:bg-white print:p-0">
       {/*
         This whole shell — header, tabs, card framing — is the app
@@ -129,13 +132,9 @@ function App() {
               {me.fullName} · {me.role}
             </p>
           </div>
-          <button
-            type="button"
-            onClick={handleLogout}
-            className="shrink-0 rounded-md border border-slate-300 px-3 py-1 text-sm text-slate-600 hover:bg-slate-50"
-          >
+          <SecondaryButton onClick={handleLogout} className="px-3 py-1.5">
             Log out
-          </button>
+          </SecondaryButton>
         </div>
 
         <div className="mt-4 flex gap-4 overflow-x-auto border-b border-slate-200 print:hidden">
@@ -144,8 +143,8 @@ function App() {
               key={item.path}
               to={item.path}
               className={({ isActive }) =>
-                `-mb-px shrink-0 border-b-2 px-1 pb-2 text-sm font-medium ${
-                  isActive ? 'border-slate-900 text-slate-900' : 'border-transparent text-slate-500 hover:text-slate-700'
+                `-mb-px shrink-0 border-b-2 px-1 py-2.5 text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-400 ${
+                  isActive ? 'border-slate-900 text-slate-900' : 'border-transparent text-slate-600 hover:text-slate-900'
                 }`
               }
             >
@@ -156,8 +155,8 @@ function App() {
             <NavLink
               to="/activity"
               className={({ isActive }) =>
-                `-mb-px shrink-0 border-b-2 px-1 pb-2 text-sm font-medium ${
-                  isActive ? 'border-slate-900 text-slate-900' : 'border-transparent text-slate-500 hover:text-slate-700'
+                `-mb-px shrink-0 border-b-2 px-1 py-2.5 text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-400 ${
+                  isActive ? 'border-slate-900 text-slate-900' : 'border-transparent text-slate-600 hover:text-slate-900'
                 }`
               }
             >
@@ -174,14 +173,20 @@ function App() {
               path="/settings"
               element={
                 <div>
-                  <button
-                    type="button"
-                    onClick={() => setShowProfile((s) => !s)}
-                    className="text-sm font-medium text-slate-900 underline"
-                  >
-                    {showProfile ? 'Hide company profile' : 'Company profile'}
-                  </button>
-                  {showProfile && <CompanyProfilePanel key={`profile-${me.company.id}`} permissions={me.permissions} />}
+                  <PageHeader
+                    title="Company settings"
+                    subtitle="Profile, currency, and account-level actions"
+                    action={
+                      <SecondaryButton onClick={() => setShowProfile((s) => !s)}>
+                        {showProfile ? 'Hide company profile' : 'Company profile'}
+                      </SecondaryButton>
+                    }
+                  />
+                  {showProfile && (
+                    <div className="mt-4">
+                      <CompanyProfilePanel key={`profile-${me.company.id}`} permissions={me.permissions} />
+                    </div>
+                  )}
 
                   <CompanyDangerZone
                     key={`danger-${me.company.id}`}
@@ -204,6 +209,7 @@ function App() {
         </div>
       </div>
     </div>
+    </CurrencyProvider>
   );
 }
 

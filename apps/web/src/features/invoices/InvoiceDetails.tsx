@@ -8,6 +8,8 @@ import {
   suggestedCustomerPaymentAmount,
 } from '@invoice/shared';
 import { useState } from 'react';
+import { MoneyText, PrimaryButton, SecondaryButton, SectionHeading, StatusBadge } from '../../lib/ui';
+import { INVOICE_PAYMENT_STATUS_TONE } from '../../lib/ui-tokens';
 import { PaymentForm } from '../payments/PaymentForm';
 import * as invoicesApi from './api';
 
@@ -64,23 +66,23 @@ export function InvoiceDetails({
 
   return (
     <div className="rounded-md border border-slate-200 p-4">
-      <div className="flex items-start justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h3 className="text-sm font-semibold text-slate-900">{invoice.invoiceNumber}</h3>
-          <p className="text-xs text-slate-500">{invoice.customerName}</p>
+          <SectionHeading>{invoice.invoiceNumber}</SectionHeading>
+          <p className="mt-0.5 text-sm text-slate-600">{invoice.customerName}</p>
         </div>
-        <div className="flex items-center gap-3">
-          {canEdit && (
-            <button type="button" onClick={onEdit} className="text-xs text-slate-500 underline">
-              Edit
-            </button>
-          )}
-          <button type="button" onClick={onViewTemplate} className="text-xs text-slate-500 underline">
+        <div className="flex items-center gap-2">
+          <SecondaryButton onClick={onBack} className="px-3 py-1.5">
+            ← Back
+          </SecondaryButton>
+          <SecondaryButton onClick={onViewTemplate} className="px-3 py-1.5">
             View / Print
-          </button>
-          <button type="button" onClick={onBack} className="text-xs text-slate-500 underline">
-            Back
-          </button>
+          </SecondaryButton>
+          {canEdit && (
+            <SecondaryButton onClick={onEdit} className="px-3 py-1.5">
+              Edit
+            </SecondaryButton>
+          )}
         </div>
       </div>
 
@@ -113,28 +115,29 @@ export function InvoiceDetails({
         </div>
       </div>
 
-      <table className="mt-4 w-full text-sm">
+      <div className="mt-4 overflow-x-auto">
+      <table className="w-full min-w-[640px] text-sm">
         <thead>
-          <tr className="border-b border-slate-200 text-left text-xs text-slate-500">
-            <th className="py-1 pr-2 font-medium">Category</th>
-            <th className="py-1 pr-2 font-medium">Description</th>
-            <th className="py-1 pr-2 text-right font-medium">Quantity</th>
-            <th className="py-1 pr-2 text-right font-medium">Stitches</th>
-            <th className="py-1 pr-2 text-right font-medium">Rate</th>
-            <th className="py-1 pr-2 text-right font-medium">Unit amount</th>
-            <th className="py-1 text-right font-medium">Total</th>
+          <tr className="border-b border-slate-200 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+            <th className="py-2 pr-2 font-semibold">Category</th>
+            <th className="py-2 pr-2 font-semibold">Description</th>
+            <th className="py-2 pr-2 text-right font-semibold">Quantity</th>
+            <th className="py-2 pr-2 text-right font-semibold">Stitches</th>
+            <th className="py-2 pr-2 text-right font-semibold">Rate</th>
+            <th className="py-2 pr-2 text-right font-semibold">Unit amount</th>
+            <th className="py-2 text-right font-semibold">Total</th>
           </tr>
         </thead>
         <tbody>
           {invoice.items.map((item) => (
             <tr key={item.id} className="border-b border-slate-100">
-              <td className="py-1 pr-2">{item.categoryName}</td>
-              <td className="py-1 pr-2 text-slate-500">{item.description ?? '—'}</td>
-              <td className="py-1 pr-2 text-right">{formatNumber(item.quantity)}</td>
-              <td className="py-1 pr-2 text-right">{item.stitches}</td>
-              <td className="py-1 pr-2 text-right">{formatNumber(item.rate)}</td>
-              <td className="py-1 pr-2 text-right">{formatNumber(item.calculatedUnitAmount)}</td>
-              <td className="py-1 text-right">{formatNumber(item.calculatedTotal)}</td>
+              <td className="py-1.5 pr-2">{item.categoryName}</td>
+              <td className="py-1.5 pr-2 text-slate-500">{item.description ?? '—'}</td>
+              <td className="py-1.5 pr-2 text-right">{formatNumber(item.quantity)}</td>
+              <td className="py-1.5 pr-2 text-right">{item.stitches}</td>
+              <td className="py-1.5 pr-2 text-right"><MoneyText value={item.rate} showCurrency={false} /></td>
+              <td className="py-1.5 pr-2 text-right"><MoneyText value={item.calculatedUnitAmount} showCurrency={false} /></td>
+              <td className="py-1.5 text-right"><MoneyText value={item.calculatedTotal} showCurrency={false} /></td>
             </tr>
           ))}
         </tbody>
@@ -143,24 +146,31 @@ export function InvoiceDetails({
             <td colSpan={6} className="pt-2 text-right text-sm text-slate-500">
               Subtotal
             </td>
-            <td className="pt-2 text-right text-sm text-slate-700">{formatNumber(invoice.totalAmount)}</td>
+            <td className="pt-2 text-right text-sm text-slate-700">
+              <MoneyText value={invoice.totalAmount} showCurrency={false} />
+            </td>
           </tr>
           {invoice.discountType && (
             <tr>
               <td colSpan={6} className="pt-1 text-right text-sm text-slate-500">
                 {invoice.discountType === 'percentage' ? `Discount (${formatNumber(invoice.discountValue)}%)` : 'Discount'}
               </td>
-              <td className="pt-1 text-right text-sm text-slate-700">-{formatNumber(invoice.discountAmount)}</td>
+              <td className="pt-1 text-right text-sm text-slate-700">
+                -<MoneyText value={invoice.discountAmount} showCurrency={false} />
+              </td>
             </tr>
           )}
           <tr>
             <td colSpan={6} className="pt-1 text-right text-sm font-medium text-slate-900">
               Grand Total
             </td>
-            <td className="pt-1 text-right text-sm font-semibold text-slate-900">{formatNumber(invoice.grandTotal)}</td>
+            <td className="pt-1 text-right text-sm font-semibold text-slate-900">
+              <MoneyText value={invoice.grandTotal} />
+            </td>
           </tr>
         </tfoot>
       </table>
+      </div>
 
       {/*
         UI/UX-01: invoice-level money ("This invoice") and
@@ -177,15 +187,13 @@ export function InvoiceDetails({
         <section className="rounded-md border border-slate-200 p-3">
           <h4 className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">This invoice</h4>
           <dl className="mt-2 space-y-1.5 text-sm">
-            <StatRow label="Invoice Total" value={formatNumber(invoice.grandTotal)} />
-            <StatRow label="Paid toward this invoice" value={formatNumber(invoice.amountPaid)} />
-            <StatRow label="Remaining on this invoice" value={formatNumber(remainingOnInvoice)} emphasize />
+            <StatRow label="Invoice Total" value={invoice.grandTotal} />
+            <StatRow label="Paid toward this invoice" value={invoice.amountPaid} />
+            <StatRow label="Remaining on this invoice" value={remainingOnInvoice} emphasize />
             <div>
               <dt className="text-xs text-slate-500">Invoice payment status</dt>
-              <dd>
-                <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${PAYMENT_STATUS_BADGE[paymentStatus]}`}>
-                  {PAYMENT_STATUS_LABEL[paymentStatus]}
-                </span>
+              <dd className="mt-0.5">
+                <StatusBadge label={PAYMENT_STATUS_LABEL[paymentStatus]} tone={INVOICE_PAYMENT_STATUS_TONE[paymentStatus]} />
               </dd>
             </div>
           </dl>
@@ -194,19 +202,15 @@ export function InvoiceDetails({
         <section className="rounded-md border border-slate-200 bg-slate-50 p-3">
           <h4 className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Customer account</h4>
           <dl className="mt-2 space-y-1.5 text-sm">
-            <StatRow label="Overall balance" value={formatNumber(invoice.currentBalance)} emphasize />
+            <StatRow label="Overall balance" value={invoice.currentBalance} emphasize />
           </dl>
           <p className="mt-1.5 text-xs text-slate-500">
             Overall balance across this customer&rsquo;s account — every invoice, payment, opening balance, and
             adjustment, not just this invoice.
           </p>
-          <button
-            type="button"
-            onClick={() => onViewCustomerAccount(invoice.customerId)}
-            className="mt-2 text-xs text-slate-500 underline"
-          >
+          <SecondaryButton onClick={() => onViewCustomerAccount(invoice.customerId)} className="mt-2 px-3 py-1.5">
             View customer account
-          </button>
+          </SecondaryButton>
         </section>
       </div>
 
@@ -225,31 +229,20 @@ export function InvoiceDetails({
             onCancel={() => setShowPaymentForm(false)}
           />
         ) : (
-          <button
-            type="button"
-            onClick={() => setShowPaymentForm(true)}
-            className="rounded-md border border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50"
-          >
-            Record customer payment
-          </button>
+          <PrimaryButton onClick={() => setShowPaymentForm(true)}>Record customer payment</PrimaryButton>
         )}
       </div>
     </div>
   );
 }
 
-const PAYMENT_STATUS_BADGE: Record<InvoicePaymentStatus, string> = {
-  PAID: 'bg-emerald-100 text-emerald-700',
-  PARTIAL: 'bg-amber-100 text-amber-700',
-  UNPAID: 'bg-slate-200 text-slate-600',
-  CANCELLED: 'bg-slate-200 text-slate-500',
-};
-
 function StatRow({ label, value, emphasize }: { label: string; value: string; emphasize?: boolean }) {
   return (
     <div className="flex items-baseline justify-between gap-2">
       <dt className="text-xs text-slate-500">{label}</dt>
-      <dd className={emphasize ? 'text-right font-semibold text-slate-900' : 'text-right text-slate-700'}>{value}</dd>
+      <dd className={emphasize ? 'text-right font-semibold text-slate-900' : 'text-right text-slate-700'}>
+        <MoneyText value={value} />
+      </dd>
     </div>
   );
 }

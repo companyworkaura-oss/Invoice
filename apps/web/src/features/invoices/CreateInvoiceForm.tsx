@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { ApiError } from '../../lib/api';
 import { EMPTY_LIST, useAsyncList } from '../../lib/use-async-list';
 import { useCurrentIdentity } from '../../lib/use-current-identity';
+import { PrimaryButton, SecondaryButton } from '../../lib/ui';
 import { useDirtyFormGuard } from '../../lib/use-dirty-form-guard';
 import * as customersApi from '../customers/api';
 import * as categoriesApi from '../formulas/api';
@@ -463,7 +464,7 @@ export function CreateInvoiceForm({ invoice, onSaved, onCancel }: Props) {
       <div className="mt-4 overflow-x-auto">
         <table className="w-full min-w-[640px] text-sm">
           <thead>
-            <tr className="border-b border-slate-200 text-left text-xs text-slate-500">
+            <tr className="border-b border-slate-200 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
               <th className="w-1/4 py-1.5 pr-2 font-medium">Category</th>
               <th className="w-1/4 py-1.5 pr-2 font-medium">Description</th>
               <th className="py-1.5 pr-2 text-right font-medium">Quantity</th>
@@ -735,10 +736,9 @@ export function CreateInvoiceForm({ invoice, onSaved, onCancel }: Props) {
 
       {submitError && <p className="mt-3 text-sm text-red-600">{submitError}</p>}
 
-      {/* UI/UX-02: one prominent primary action ("Create invoice"); Cancel stays visually lighter (outline only). */}
+      {/* UI/UX-02/05: one prominent primary action ("Create invoice"); Cancel stays visually lighter (outline only). */}
       <div className="mt-4 flex justify-end gap-2">
-        <button
-          type="button"
+        <SecondaryButton
           disabled={saving}
           onClick={() => {
             // UI/UX-03 Part 7/8: never leave unsaved work behind
@@ -747,18 +747,16 @@ export function CreateInvoiceForm({ invoice, onSaved, onCancel }: Props) {
             // whether the invoice ended up saved or not).
             if (confirmLeaveIfDirty()) onCancel();
           }}
-          className="rounded-md border border-slate-300 px-4 py-1.5 text-sm text-slate-600 hover:bg-slate-50 disabled:opacity-50"
         >
           Cancel
-        </button>
-        <button
+        </SecondaryButton>
+        <PrimaryButton
           type="submit"
           disabled={saving || !pickersReady}
           title={!pickersReady ? 'Waiting for customers and categories to load' : undefined}
-          className="rounded-md bg-slate-900 px-4 py-1.5 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50"
         >
           {saving ? 'Saving…' : editing ? 'Save changes' : 'Create invoice'}
-        </button>
+        </PrimaryButton>
       </div>
     </form>
   );

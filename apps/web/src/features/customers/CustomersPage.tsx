@@ -1,6 +1,7 @@
 import type { Customer, Permission } from '@invoice/shared';
 import { useEffect, useState } from 'react';
 import { SuccessBanner } from '../../lib/AsyncState';
+import { PageHeader, PrimaryButton } from '../../lib/ui';
 import { CustomerStatementView } from '../ledger/CustomerStatementView';
 import * as customersApi from './api';
 import { CustomerDetails } from './CustomerDetails';
@@ -46,22 +47,25 @@ export function CustomersPage({ permissions, openCustomerId }: Props) {
 
   return (
     <div>
-      <div className="flex items-center justify-between print:hidden">
-        <h2 className="text-sm font-semibold text-slate-900">Customers</h2>
-        {view.name === 'list' && (
-          <button
-            type="button"
-            onClick={() => setView({ name: 'form' })}
-            className="rounded-md border border-slate-300 px-3 py-1 text-sm text-slate-600 hover:bg-slate-50"
-          >
-            New customer
-          </button>
-        )}
+      <div className="print:hidden">
+        <PageHeader
+          title="Customers"
+          subtitle="Everyone you bill, their contact details, and account balances"
+          action={
+            view.name === 'list' && (
+              <PrimaryButton onClick={() => setView({ name: 'form' })}>Add customer</PrimaryButton>
+            )
+          }
+        />
       </div>
 
-      {successMessage && <SuccessBanner message={successMessage} onDismiss={() => setSuccessMessage(null)} />}
+      {successMessage && (
+        <div className="mt-3">
+          <SuccessBanner message={successMessage} onDismiss={() => setSuccessMessage(null)} />
+        </div>
+      )}
 
-      <div className="mt-3 print:mt-0">
+      <div className="mt-4 print:mt-0">
         {view.name === 'list' && (
           <CustomerList
             refreshToken={refreshToken}

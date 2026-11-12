@@ -1,5 +1,6 @@
 import type { EmbroideryCategory } from '@invoice/shared';
 import { useState } from 'react';
+import { PageHeader, PrimaryButton } from '../../lib/ui';
 import { CategoryForm } from './CategoryForm';
 import { CategoryList } from './CategoryList';
 
@@ -16,20 +17,15 @@ export function CategoriesPage() {
 
   return (
     <div>
-      <div className="flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-slate-900">Embroidery categories</h2>
-        {view.name === 'list' && (
-          <button
-            type="button"
-            onClick={() => setView({ name: 'form' })}
-            className="rounded-md border border-slate-300 px-3 py-1 text-sm text-slate-600 hover:bg-slate-50"
-          >
-            New category
-          </button>
-        )}
-      </div>
+      <PageHeader
+        title="Rates & categories"
+        subtitle="Embroidery categories, default rates, and pricing formulas"
+        action={
+          view.name === 'list' && <PrimaryButton onClick={() => setView({ name: 'form' })}>New category</PrimaryButton>
+        }
+      />
 
-      <div className="mt-3">
+      <div className="mt-4">
         {view.name === 'list' && (
           <CategoryList refreshToken={refreshToken} onSelect={(category) => setView({ name: 'form', category })} />
         )}

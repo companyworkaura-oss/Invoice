@@ -1,6 +1,8 @@
 import type { Permission } from '@invoice/shared';
 import { useState } from 'react';
 import { ApiError } from '../../lib/api';
+import { DangerButton, SecondaryButton } from '../../lib/ui';
+import { FIELD_INPUT_CLASS } from '../../lib/ui-tokens';
 import * as companyApi from './api';
 
 interface Props {
@@ -85,14 +87,9 @@ export function CompanyDangerZone({ companyName, permissions, onCompanyChanged }
             <p className="text-sm font-medium text-slate-900">Deactivate Company</p>
             <p className="text-xs text-slate-500">Hides this company and preserves all its data. Restore any time.</p>
           </div>
-          <button
-            type="button"
-            onClick={handleDeactivate}
-            disabled={busy}
-            className="shrink-0 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-          >
+          <SecondaryButton onClick={handleDeactivate} disabled={busy} className="shrink-0 px-3 py-1.5">
             Deactivate Company
-          </button>
+          </SecondaryButton>
         </div>
       )}
 
@@ -104,14 +101,9 @@ export function CompanyDangerZone({ companyName, permissions, onCompanyChanged }
           </p>
 
           {!showDeleteConfirm ? (
-            <button
-              type="button"
-              onClick={startDeleteConfirm}
-              disabled={busy}
-              className="mt-2 rounded-md border border-red-300 bg-white px-3 py-1.5 text-sm text-red-700 hover:bg-red-50 disabled:opacity-50"
-            >
+            <DangerButton onClick={startDeleteConfirm} disabled={busy} className="mt-2 px-3 py-1.5">
               Delete Company Permanently
-            </button>
+            </DangerButton>
           ) : (
             <div className="mt-2 space-y-2">
               <label className="block text-sm text-slate-700">
@@ -122,23 +114,19 @@ export function CompanyDangerZone({ companyName, permissions, onCompanyChanged }
                   onChange={(e) => setTypedName(e.target.value)}
                   placeholder={companyName}
                   autoFocus
-                  className="mt-1 w-full rounded-md border border-red-300 px-2 py-1.5 text-sm focus:border-red-500 focus:outline-none"
+                  className={`mt-1 ${FIELD_INPUT_CLASS} border-red-300 focus:border-red-500`}
                 />
               </label>
               <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={cancelDeleteConfirm}
-                  disabled={busy}
-                  className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50 disabled:opacity-50"
-                >
+                <SecondaryButton onClick={cancelDeleteConfirm} disabled={busy} className="px-3 py-1.5">
                   Cancel
-                </button>
+                </SecondaryButton>
+                {/* Solid red — the one place a destructive action is also the *confirmed, final* action, so it gets extra visual weight on top of DangerButton's usual outline treatment. */}
                 <button
                   type="button"
                   onClick={handleDelete}
                   disabled={busy || typedName !== companyName}
-                  className="rounded-md bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
+                  className="rounded-md bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {busy ? 'Deleting…' : 'Delete Permanently'}
                 </button>

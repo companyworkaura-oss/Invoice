@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { Navigate, Route, Routes, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { ApiError } from '../../lib/api';
 import { SuccessBanner } from '../../lib/AsyncState';
+import { PageHeader } from '../../lib/ui';
 import { CreateInvoiceForm } from './CreateInvoiceForm';
 import { InvoiceDetails } from './InvoiceDetails';
 import { InvoiceList, type InvoiceRowAction } from './InvoiceList';
@@ -93,22 +94,25 @@ function InvoiceListRoute({ permissions }: { permissions: Permission[] }) {
 
   return (
     <div>
-      <div className="flex items-center justify-between print:hidden">
-        <h2 className="text-sm font-semibold text-slate-900">Invoices</h2>
-        <div className="flex gap-2">
-          {/*
-            UI/UX-02: each button names both its mode and the pricing
-            style it uses; whichever was picked last gets the
-            slightly heavier (filled) style next time.
-          */}
-          <EntryModeButton primary={lastMode === 'quick'} onClick={openQuickForm} title="Quick Invoice" subtitle="Simple pricing — description, quantity, unit price" />
-          <EntryModeButton primary={lastMode === 'standard'} onClick={openStandardForm} title="New Invoice" subtitle="Embroidery pricing — category, stitches, rate" />
-        </div>
+      <div className="print:hidden">
+        <PageHeader
+          title="Invoices"
+          subtitle="Every invoice you've billed, its payment status, and balance"
+          action={
+            // UI/UX-02: each button names both its mode and the pricing
+            // style it uses; whichever was picked last gets the
+            // slightly heavier (filled) style next time.
+            <>
+              <EntryModeButton primary={lastMode === 'quick'} onClick={openQuickForm} title="Quick Invoice" subtitle="Simple pricing — description, quantity, unit price" />
+              <EntryModeButton primary={lastMode === 'standard'} onClick={openStandardForm} title="New Invoice" subtitle="Embroidery pricing — category, stitches, rate" />
+            </>
+          }
+        />
       </div>
 
       {loadError && <p className="mt-2 text-sm text-red-600">{loadError}</p>}
 
-      <div className="mt-3 print:mt-0">
+      <div className="mt-4 print:mt-0">
         <InvoiceList
           refreshToken={refreshToken}
           permissions={permissions}
@@ -295,8 +299,10 @@ function EntryModeButton({
     <button
       type="button"
       onClick={onClick}
-      className={`rounded-md border px-3 py-1.5 text-left ${
-        primary ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-300 text-slate-600 hover:bg-slate-50'
+      className={`rounded-md border px-3 py-2 text-left transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 ${
+        primary
+          ? 'border-slate-900 bg-slate-900 text-white focus-visible:outline-slate-900'
+          : 'border-slate-300 text-slate-600 hover:bg-slate-50 focus-visible:outline-slate-400'
       }`}
     >
       <span className="block text-sm font-medium">+ {title}</span>

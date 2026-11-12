@@ -5,6 +5,7 @@ export * from './formula-engine/index.js';
 export * from './invoice-payment-status.js';
 export * from './invoice-sets.js';
 export * from './invoice-view-model.js';
+export * from './money-format.js';
 export * from './number-format.js';
 export * from './permissions.js';
 export * from './whatsapp.js';

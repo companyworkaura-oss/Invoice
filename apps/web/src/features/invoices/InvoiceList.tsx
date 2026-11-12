@@ -1,10 +1,11 @@
 import type { InvoiceArchivedFilter, InvoiceListEntry, InvoicePaymentStatus, Permission } from '@invoice/shared';
-import { formatNumber } from '@invoice/shared';
 import { useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { ApiError } from '../../lib/api';
 import { EmptyState, ErrorState, InlineErrorBanner, LoadingState, UpdatingIndicator } from '../../lib/AsyncState';
 import { EMPTY_LIST, useAsyncList } from '../../lib/use-async-list';
+import { MoneyText, StatusBadge } from '../../lib/ui';
+import { INVOICE_PAYMENT_STATUS_TONE } from '../../lib/ui-tokens';
 import { useScrollRestoration } from '../../lib/use-scroll-restoration';
 import * as customersApi from '../customers/api';
 import * as invoicesApi from './api';
@@ -23,13 +24,6 @@ interface Props {
 }
 
 const PAYMENT_STATUSES: InvoicePaymentStatus[] = ['PAID', 'PARTIAL', 'UNPAID', 'CANCELLED'];
-
-const STATUS_STYLE: Record<InvoicePaymentStatus, string> = {
-  PAID: 'bg-green-50 text-green-700',
-  PARTIAL: 'bg-amber-50 text-amber-700',
-  UNPAID: 'bg-red-50 text-red-700',
-  CANCELLED: 'bg-slate-100 text-slate-500',
-};
 
 const ARCHIVED_TABS: { value: InvoiceArchivedFilter; label: string }[] = [
   { value: 'active', label: 'Active' },
@@ -266,14 +260,14 @@ export function InvoiceList({ onSelect, onAction, onViewPayments, onCreateInvoic
             onChange={(e) => setSearchInput(e.target.value)}
             placeholder="Search invoices…"
             title="Search by invoice #, bill #, customer, lot #, gate pass #"
-            className="w-full rounded-md border border-slate-300 px-2 py-1 text-sm"
+            className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
           />
           <p className="mt-0.5 text-[11px] text-slate-400">Search by invoice #, bill #, customer, lot #, gate pass #</p>
         </div>
         <select
           value={customerId}
           onChange={(e) => setFilter({ customerId: e.target.value })}
-          className="flex-1 basis-[150px] rounded-md border border-slate-300 px-2 py-1 text-sm"
+          className="flex-1 basis-[150px] rounded-md border border-slate-300 px-3 py-2 text-sm"
         >
           <option value="">{customersList.data === null ? 'Loading…' : 'All customers'}</option>
           {customers.map((c) => (
@@ -285,7 +279,7 @@ export function InvoiceList({ onSelect, onAction, onViewPayments, onCreateInvoic
         <select
           value={paymentStatus}
           onChange={(e) => setFilter({ status: e.target.value })}
-          className="flex-1 basis-[130px] rounded-md border border-slate-300 px-2 py-1 text-sm"
+          className="flex-1 basis-[130px] rounded-md border border-slate-300 px-3 py-2 text-sm"
         >
           <option value="">All statuses</option>
           {PAYMENT_STATUSES.map((s) => (
@@ -301,7 +295,7 @@ export function InvoiceList({ onSelect, onAction, onViewPayments, onCreateInvoic
             value={from}
             max={to || undefined}
             onChange={(e) => setFilter({ from: e.target.value })}
-            className="mt-1 block w-[130px] rounded-md border border-slate-300 px-2 py-1 text-sm"
+            className="mt-1 block w-[130px] rounded-md border border-slate-300 px-3 py-2 text-sm"
           />
         </label>
         <label className="shrink-0 text-xs font-medium text-slate-500">
@@ -311,7 +305,7 @@ export function InvoiceList({ onSelect, onAction, onViewPayments, onCreateInvoic
             value={to}
             min={from || undefined}
             onChange={(e) => setFilter({ to: e.target.value })}
-            className="mt-1 block w-[130px] rounded-md border border-slate-300 px-2 py-1 text-sm"
+            className="mt-1 block w-[130px] rounded-md border border-slate-300 px-3 py-2 text-sm"
           />
         </label>
       </div>
@@ -349,7 +343,7 @@ export function InvoiceList({ onSelect, onAction, onViewPayments, onCreateInvoic
         <div className="mt-3 overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-slate-200 text-left text-xs text-slate-500">
+              <tr className="border-b border-slate-200 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
                 <th className="py-1.5 pr-2 font-medium">Invoice No</th>
                 <th className="py-1.5 pr-2 font-medium">Bill #</th>
                 <th className="py-1.5 pr-2 font-medium">Date</th>
@@ -372,8 +366,8 @@ export function InvoiceList({ onSelect, onAction, onViewPayments, onCreateInvoic
                     <td className="py-1.5 pr-2 font-medium text-slate-900">
                       {inv.invoiceNumber}
                       {isArchived && (
-                        <span className="ml-1.5 rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500">
-                          Archived
+                        <span className="ml-1.5">
+                          <StatusBadge label="Archived" tone="neutral" />
                         </span>
                       )}
                     </td>
@@ -382,13 +376,11 @@ export function InvoiceList({ onSelect, onAction, onViewPayments, onCreateInvoic
                     <td className="hidden py-1.5 pr-2 text-slate-500 xl:table-cell">{inv.lotNumber ?? '—'}</td>
                     <td className="hidden py-1.5 pr-2 text-slate-500 xl:table-cell">{inv.customerLotNumber ?? '—'}</td>
                     <td className="py-1.5 pr-2 text-slate-600">{inv.customerName}</td>
-                    <td className="py-1.5 pr-2 text-right tabular-nums">{formatNumber(inv.grandTotal)}</td>
-                    <td className="hidden py-1.5 pr-2 text-right tabular-nums lg:table-cell">{formatNumber(inv.paid)}</td>
-                    <td className="py-1.5 pr-2 text-right tabular-nums font-medium text-slate-900">{formatNumber(inv.balance)}</td>
+                    <td className="py-1.5 pr-2 text-right"><MoneyText value={inv.grandTotal} /></td>
+                    <td className="hidden py-1.5 pr-2 text-right lg:table-cell"><MoneyText value={inv.paid} /></td>
+                    <td className="py-1.5 pr-2 text-right font-semibold text-slate-900"><MoneyText value={inv.balance} /></td>
                     <td className="py-1.5 pr-2">
-                      <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_STYLE[inv.paymentStatus]}`}>
-                        {inv.paymentStatus}
-                      </span>
+                      <StatusBadge label={inv.paymentStatus} tone={INVOICE_PAYMENT_STATUS_TONE[inv.paymentStatus]} />
                     </td>
                     <td className="py-1.5">
                       <div className="flex items-center gap-2 text-xs">

@@ -2,6 +2,8 @@ import type { CompanyProfile } from '@invoice/shared';
 import { useState } from 'react';
 import { ApiError } from '../../lib/api';
 import { buildFormPatch, type FormPatchState } from '../../lib/form-patch';
+import { FormField, PrimaryButton } from '../../lib/ui';
+import { FIELD_INPUT_CLASS } from '../../lib/ui-tokens';
 import { INVOICE_TEMPLATES } from '../invoices/templates/registry';
 import * as companyApi from './api';
 
@@ -77,19 +79,16 @@ export function CompanyProfileForm({ profile, canEdit, onSaved }: Props) {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="mt-4 space-y-3">
+    <form onSubmit={handleSubmit} className="mt-4 space-y-4">
       {FIELDS.map(({ key, label, type, textarea, options }) => (
-        <div key={key}>
-          <label htmlFor={`profile-${key}`} className="block text-xs font-medium text-slate-500">
-            {label}
-          </label>
+        <FormField key={key} label={label} htmlFor={`profile-${key}`} optional>
           {options ? (
             <select
               id={`profile-${key}`}
               disabled={!canEdit}
               value={form[key] ?? ''}
               onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))}
-              className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-slate-500 focus:outline-none disabled:bg-slate-50"
+              className={FIELD_INPUT_CLASS}
             >
               {options.map((o) => (
                 <option key={o.value} value={o.value}>
@@ -104,7 +103,7 @@ export function CompanyProfileForm({ profile, canEdit, onSaved }: Props) {
               rows={2}
               value={form[key] ?? ''}
               onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))}
-              className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-slate-500 focus:outline-none disabled:bg-slate-50"
+              className={FIELD_INPUT_CLASS}
             />
           ) : (
             <input
@@ -113,21 +112,17 @@ export function CompanyProfileForm({ profile, canEdit, onSaved }: Props) {
               disabled={!canEdit}
               value={form[key] ?? ''}
               onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))}
-              className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-slate-500 focus:outline-none disabled:bg-slate-50"
+              className={FIELD_INPUT_CLASS}
             />
           )}
-        </div>
+        </FormField>
       ))}
       {error && <p className="text-sm text-red-600">{error}</p>}
       {saved && !error && <p className="text-sm text-emerald-600">Saved.</p>}
       {canEdit && (
-        <button
-          type="submit"
-          disabled={saving}
-          className="w-full rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50"
-        >
+        <PrimaryButton type="submit" disabled={saving} className="w-full">
           {saving ? 'Saving…' : 'Save profile'}
-        </button>
+        </PrimaryButton>
       )}
     </form>
   );

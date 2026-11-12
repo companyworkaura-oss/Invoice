@@ -1,6 +1,7 @@
 import type { DashboardRange, DashboardSummary } from '@invoice/shared';
 import { useEffect, useState } from 'react';
 import { ApiError } from '../../lib/api';
+import { MoneyText, PageHeader, SectionHeading } from '../../lib/ui';
 import * as dashboardApi from './api';
 
 function todayLocal(): string {
@@ -46,25 +47,24 @@ export function DashboardPage() {
 
   return (
     <div>
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-sm font-semibold text-slate-900">Dashboard</h2>
-        <div className="flex items-center gap-2">
-          {(['today', 'month', 'custom'] as const).map((r) => (
-            <button
-              key={r}
-              type="button"
-              onClick={() => setRange(r)}
-              className={`rounded-md border px-3 py-1 text-sm ${
-                range === r
-                  ? 'border-slate-900 bg-slate-900 text-white'
-                  : 'border-slate-300 text-slate-600 hover:bg-slate-50'
-              }`}
-            >
-              {RANGE_LABEL[r]}
-            </button>
-          ))}
-        </div>
-      </div>
+      <PageHeader
+        title="Dashboard"
+        subtitle="A snapshot of billing activity for the selected period"
+        action={(['today', 'month', 'custom'] as const).map((r) => (
+          <button
+            key={r}
+            type="button"
+            onClick={() => setRange(r)}
+            className={`rounded-md border px-3 py-2 text-sm font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 ${
+              range === r
+                ? 'border-slate-900 bg-slate-900 text-white focus-visible:outline-slate-900'
+                : 'border-slate-300 text-slate-600 hover:bg-slate-50 focus-visible:outline-slate-400'
+            }`}
+          >
+            {RANGE_LABEL[r]}
+          </button>
+        ))}
+      />
 
       {range === 'custom' && (
         <div className="mt-3 flex flex-wrap items-end gap-3">
@@ -111,35 +111,37 @@ function DashboardBody({ data }: { data: DashboardSummary }) {
         <Card label={`${RANGE_LABEL[data.period.range]}'s Invoice Amount`} value={cards.invoiceAmount} />
         <Card label="Payments Received" value={cards.paymentsReceived} />
         <Card label="Total Receivable" value={cards.totalReceivable} />
-        <Card label="Unpaid/Partial Invoices" value={String(cards.unpaidOrPartialInvoiceCount)} />
+        <Card label="Unpaid/Partial Invoices" value={String(cards.unpaidOrPartialInvoiceCount)} money={false} />
       </div>
 
       <Section title="Recent Invoices">
         {data.recentInvoices.length === 0 ? (
           <EmptyRow>No invoices in this period.</EmptyRow>
         ) : (
-          <table className="w-full text-sm">
+          <div className="overflow-x-auto">
+          <table className="w-full min-w-[480px] text-sm">
             <thead>
-              <tr className="border-b border-slate-200 text-left text-xs text-slate-500">
-                <th className="py-1 pr-2 font-medium">Invoice #</th>
-                <th className="py-1 pr-2 font-medium">Customer</th>
-                <th className="py-1 pr-2 font-medium">Date</th>
-                <th className="py-1 pr-2 font-medium">Status</th>
-                <th className="py-1 text-right font-medium">Amount</th>
+              <tr className="border-b border-slate-200 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                <th className="py-2 pr-2 font-semibold">Invoice #</th>
+                <th className="py-2 pr-2 font-semibold">Customer</th>
+                <th className="py-2 pr-2 font-semibold">Date</th>
+                <th className="py-2 pr-2 font-semibold">Status</th>
+                <th className="py-2 text-right font-semibold">Amount</th>
               </tr>
             </thead>
             <tbody>
               {data.recentInvoices.map((inv) => (
                 <tr key={inv.id} className="border-b border-slate-100">
-                  <td className="py-1 pr-2">{inv.invoiceNumber}</td>
-                  <td className="py-1 pr-2 text-slate-600">{inv.customerName}</td>
-                  <td className="py-1 pr-2 text-slate-500">{inv.invoiceDate}</td>
-                  <td className="py-1 pr-2 text-slate-500 capitalize">{inv.status}</td>
-                  <td className="py-1 text-right tabular-nums">{inv.totalAmount}</td>
+                  <td className="py-1.5 pr-2">{inv.invoiceNumber}</td>
+                  <td className="py-1.5 pr-2 text-slate-600">{inv.customerName}</td>
+                  <td className="py-1.5 pr-2 text-slate-500">{inv.invoiceDate}</td>
+                  <td className="py-1.5 pr-2 text-slate-500 capitalize">{inv.status}</td>
+                  <td className="py-1.5 text-right"><MoneyText value={inv.totalAmount} /></td>
                 </tr>
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </Section>
 
@@ -147,26 +149,28 @@ function DashboardBody({ data }: { data: DashboardSummary }) {
         {data.recentPayments.length === 0 ? (
           <EmptyRow>No payments in this period.</EmptyRow>
         ) : (
-          <table className="w-full text-sm">
+          <div className="overflow-x-auto">
+          <table className="w-full min-w-[480px] text-sm">
             <thead>
-              <tr className="border-b border-slate-200 text-left text-xs text-slate-500">
-                <th className="py-1 pr-2 font-medium">Date</th>
-                <th className="py-1 pr-2 font-medium">Customer</th>
-                <th className="py-1 pr-2 font-medium">Method</th>
-                <th className="py-1 text-right font-medium">Amount</th>
+              <tr className="border-b border-slate-200 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                <th className="py-2 pr-2 font-semibold">Date</th>
+                <th className="py-2 pr-2 font-semibold">Customer</th>
+                <th className="py-2 pr-2 font-semibold">Method</th>
+                <th className="py-2 text-right font-semibold">Amount</th>
               </tr>
             </thead>
             <tbody>
               {data.recentPayments.map((p) => (
                 <tr key={p.id} className="border-b border-slate-100">
-                  <td className="py-1 pr-2 text-slate-500">{p.date}</td>
-                  <td className="py-1 pr-2 text-slate-600">{p.customerName}</td>
-                  <td className="py-1 pr-2 text-slate-500 capitalize">{p.paymentMethod}</td>
-                  <td className="py-1 text-right tabular-nums">{p.amount}</td>
+                  <td className="py-1.5 pr-2 text-slate-500">{p.date}</td>
+                  <td className="py-1.5 pr-2 text-slate-600">{p.customerName}</td>
+                  <td className="py-1.5 pr-2 text-slate-500 capitalize">{p.paymentMethod}</td>
+                  <td className="py-1.5 text-right"><MoneyText value={p.amount} /></td>
                 </tr>
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </Section>
 
@@ -174,33 +178,37 @@ function DashboardBody({ data }: { data: DashboardSummary }) {
         {data.customersWithOutstandingBalance.length === 0 ? (
           <EmptyRow>No customers currently owe a balance.</EmptyRow>
         ) : (
-          <table className="w-full text-sm">
+          <div className="overflow-x-auto">
+          <table className="w-full min-w-[480px] text-sm">
             <thead>
-              <tr className="border-b border-slate-200 text-left text-xs text-slate-500">
-                <th className="py-1 pr-2 font-medium">Customer</th>
-                <th className="py-1 text-right font-medium">Balance</th>
+              <tr className="border-b border-slate-200 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                <th className="py-2 pr-2 font-semibold">Customer</th>
+                <th className="py-2 text-right font-semibold">Balance</th>
               </tr>
             </thead>
             <tbody>
               {data.customersWithOutstandingBalance.map((c) => (
                 <tr key={c.id} className="border-b border-slate-100">
-                  <td className="py-1 pr-2 text-slate-600">{c.name}</td>
-                  <td className="py-1 text-right font-medium tabular-nums text-slate-900">{c.balance}</td>
+                  <td className="py-1.5 pr-2 text-slate-600">{c.name}</td>
+                  <td className="py-1.5 text-right font-medium text-slate-900"><MoneyText value={c.balance} /></td>
                 </tr>
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </Section>
     </div>
   );
 }
 
-function Card({ label, value }: { label: string; value: string }) {
+function Card({ label, value, money = true }: { label: string; value: string; money?: boolean }) {
   return (
-    <div className="rounded-md border border-slate-200 p-3">
+    <div className="rounded-md border border-slate-200 p-4">
       <p className="text-xs font-medium text-slate-500">{label}</p>
-      <p className="mt-1 text-lg font-semibold tabular-nums text-slate-900">{value}</p>
+      <p className="mt-1 text-xl font-semibold tabular-nums text-slate-900">
+        {money ? <MoneyText value={value} /> : value}
+      </p>
     </div>
   );
 }
@@ -208,7 +216,7 @@ function Card({ label, value }: { label: string; value: string }) {
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div>
-      <p className="text-xs font-medium uppercase tracking-wide text-slate-400">{title}</p>
+      <SectionHeading className="text-sm uppercase tracking-wide text-slate-500">{title}</SectionHeading>
       <div className="mt-2">{children}</div>
     </div>
   );

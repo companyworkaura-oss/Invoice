@@ -1,6 +1,8 @@
 import type { EmbroideryCategory } from '@invoice/shared';
 import { useState } from 'react';
 import { ApiError } from '../../lib/api';
+import { FormField, PrimaryButton, SecondaryButton, SectionHeading } from '../../lib/ui';
+import { FIELD_INPUT_CLASS } from '../../lib/ui-tokens';
 import * as categoriesApi from './api';
 
 interface Props {
@@ -71,58 +73,54 @@ export function CategoryForm({ category, onSaved, onCancel }: Props) {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-3 rounded-md border border-slate-200 p-4">
-      <h3 className="text-sm font-semibold text-slate-900">{category ? 'Edit category' : 'New category'}</h3>
-      <div>
-        <label htmlFor="cat-name" className="block text-xs font-medium text-slate-500">
-          Name
-        </label>
+    <form onSubmit={handleSubmit} className="space-y-4 rounded-md border border-slate-200 p-4 sm:p-5">
+      <SectionHeading>{category ? 'Edit category' : 'New category'}</SectionHeading>
+
+      <FormField label="Name" htmlFor="cat-name">
         <input
           id="cat-name"
           required
           placeholder="e.g. Daman Lace"
           value={form.name}
           onChange={(e) => field('name', e.target.value)}
-          className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-slate-500 focus:outline-none"
+          className={FIELD_INPUT_CLASS}
         />
-      </div>
-      <div>
-        <label htmlFor="cat-description" className="block text-xs font-medium text-slate-500">
-          Description
-        </label>
+      </FormField>
+
+      <FormField label="Description" htmlFor="cat-description" optional>
         <textarea
           id="cat-description"
           rows={2}
           value={form.description}
           onChange={(e) => field('description', e.target.value)}
-          className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-slate-500 focus:outline-none"
+          className={FIELD_INPUT_CLASS}
         />
-      </div>
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label htmlFor="cat-rate" className="block text-xs font-medium text-slate-500">
-            Default Rate
-          </label>
+      </FormField>
+
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <FormField
+          label="Default rate"
+          htmlFor="cat-rate"
+          optional
+          helperText="Starting point only — can be overridden per invoice item."
+        >
           <input
             id="cat-rate"
             inputMode="decimal"
             placeholder="0.00"
             value={form.defaultRate}
             onChange={(e) => field('defaultRate', e.target.value)}
-            className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-slate-500 focus:outline-none"
+            className={FIELD_INPUT_CLASS}
           />
-          <p className="mt-0.5 text-[11px] text-slate-400">Starting point only — can be overridden per invoice item.</p>
-        </div>
-        <div>
-          <label htmlFor="cat-formula-type" className="block text-xs font-medium text-slate-500">
-            Formula type
-          </label>
+        </FormField>
+
+        <FormField label="Formula type" htmlFor="cat-formula-type">
           <input
             id="cat-formula-type"
             list="formula-type-suggestions"
             value={form.formulaType}
             onChange={(e) => field('formulaType', e.target.value)}
-            className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-slate-500 focus:outline-none"
+            className={FIELD_INPUT_CLASS}
           />
           {/* Suggestions only — any label is accepted, nothing is hard-coded. */}
           <datalist id="formula-type-suggestions">
@@ -130,37 +128,26 @@ export function CategoryForm({ category, onSaved, onCancel }: Props) {
             <option value="per_unit" />
             <option value="tiered" />
           </datalist>
-        </div>
+        </FormField>
       </div>
-      <div>
-        <label htmlFor="cat-formula-config" className="block text-xs font-medium text-slate-500">
-          Formula config (JSON)
-        </label>
+
+      <FormField label="Formula config (JSON)" htmlFor="cat-formula-config">
         <textarea
           id="cat-formula-config"
           rows={4}
           spellCheck={false}
           value={form.formulaConfigJson}
           onChange={(e) => field('formulaConfigJson', e.target.value)}
-          className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 font-mono text-xs focus:border-slate-500 focus:outline-none"
+          className={`${FIELD_INPUT_CLASS} font-mono text-xs`}
         />
-      </div>
+      </FormField>
+
       {error && <p className="text-sm text-red-600">{error}</p>}
       <div className="flex gap-2">
-        <button
-          type="submit"
-          disabled={saving}
-          className="rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50"
-        >
+        <PrimaryButton type="submit" disabled={saving}>
           {saving ? 'Saving…' : 'Save'}
-        </button>
-        <button
-          type="button"
-          onClick={onCancel}
-          className="rounded-md border border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50"
-        >
-          Cancel
-        </button>
+        </PrimaryButton>
+        <SecondaryButton onClick={onCancel}>Cancel</SecondaryButton>
       </div>
     </form>
   );

@@ -2,6 +2,7 @@ import type { CompanyProfile, Customer, CustomerStatement, LedgerEntryType } fro
 import { useEffect, useState } from 'react';
 import { ApiError } from '../../lib/api';
 import { downloadPdf } from '../../lib/downloadPdf';
+import { MoneyText, PrimaryButton, SecondaryButton, SectionHeading } from '../../lib/ui';
 import * as companyApi from '../company/api';
 import * as ledgerApi from './api';
 import { StatementPrintDocument } from './StatementPrintDocument';
@@ -89,10 +90,10 @@ export function CustomerStatementView({ customer, onBack }: Props) {
     <div>
       <div className="flex flex-wrap items-center justify-between gap-2 print:hidden">
         <div>
-          <button type="button" onClick={onBack} className="text-xs text-slate-500 underline">
-            Back
+          <button type="button" onClick={onBack} className="text-sm font-medium text-slate-600 underline hover:text-slate-900">
+            ← Back
           </button>
-          <h3 className="mt-1 text-sm font-semibold text-slate-900">Statement — {customer.name}</h3>
+          <SectionHeading className="mt-1">Statement — {customer.name}</SectionHeading>
         </div>
         <div className="flex flex-wrap items-end gap-2">
           <label className="text-xs font-medium text-slate-500">
@@ -127,21 +128,10 @@ export function CustomerStatementView({ customer, onBack }: Props) {
               </option>
             ))}
           </select>
-          <button
-            type="button"
-            onClick={handlePrint}
-            className="rounded-md border border-slate-300 px-3 py-1 text-sm text-slate-600 hover:bg-slate-50"
-          >
-            Print
-          </button>
-          <button
-            type="button"
-            onClick={handleDownload}
-            disabled={downloading}
-            className="rounded-md bg-slate-900 px-3 py-1 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50"
-          >
+          <SecondaryButton onClick={handlePrint}>Print</SecondaryButton>
+          <PrimaryButton onClick={handleDownload} disabled={downloading}>
             {downloading ? 'Preparing…' : 'Download PDF'}
-          </button>
+          </PrimaryButton>
         </div>
       </div>
 
@@ -165,30 +155,32 @@ export function CustomerStatementView({ customer, onBack }: Props) {
           {statement.entries.length === 0 ? (
             <p className="mt-4 text-sm text-slate-400">No transactions in this period.</p>
           ) : (
-            <table className="mt-4 w-full text-sm">
+            <div className="mt-4 overflow-x-auto">
+            <table className="w-full min-w-[560px] text-sm">
               <thead>
-                <tr className="border-b border-slate-200 text-left text-xs text-slate-500">
-                  <th className="py-1.5 pr-2 font-medium">Date</th>
-                  <th className="py-1.5 pr-2 font-medium">Reference</th>
-                  <th className="py-1.5 pr-2 font-medium">Description</th>
-                  <th className="py-1.5 pr-2 text-right font-medium">Debit</th>
-                  <th className="py-1.5 pr-2 text-right font-medium">Credit</th>
-                  <th className="py-1.5 text-right font-medium">Balance</th>
+                <tr className="border-b border-slate-200 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  <th className="py-2 pr-2 font-semibold">Date</th>
+                  <th className="py-2 pr-2 font-semibold">Reference</th>
+                  <th className="py-2 pr-2 font-semibold">Description</th>
+                  <th className="py-2 pr-2 text-right font-semibold">Debit</th>
+                  <th className="py-2 pr-2 text-right font-semibold">Credit</th>
+                  <th className="py-2 text-right font-semibold">Balance</th>
                 </tr>
               </thead>
               <tbody>
                 {statement.entries.map((e) => (
                   <tr key={e.id} className="border-b border-slate-100">
-                    <td className="py-1 pr-2 text-slate-500">{e.date}</td>
-                    <td className="py-1 pr-2 text-slate-600">{e.reference ?? '—'}</td>
-                    <td className="py-1 pr-2 text-slate-500">{e.description ?? '—'}</td>
-                    <td className="py-1 pr-2 text-right tabular-nums">{e.debit !== '0.00' ? e.debit : ''}</td>
-                    <td className="py-1 pr-2 text-right tabular-nums">{e.credit !== '0.00' ? e.credit : ''}</td>
-                    <td className="py-1 text-right tabular-nums font-medium text-slate-900">{e.runningBalance}</td>
+                    <td className="py-1.5 pr-2 text-slate-500">{e.date}</td>
+                    <td className="py-1.5 pr-2 text-slate-600">{e.reference ?? '—'}</td>
+                    <td className="py-1.5 pr-2 text-slate-500">{e.description ?? '—'}</td>
+                    <td className="py-1.5 pr-2 text-right">{e.debit !== '0.00' ? <MoneyText value={e.debit} showCurrency={false} /> : ''}</td>
+                    <td className="py-1.5 pr-2 text-right">{e.credit !== '0.00' ? <MoneyText value={e.credit} showCurrency={false} /> : ''}</td>
+                    <td className="py-1.5 text-right font-medium text-slate-900"><MoneyText value={e.runningBalance} showCurrency={false} /></td>
                   </tr>
                 ))}
               </tbody>
             </table>
+            </div>
           )}
         </div>
       )}

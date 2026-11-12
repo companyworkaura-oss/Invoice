@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { ApiError } from '../../lib/api';
 import { EMPTY_LIST, useAsyncList } from '../../lib/use-async-list';
 import { useCurrentIdentity } from '../../lib/use-current-identity';
+import { PrimaryButton, SecondaryButton } from '../../lib/ui';
 import { useDirtyFormGuard } from '../../lib/use-dirty-form-guard';
 import * as customersApi from '../customers/api';
 import * as invoicesApi from './api';
@@ -644,26 +645,23 @@ export function QuickInvoiceForm({ invoice, onSaved, onCancel }: Props) {
 
       {submitError && <p className="mt-3 text-sm text-red-600">{submitError}</p>}
 
-      {/* UI/UX-02: one prominent primary action ("Create invoice"); Cancel stays visually lighter (outline only). */}
+      {/* UI/UX-02/05: one prominent primary action ("Create invoice"); Cancel stays visually lighter (outline only). */}
       <div className="mt-4 flex flex-wrap justify-end gap-2">
-        <button
-          type="button"
+        <SecondaryButton
           disabled={saving}
           onClick={() => {
             if (confirmLeaveIfDirty()) onCancel();
           }}
-          className="rounded-md border border-slate-300 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 disabled:opacity-50"
         >
           Cancel
-        </button>
-        <button
+        </SecondaryButton>
+        <PrimaryButton
           type="submit"
           disabled={saving || !customersReady}
           title={!customersReady ? 'Waiting for customers to load' : undefined}
-          className="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50"
         >
           {saving ? 'Saving…' : editing ? 'Save changes' : 'Create invoice'}
-        </button>
+        </PrimaryButton>
       </div>
     </form>
   );

@@ -1,6 +1,7 @@
 import type { Customer, Permission } from '@invoice/shared';
 import { useState } from 'react';
 import { ApiError } from '../../lib/api';
+import { DangerButton, SecondaryButton, SectionHeading, StatusBadge } from '../../lib/ui';
 import { CustomerLedgerPanel } from '../ledger/CustomerLedgerPanel';
 import * as customersApi from './api';
 
@@ -57,18 +58,18 @@ export function CustomerDetails({ customer, onBack, onEdit, onArchived, onViewSt
   }
 
   return (
-    <div className="rounded-md border border-slate-200 p-4">
+    <div className="rounded-md border border-slate-200 p-4 sm:p-5">
       <div className="flex items-start justify-between">
-        <div>
-          <h3 className="text-sm font-semibold text-slate-900">{customer.name}</h3>
-          {customer.status === 'archived' && <p className="text-xs text-slate-400">Archived</p>}
+        <div className="flex items-center gap-2">
+          <SectionHeading>{customer.name}</SectionHeading>
+          {customer.status === 'archived' && <StatusBadge label="Archived" tone="neutral" />}
         </div>
-        <button type="button" onClick={onBack} className="text-xs text-slate-500 underline">
-          Back
-        </button>
+        <SecondaryButton onClick={onBack} className="px-3 py-1.5">
+          ← Back
+        </SecondaryButton>
       </div>
 
-      <dl className="mt-3 space-y-1 text-sm">
+      <dl className="mt-4 space-y-1.5 text-sm">
         {ROW.map(([label, key]) => (
           <div key={key} className="flex gap-2">
             <dt className="w-32 shrink-0 text-slate-500">{label}</dt>
@@ -79,42 +80,18 @@ export function CustomerDetails({ customer, onBack, onEdit, onArchived, onViewSt
 
       {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
 
-      <div className="mt-4 flex gap-2">
+      <div className="mt-4 flex flex-wrap gap-2">
+        {customer.status === 'active' && <SecondaryButton onClick={onEdit}>Edit</SecondaryButton>}
+        <SecondaryButton onClick={onViewStatement}>View Statement</SecondaryButton>
         {customer.status === 'active' && (
-          <button
-            type="button"
-            onClick={onEdit}
-            className="rounded-md border border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50"
-          >
-            Edit
-          </button>
-        )}
-        <button
-          type="button"
-          onClick={onViewStatement}
-          className="rounded-md border border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50"
-        >
-          View Statement
-        </button>
-        {customer.status === 'active' && (
-          <button
-            type="button"
-            onClick={handleArchive}
-            disabled={archiving}
-            className="rounded-md border border-slate-300 px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 disabled:opacity-50"
-          >
+          <DangerButton onClick={handleArchive} disabled={archiving}>
             {archiving ? 'Archiving…' : 'Archive'}
-          </button>
+          </DangerButton>
         )}
         {customer.status === 'archived' && (
-          <button
-            type="button"
-            onClick={handleUnarchive}
-            disabled={archiving}
-            className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-blue-700 hover:bg-blue-50 disabled:opacity-50"
-          >
+          <SecondaryButton onClick={handleUnarchive} disabled={archiving}>
             {archiving ? 'Restoring…' : 'Restore / Unarchive'}
-          </button>
+          </SecondaryButton>
         )}
       </div>
 

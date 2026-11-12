@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { ApiError } from '../../lib/api';
+import { PrimaryButton } from '../../lib/ui';
 import * as authApi from './api';
 
 interface Props {
@@ -57,13 +58,9 @@ export function LoginForm({ onLoggedIn, onSwitchToRegister }: Props) {
         />
       </div>
       {error && <p className="text-sm text-red-600">{error}</p>}
-      <button
-        type="submit"
-        disabled={submitting}
-        className="w-full rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50"
-      >
+      <PrimaryButton type="submit" disabled={submitting} className="w-full">
         {submitting ? 'Signing in…' : 'Sign in'}
-      </button>
+      </PrimaryButton>
       <p className="text-center text-sm text-slate-500">
         No account?{' '}
         <button type="button" onClick={onSwitchToRegister} className="font-medium text-slate-900 underline">
