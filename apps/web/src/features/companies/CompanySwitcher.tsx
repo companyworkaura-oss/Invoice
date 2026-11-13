@@ -70,7 +70,7 @@ export function CompanySwitcher({ activeCompanyId, onSwitched }: Props) {
   return (
     <div className="mt-4 border-t border-slate-200 pt-4">
       <p className="text-xs font-medium uppercase tracking-wide text-slate-400">Your companies</p>
-      {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
+      {error && <p role="alert" className="mt-2 text-sm text-red-600">{error}</p>}
       {companies === null ? (
         loadError ? (
           <div className="mt-2">
@@ -131,7 +131,7 @@ export function CompanySwitcher({ activeCompanyId, onSwitched }: Props) {
           placeholder="New company name"
           value={newName}
           onChange={(e) => setNewName(e.target.value)}
-          className="min-w-0 flex-1 rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-slate-500 focus:outline-none"
+          className="min-w-0 flex-1 rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-400"
         />
         <button
           type="submit"

@@ -138,8 +138,8 @@ export function CustomerStatementView({ customer, onBack }: Props) {
       {from && to && from > to && (
         <p className="mt-2 text-sm text-red-600 print:hidden">"From" must be on or before "To".</p>
       )}
-      {loadError && <p className="mt-2 text-sm text-red-600 print:hidden">{loadError}</p>}
-      {downloadError && <p className="mt-1 text-sm text-red-600 print:hidden">{downloadError}</p>}
+      {loadError && <p role="alert" className="mt-2 text-sm text-red-600 print:hidden">{loadError}</p>}
+      {downloadError && <p role="alert" className="mt-1 text-sm text-red-600 print:hidden">{downloadError}</p>}
 
       {!statement ? (
         <p className="mt-4 text-sm text-slate-400 print:hidden">Loading…</p>

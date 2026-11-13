@@ -43,17 +43,25 @@ export function CustomerList({ onSelect, onAddCustomer, refreshToken }: Props) {
   return (
     <div>
       <div className="flex gap-2">
+        <label htmlFor="customer-search" className="sr-only">
+          Search customers
+        </label>
         <input
+          id="customer-search"
           type="search"
           placeholder="Search name, business, or phone…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="min-w-0 flex-1 rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-slate-500 focus:outline-none"
+          className="min-w-0 flex-1 rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-400"
         />
+        <label htmlFor="customer-status-filter" className="sr-only">
+          Filter by status
+        </label>
         <select
+          id="customer-status-filter"
           value={status}
           onChange={(e) => setStatus(e.target.value as StatusFilter)}
-          className="rounded-md border border-slate-300 px-2 py-1 text-sm"
+          className="rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-400"
         >
           <option value="active">Active</option>
           <option value="archived">Archived</option>

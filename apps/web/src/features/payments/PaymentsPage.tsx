@@ -4,6 +4,7 @@ import { ApiError } from '../../lib/api';
 import { EmptyState, ErrorState, InlineErrorBanner, LoadingState, SuccessBanner, UpdatingIndicator } from '../../lib/AsyncState';
 import { deriveListViewState } from '../../lib/list-view-state';
 import { MoneyText, PageHeader, PrimaryButton } from '../../lib/ui';
+import { useDocumentTitle } from '../../lib/use-document-title';
 import { useAsyncList } from '../../lib/use-async-list';
 import * as paymentsApi from './api';
 import { PaymentForm } from './PaymentForm';
@@ -21,6 +22,7 @@ interface Props {
 const DELETE_CONFIRM = 'Delete this payment? The related ledger entry and balances will be updated. This action cannot be undone.';
 
 export function PaymentsPage({ permissions, initialCustomerId, openFormOnMount = false }: Props) {
+  useDocumentTitle('Payments');
   const [showForm, setShowForm] = useState(openFormOnMount);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -107,7 +109,11 @@ export function PaymentsPage({ permissions, initialCustomerId, openFormOnMount =
         </div>
       )}
 
-      {actionError && <p className="mt-2 text-sm text-red-600">{actionError}</p>}
+      {actionError && (
+        <p role="alert" className="mt-2 text-sm text-red-600">
+          {actionError}
+        </p>
+      )}
 
       {customerFilter && (
         <p className="mt-2 text-sm text-slate-500">

@@ -67,30 +67,56 @@ interface RowMenuItem {
   className?: string;
 }
 
-/** The "⋮" overflow menu for a row's less-frequently-used actions. Purely presentational — every action/permission/disabled-reason it renders is decided by the caller, nothing here changes what's allowed. */
-function RowActionsMenu({ items }: { items: RowMenuItem[] }) {
+/**
+ * The "⋮" overflow menu for a row's less-frequently-used actions.
+ * Purely presentational — every action/permission/disabled-reason it
+ * renders is decided by the caller, nothing here changes what's
+ * allowed. UI/UX-09 Part 6/7: `contextLabel` gives the trigger an
+ * accessible name that identifies *which* row it's for (e.g. "Actions
+ * for INV-001"), not just a bare "More actions" repeated identically
+ * on every row; Escape closes the menu and returns focus to this same
+ * trigger button (the trigger is never removed/recreated, so that's
+ * safe to do synchronously, no need to wait for a re-render).
+ */
+function RowActionsMenu({ items, contextLabel }: { items: RowMenuItem[]; contextLabel: string }) {
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+
+  function closeAndRefocusTrigger() {
+    setOpen(false);
+    triggerRef.current?.focus();
+  }
 
   useEffect(() => {
     if (!open) return;
     function handleOutsideClick(e: MouseEvent) {
+      // An outside click already moves focus wherever the user
+      // clicked — only close, don't fight that by also refocusing.
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
         setOpen(false);
       }
     }
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') closeAndRefocusTrigger();
+    }
     document.addEventListener('mousedown', handleOutsideClick);
-    return () => document.removeEventListener('mousedown', handleOutsideClick);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleOutsideClick);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
   }, [open]);
 
   return (
     <div ref={containerRef} className="relative inline-block">
       <button
+        ref={triggerRef}
         type="button"
         onClick={() => setOpen((o) => !o)}
-        aria-label="More actions"
+        aria-label={`Actions for ${contextLabel}`}
         aria-expanded={open}
-        className="rounded-md px-1.5 py-0.5 text-slate-500 hover:bg-slate-100 hover:text-slate-900"
+        className="rounded-md px-1.5 py-0.5 text-slate-500 hover:bg-slate-100 hover:text-slate-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-400"
       >
         ⋮
       </button>
@@ -106,7 +132,7 @@ function RowActionsMenu({ items }: { items: RowMenuItem[] }) {
                 setOpen(false);
                 item.onClick();
               }}
-              className={`block w-full px-3 py-1.5 text-left hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-400 disabled:hover:bg-transparent ${item.className ?? 'text-slate-700'}`}
+              className={`block w-full px-3 py-1.5 text-left hover:bg-slate-50 focus-visible:bg-slate-50 focus-visible:outline-none disabled:cursor-not-allowed disabled:text-slate-400 disabled:hover:bg-transparent ${item.className ?? 'text-slate-700'}`}
             >
               {item.label}
             </button>
@@ -242,8 +268,9 @@ export function InvoiceList({ onSelect, onAction, onViewPayments, onCreateInvoic
           <button
             key={t.value}
             type="button"
+            aria-pressed={archived === t.value}
             onClick={() => setFilter({ view: t.value === DEFAULT_ARCHIVED_FILTER ? '' : t.value })}
-            className={`-mb-px border-b-2 px-2 pb-2 text-sm font-medium ${
+            className={`-mb-px border-b-2 px-2 pb-2 text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-400 ${
               archived === t.value ? 'border-slate-900 text-slate-900' : 'border-transparent text-slate-500 hover:text-slate-700'
             }`}
           >
@@ -254,7 +281,12 @@ export function InvoiceList({ onSelect, onAction, onViewPayments, onCreateInvoic
 
       <div className="mt-3 flex flex-wrap items-end gap-2">
         <div className="min-w-[180px] flex-[2_1_260px]">
+          {/* UI/UX-09 Part 2: a persistent accessible label, not just the placeholder — the placeholder/visible helper text below stay as extra hints, not the only way to tell what this field is. */}
+          <label htmlFor="invoice-search" className="sr-only">
+            Search invoices
+          </label>
           <input
+            id="invoice-search"
             type="text"
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
@@ -264,30 +296,42 @@ export function InvoiceList({ onSelect, onAction, onViewPayments, onCreateInvoic
           />
           <p className="mt-0.5 text-[11px] text-slate-400">Search by invoice #, bill #, customer, lot #, gate pass #</p>
         </div>
-        <select
-          value={customerId}
-          onChange={(e) => setFilter({ customerId: e.target.value })}
-          className="flex-1 basis-[150px] rounded-md border border-slate-300 px-3 py-2 text-sm"
-        >
-          <option value="">{customersList.data === null ? 'Loading…' : 'All customers'}</option>
-          {customers.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name}
-            </option>
-          ))}
-        </select>
-        <select
-          value={paymentStatus}
-          onChange={(e) => setFilter({ status: e.target.value })}
-          className="flex-1 basis-[130px] rounded-md border border-slate-300 px-3 py-2 text-sm"
-        >
-          <option value="">All statuses</option>
-          {PAYMENT_STATUSES.map((s) => (
-            <option key={s} value={s}>
-              {s}
-            </option>
-          ))}
-        </select>
+        <div className="flex-1 basis-[150px]">
+          <label htmlFor="invoice-customer-filter" className="sr-only">
+            Filter by customer
+          </label>
+          <select
+            id="invoice-customer-filter"
+            value={customerId}
+            onChange={(e) => setFilter({ customerId: e.target.value })}
+            className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+          >
+            <option value="">{customersList.data === null ? 'Loading…' : 'All customers'}</option>
+            {customers.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="flex-1 basis-[130px]">
+          <label htmlFor="invoice-status-filter" className="sr-only">
+            Filter by payment status
+          </label>
+          <select
+            id="invoice-status-filter"
+            value={paymentStatus}
+            onChange={(e) => setFilter({ status: e.target.value })}
+            className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+          >
+            <option value="">All statuses</option>
+            {PAYMENT_STATUSES.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+          </select>
+        </div>
         <label className="shrink-0 text-xs font-medium text-slate-500">
           From
           <input
@@ -318,7 +362,7 @@ export function InvoiceList({ onSelect, onAction, onViewPayments, onCreateInvoic
           </button>
         </p>
       )}
-      {actionError && <p className="mt-2 text-sm text-red-600">{actionError}</p>}
+      {actionError && <p role="alert" className="mt-2 text-sm text-red-600">{actionError}</p>}
 
       {invoices === null ? (
         loadError ? (
@@ -384,10 +428,16 @@ export function InvoiceList({ onSelect, onAction, onViewPayments, onCreateInvoic
                     </td>
                     <td className="py-1.5">
                       <div className="flex items-center gap-2 text-xs">
-                        <button type="button" onClick={() => onSelect(inv)} className="text-slate-600 underline hover:text-slate-900">
+                        <button
+                          type="button"
+                          onClick={() => onSelect(inv)}
+                          aria-label={`View invoice ${inv.invoiceNumber}`}
+                          className="text-slate-600 underline hover:text-slate-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-400"
+                        >
                           View
                         </button>
                         <RowActionsMenu
+                          contextLabel={`invoice ${inv.invoiceNumber}`}
                           items={(() => {
                             const blockReason = hardDeleteBlockReason(inv);
                             const menuItems: RowMenuItem[] = [

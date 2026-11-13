@@ -160,7 +160,7 @@ export function CustomerForm({ customer, onSaved, onCancel }: Props) {
         />
       </FormField>
 
-      {error && <p className="text-sm text-red-600">{error}</p>}
+      {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
       <div className="flex gap-2">
         <PrimaryButton type="submit" disabled={saving}>
           {saving ? 'Saving…' : 'Save'}

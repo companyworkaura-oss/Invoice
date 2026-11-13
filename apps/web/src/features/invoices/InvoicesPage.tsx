@@ -4,6 +4,7 @@ import { Navigate, Route, Routes, useLocation, useNavigate, useParams, useSearch
 import { ApiError } from '../../lib/api';
 import { SuccessBanner } from '../../lib/AsyncState';
 import { PageHeader } from '../../lib/ui';
+import { useDocumentTitle } from '../../lib/use-document-title';
 import { CreateInvoiceForm } from './CreateInvoiceForm';
 import { InvoiceDetails } from './InvoiceDetails';
 import { InvoiceList, type InvoiceRowAction } from './InvoiceList';
@@ -60,6 +61,7 @@ export function InvoicesPage({ permissions }: Props) {
 }
 
 function InvoiceListRoute({ permissions }: { permissions: Permission[] }) {
+  useDocumentTitle('Invoices');
   const navigate = useNavigate();
   const [refreshToken, setRefreshToken] = useState(0);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -110,7 +112,7 @@ function InvoiceListRoute({ permissions }: { permissions: Permission[] }) {
         />
       </div>
 
-      {loadError && <p className="mt-2 text-sm text-red-600">{loadError}</p>}
+      {loadError && <p role="alert" className="mt-2 text-sm text-red-600">{loadError}</p>}
 
       <div className="mt-4 print:mt-0">
         <InvoiceList
@@ -188,8 +190,9 @@ function InvoiceDetailRoute({ permissions }: { permissions: Permission[] }) {
   const navigate = useNavigate();
   const { invoice, error, setInvoice } = useInvoiceFromParam();
   const [flash, dismissFlash] = useFlashMessage();
+  useDocumentTitle(invoice ? invoice.invoiceNumber : 'Invoice');
 
-  if (error) return <p className="text-sm text-red-600">{error}</p>;
+  if (error) return <p role="alert" className="text-sm text-red-600">{error}</p>;
   if (!invoice) return <p className="text-sm text-slate-400">Loading…</p>;
 
   return (
@@ -217,7 +220,7 @@ function InvoiceTemplateRoute() {
   const validInitialAction: TemplateInitialAction | undefined =
     initialAction === 'print' || initialAction === 'download' || initialAction === 'whatsapp' ? initialAction : undefined;
 
-  if (error) return <p className="text-sm text-red-600">{error}</p>;
+  if (error) return <p role="alert" className="text-sm text-red-600">{error}</p>;
   if (!invoice) return <p className="text-sm text-slate-400">Loading…</p>;
 
   return (
@@ -233,6 +236,7 @@ function InvoiceTemplateRoute() {
 }
 
 function CreateInvoiceRoute() {
+  useDocumentTitle('New invoice');
   const navigate = useNavigate();
   return (
     <CreateInvoiceForm
@@ -245,6 +249,7 @@ function CreateInvoiceRoute() {
 }
 
 function QuickInvoiceRoute() {
+  useDocumentTitle('Quick invoice');
   const navigate = useNavigate();
   return (
     <QuickInvoiceForm
@@ -268,8 +273,9 @@ function QuickInvoiceRoute() {
 function InvoiceEditRoute() {
   const navigate = useNavigate();
   const { invoice, error } = useInvoiceFromParam();
+  useDocumentTitle(invoice ? `Edit ${invoice.invoiceNumber}` : 'Edit invoice');
 
-  if (error) return <p className="text-sm text-red-600">{error}</p>;
+  if (error) return <p role="alert" className="text-sm text-red-600">{error}</p>;
   if (!invoice) return <p className="text-sm text-slate-400">Loading…</p>;
 
   const onSaved = (saved: InvoiceWithItems) =>

@@ -1,6 +1,6 @@
 import type { DiscountType, InvoiceWithItems } from '@invoice/shared';
 import { calculateSets, formatNumber } from '@invoice/shared';
-import { useEffect, useMemo, useState } from 'react';
+import { cloneElement, Fragment, isValidElement, useEffect, useId, useMemo, useState, type ReactElement } from 'react';
 import { ApiError } from '../../lib/api';
 import { EMPTY_LIST, useAsyncList } from '../../lib/use-async-list';
 import { useCurrentIdentity } from '../../lib/use-current-identity';
@@ -390,7 +390,7 @@ export function CreateInvoiceForm({ invoice, onSaved, onCancel }: Props) {
         live in the Job Details section below Work Items instead.
       */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <Field label="Customer" error={errors.customerId}>
+        <Field label="Customer" error={errors.customerId} descriptionId="customer-select-description">
           {editing ? (
             <input
               disabled
@@ -405,6 +405,8 @@ export function CreateInvoiceForm({ invoice, onSaved, onCancel }: Props) {
                 disabled={customersList.data === null}
                 value={customerId}
                 onChange={(e) => setCustomerId(e.target.value)}
+                aria-invalid={errors.customerId ? true : undefined}
+                aria-describedby="customer-select-description"
                 className={inputClass(Boolean(errors.customerId))}
               >
                 <option value="">
@@ -500,6 +502,8 @@ export function CreateInvoiceForm({ invoice, onSaved, onCancel }: Props) {
                           rate: cat?.defaultRate ?? '',
                         });
                       }}
+                      aria-invalid={rowErrors?.categoryId ? true : undefined}
+                      aria-describedby={rowErrors?.categoryId ? `item-${index}-category-error` : undefined}
                       className={inputClass(Boolean(rowErrors?.categoryId))}
                     >
                       <option value="">
@@ -517,7 +521,11 @@ export function CreateInvoiceForm({ invoice, onSaved, onCancel }: Props) {
                         </option>
                       ))}
                     </select>
-                    {rowErrors?.categoryId && <p className="mt-0.5 text-xs text-red-600">{rowErrors.categoryId}</p>}
+                    {rowErrors?.categoryId && (
+                      <p id={`item-${index}-category-error`} className="mt-0.5 text-xs text-red-600">
+                        {rowErrors.categoryId}
+                      </p>
+                    )}
                   </td>
                   <td className="py-1.5 pr-2">
                     <input
@@ -533,9 +541,15 @@ export function CreateInvoiceForm({ invoice, onSaved, onCancel }: Props) {
                       inputMode="decimal"
                       value={row.quantity}
                       onChange={(e) => updateItem(index, { quantity: e.target.value })}
+                      aria-invalid={rowErrors?.quantity ? true : undefined}
+                      aria-describedby={rowErrors?.quantity ? `item-${index}-quantity-error` : undefined}
                       className={`${inputClass(Boolean(rowErrors?.quantity))} text-right`}
                     />
-                    {rowErrors?.quantity && <p className="mt-0.5 text-xs text-red-600">{rowErrors.quantity}</p>}
+                    {rowErrors?.quantity && (
+                      <p id={`item-${index}-quantity-error`} className="mt-0.5 text-xs text-red-600">
+                        {rowErrors.quantity}
+                      </p>
+                    )}
                   </td>
                   <td className="py-1.5 pr-2">
                     <input
@@ -543,9 +557,15 @@ export function CreateInvoiceForm({ invoice, onSaved, onCancel }: Props) {
                       inputMode="numeric"
                       value={row.stitches}
                       onChange={(e) => updateItem(index, { stitches: e.target.value })}
+                      aria-invalid={rowErrors?.stitches ? true : undefined}
+                      aria-describedby={rowErrors?.stitches ? `item-${index}-stitches-error` : undefined}
                       className={`${inputClass(Boolean(rowErrors?.stitches))} text-right`}
                     />
-                    {rowErrors?.stitches && <p className="mt-0.5 text-xs text-red-600">{rowErrors.stitches}</p>}
+                    {rowErrors?.stitches && (
+                      <p id={`item-${index}-stitches-error`} className="mt-0.5 text-xs text-red-600">
+                        {rowErrors.stitches}
+                      </p>
+                    )}
                   </td>
                   <td className="py-1.5 pr-2">
                     <input
@@ -764,18 +784,51 @@ export function CreateInvoiceForm({ invoice, onSaved, onCancel }: Props) {
 
 function inputClass(hasError: boolean): string {
   return `w-full rounded-md border px-2 py-1.5 text-sm focus:outline-none ${
-    hasError ? 'border-red-400 focus:border-red-500' : 'border-slate-300 focus:border-slate-500'
+    hasError ? 'border-red-400 focus:border-red-500 focus:ring-2 focus:ring-red-300' : 'border-slate-300 focus:border-slate-500 focus:ring-2 focus:ring-slate-400'
   }`;
 }
 
-function Field({ label, error, children }: { label: string; error?: string; children: React.ReactNode }) {
+/**
+ * UI/UX-09 Part 3: the error message gets an id and the control gets
+ * aria-invalid/aria-describedby pointing to it, whenever `children`
+ * is exactly one element (true for every call site here except the
+ * Customer field's own fragment, which wires its own aria attributes
+ * directly — see its `aria-describedby` below). The label still wraps
+ * its control by nesting (an already-valid, already-used accessible
+ * association in this form), so no htmlFor/id pair is needed here.
+ */
+function Field({
+  label,
+  error,
+  descriptionId,
+  children,
+}: {
+  label: string;
+  error?: string;
+  /** Lets a caller whose `children` is more than one element (e.g. the Customer field's select + its own inline fetch-error text) wire aria-describedby itself, pointing at this same id. */
+  descriptionId?: string;
+  children: React.ReactNode;
+}) {
+  const generatedId = useId();
+  const descId = descriptionId ?? generatedId;
+  const control =
+    error && isValidElement(children) && children.type !== Fragment
+      ? cloneElement(children as ReactElement<{ 'aria-invalid'?: boolean; 'aria-describedby'?: string }>, {
+          'aria-invalid': true,
+          'aria-describedby': descId,
+        })
+      : children;
   return (
     <div>
       <label className="block text-xs font-medium text-slate-500">
         {label}
-        <div className="mt-1">{children}</div>
+        <div className="mt-1">{control}</div>
       </label>
-      {error && <p className="mt-0.5 text-xs text-red-600">{error}</p>}
+      {error && (
+        <p id={descId} className="mt-0.5 text-xs text-red-600">
+          {error}
+        </p>
+      )}
     </div>
   );
 }

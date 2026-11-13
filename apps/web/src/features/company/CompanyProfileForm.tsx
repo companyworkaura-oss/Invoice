@@ -117,8 +117,8 @@ export function CompanyProfileForm({ profile, canEdit, onSaved }: Props) {
           )}
         </FormField>
       ))}
-      {error && <p className="text-sm text-red-600">{error}</p>}
-      {saved && !error && <p className="text-sm text-emerald-600">Saved.</p>}
+      {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
+      {saved && !error && <p role="status" className="text-sm text-emerald-600">Saved.</p>}
       {canEdit && (
         <PrimaryButton type="submit" disabled={saving} className="w-full">
           {saving ? 'Saving…' : 'Save profile'}

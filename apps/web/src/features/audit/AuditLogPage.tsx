@@ -2,6 +2,7 @@ import type { AuditAction, AuditEntityType, AuditLogEntry } from '@invoice/share
 import { AUDIT_ACTIONS, AUDIT_ENTITY_TYPES } from '@invoice/shared';
 import { useEffect, useState } from 'react';
 import { PageHeader } from '../../lib/ui';
+import { useDocumentTitle } from '../../lib/use-document-title';
 import * as auditApi from './api';
 
 const ACTION_LABEL: Record<AuditAction, string> = {
@@ -43,6 +44,7 @@ function formatTimestamp(iso: string): string {
 }
 
 export function AuditLogPage() {
+  useDocumentTitle('Activity log');
   const [action, setAction] = useState<AuditAction | ''>('');
   const [entityType, setEntityType] = useState<AuditEntityType | ''>('');
   const [from, setFrom] = useState('');

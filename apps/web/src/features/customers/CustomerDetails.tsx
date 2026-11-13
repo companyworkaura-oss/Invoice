@@ -78,7 +78,7 @@ export function CustomerDetails({ customer, onBack, onEdit, onArchived, onViewSt
         ))}
       </dl>
 
-      {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
+      {error && <p role="alert" className="mt-2 text-sm text-red-600">{error}</p>}
 
       <div className="mt-4 flex flex-wrap gap-2">
         {customer.status === 'active' && <SecondaryButton onClick={onEdit}>Edit</SecondaryButton>}

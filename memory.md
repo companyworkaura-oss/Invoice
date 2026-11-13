@@ -4966,6 +4966,195 @@ formulaConfig shape every category has always stored.
   required scenarios), and `npm run lint` (zero errors, zero
   warnings). **UI/UX-08 is COMPLETE.**
 
+## UI/UX-09 — Complete Keyboard and Accessibility Support (Phase 72)
+
+Ninth UI/UX finding: filters relying on placeholder/selected-value text
+instead of persistent labels, auth errors as plain unannounced
+paragraphs, no semantic `<header>`/`<nav>`/`<main>` landmarks, invoice
+row menus not fully handling Escape/focus-return, generic action
+labels, and password fields with no show/hide or correct
+`autocomplete`. Accessibility and keyboard interaction only — no
+change to accounting logic, invoice calculations, payment allocation,
+the ledger, company lifecycle, the formula engine, or the database
+schema.
+
+- **Semantic landmarks (Part 1).** `App.tsx`'s authenticated shell now
+  has exactly one `<header>` (company switcher/user/logout), one
+  `<nav>` (AppNav, already self-labelling `aria-label="Main"` since
+  UI/UX-06), and one `<main>` (the routed page content). The
+  unauthenticated login/register view was extracted into its own
+  `AuthScreen` component with its own `<main>`, rendered only when
+  `!me` — so the two `<main>`s are never present at once, never
+  duplicated.
+- **Persistent form/filter labels (Part 2).** Added `sr-only`
+  `<label htmlFor>` elements for every filter control that previously
+  relied only on a placeholder or the selected option text:
+  `InvoiceList.tsx`'s search input and customer/payment-status
+  selects, `CustomerList.tsx`'s search input and status select.
+  Existing full-form fields (invoice/customer/payment/company forms)
+  already had visible `<label>`s from earlier phases.
+- **Field errors (Part 3).** `lib/ui.tsx`'s shared `FormField` and the
+  local `Field` components in `CreateInvoiceForm.tsx`/
+  `QuickInvoiceForm.tsx` now inject `aria-invalid`/`aria-describedby`
+  onto their child control automatically via `cloneElement`/
+  `isValidElement` (guarded against `Fragment` children, which don't
+  render DOM attributes) — this covers every call site whose `children`
+  is a single element. Call sites with a Fragment of multiple children
+  (the "Customer" field in both invoice forms, which pairs a `<select>`
+  with a conditional fetch-error message) get a `descriptionId` override
+  prop so the caller wires `aria-describedby` directly onto the actual
+  control. `focusFirstInvalidField()` (pre-existing from UI/UX-04) was
+  confirmed still intact and live-verified: submitting a Quick Invoice
+  with no customer selected focuses the customer `<select>`, which
+  carries `aria-invalid="true"` and `aria-describedby` pointing at the
+  exact visible error text ("Choose a customer").
+- **Status/error announcements (Part 4).** `AsyncState.tsx`'s
+  `ErrorState`/`InlineErrorBanner` (`role="alert"`) and
+  `SuccessBanner`/`UpdatingIndicator` (`role="status"`) were already
+  built in UI/UX-04 and are reused everywhere lists load/save. Audited
+  every remaining plain, unannounced `<p>{error}</p>`/`<p>Saved.</p>`
+  across the app and added `role="alert"`/`role="status"` to each:
+  `LoginForm.tsx`, `RegisterForm.tsx`, `PaymentsPage.tsx`,
+  `PaymentForm.tsx` (both its top-level error and its inline
+  customer-list fetch-error), `CategoryForm.tsx`, `CompanyProfileForm.tsx`
+  (error + "Saved."), `CustomerForm.tsx`, `CustomerDetails.tsx`,
+  `LogoUploader.tsx`, `CompanySwitcher.tsx`, `CompanyDangerZone.tsx`,
+  `InvoiceList.tsx`, `InvoicesPage.tsx` (its three route-level load
+  errors), `CustomerLedgerPanel.tsx`, `CustomerStatementView.tsx` (both
+  its load and download errors).
+- **Visible keyboard focus (Part 5).** Found, via a project-wide grep,
+  that the single shared `FIELD_INPUT_CLASS` constant (`lib/ui-tokens.ts`,
+  used by `FormField` and directly by many forms) had `focus:outline-none`
+  with only a subtle border-color change as its focus indicator — added
+  `focus:ring-2 focus:ring-slate-400`. The same raw pattern, not using
+  the shared constant, was found and fixed the same way in
+  `CompanySwitcher.tsx`, `RegisterForm.tsx`, `LoginForm.tsx`,
+  `CustomerList.tsx`, and the local `inputClass()` helpers inside
+  `CreateInvoiceForm.tsx`/`QuickInvoiceForm.tsx` (ring color switches to
+  red when the field has an error). Also added explicit
+  `focus-visible:outline` treatment to `InvoiceList.tsx`'s row "View"
+  button, row-menu trigger and items, and the Active/Archived/All
+  filter tabs (which also gained `aria-pressed`). Live-verified at
+  390px: tabbing to the Dashboard nav link shows a clear visible ring.
+- **Invoice row action menu (Part 6).** Deliberately did **not** add
+  `role="menu"`/`role="menuitem"` anywhere in the app — the task
+  explicitly says to avoid a half-correct custom menu pattern when a
+  simpler accessible popover/list is enough, and this app's menus have
+  no arrow-key/roving-tabindex navigation, so a real ARIA menu role
+  would be actively misleading. Removed the already-inconsistent
+  `aria-haspopup="menu"` from `CompanySwitcherDropdown.tsx`'s and
+  `AppNav.tsx`'s "More ▾" trigger (kept `aria-expanded`) for the same
+  reason. `lib/Dropdown.tsx` (the shared popover shell from UI/UX-06)
+  gained `closeAndRefocusTrigger()` — called from both the Escape
+  keydown handler and the `close` callback passed to menu items —
+  which works synchronously because every dropdown's trigger element is
+  always rendered (only the panel is conditional), so there's no need
+  to wait a render before refocusing. `InvoiceList.tsx`'s separate,
+  pre-existing local `RowActionsMenu` (predates the shared `Dropdown`,
+  deliberately left as its own implementation per a UI/UX-06 memory
+  note) got the equivalent treatment directly: a `triggerRef`, the same
+  `closeAndRefocusTrigger()`, and `aria-expanded` on the trigger.
+  Live-verified end to end: focusing a row's "⋮" trigger and pressing
+  Enter opens the menu (showing "PDF"/"Print"/"WhatsApp"/etc.), and
+  pressing Escape closes it and returns focus to the exact trigger
+  button.
+- **Contextual action labels (Part 7).** `RowActionsMenu` gained a
+  `contextLabel` prop; its trigger's `aria-label` changed from the
+  static "More actions" to `` `Actions for ${contextLabel}` ``, wired at
+  the call site as `` `invoice ${inv.invoiceNumber}` `` — live-verified
+  as `"Actions for invoice INV-000001"`. The adjacent "View" button
+  got the matching `` `View invoice ${inv.invoiceNumber}` `` label. The
+  visible button text stays the compact "⋮"/"View" — only the
+  accessible name identifies the specific row.
+- **Password fields (Part 8) and the real backend rule (Part 9).** New
+  shared `features/auth/PasswordField.tsx`: a show/hide toggle button
+  with a state-reflecting `aria-label`/`aria-pressed` ("Show
+  password"/"Hide password"), the correct `autocomplete` token per use
+  (`current-password` for `LoginForm.tsx`, `new-password` for
+  `RegisterForm.tsx`), and the same error/helper-text
+  `aria-describedby` association `FormField` uses elsewhere.
+  `LoginForm.tsx`'s email field got `autoComplete="username"`;
+  `RegisterForm.tsx`'s company/name/email fields got
+  `organization`/`name`/`email`. Read the actual backend rule directly
+  from `apps/api/src/modules/auth/auth.routes.ts`
+  (`requireString(body, 'password', { min: 8, max: 128 })` — 8, not the
+  task text's illustrative "12") rather than inventing a different
+  number, and made it visible before submission via `helperText="Must
+  be at least 8 characters."`. A new test
+  (`accessibility.test.ts`) reads both source files and fails if the
+  displayed number and the backend's real minimum ever drift apart.
+  Live-verified: helper text is visible before any submit attempt, and
+  clicking "Show password" toggles the field's `type` from `password`
+  to `text`.
+- **Modals/dialogs (Part 10).** Every destructive confirmation in the
+  app (`InvoiceList.tsx`, `PaymentsPage.tsx`, `CompanyDangerZone.tsx`,
+  `CustomerDetails.tsx`, etc.) already uses the browser's native
+  `window.confirm`, which is inherently keyboard-reachable, modal, and
+  focus-trapping with no custom code — confirmed this still holds for
+  all 11 call sites; none were weakened or replaced.
+- **Mobile/touch (Part 11).** Live-verified at 390px (Playwright,
+  `deviceScaleFactor: 2`): the Invoices page's filter bar, buttons, and
+  nav all render exactly as before UI/UX-05's touch-target sizing — the
+  new `sr-only` labels, focus rings, and `aria-pressed`/`role`
+  attributes are invisible/non-layout-affecting by design, confirmed
+  by screenshot comparison.
+- **Table semantics (Part 13) and color/status (Part 14).** Confirmed,
+  no change needed: `InvoiceList.tsx`, `PaymentsPage.tsx`, and
+  `AuditLogPage.tsx` already use real `<table>/<thead>/<tbody>/<th>/<td>`
+  (`CustomerList.tsx` is a `<ul>` list, not tabular data, by design).
+  `StatusBadge` (UI/UX-05) already renders a visible text label
+  (Paid/Partial/Unpaid) alongside its color, never color-only.
+- **Document titles (Part 12).** New `lib/use-document-title.ts`
+  (`useDocumentTitle`, wrapping a pure, separately-tested
+  `formatDocumentTitle` function — no SEO infrastructure, no
+  restore-on-unmount since the next page's own mount effect sets the
+  correct title immediately). Wired into every top-level page
+  (`DashboardPage`, `CustomersPage`, `PaymentsPage`, `CategoriesPage`,
+  `AuditLogPage`, `SettingsRoute`, `AuthScreen`) and each of
+  `InvoicesPage.tsx`'s internal routes (list/detail/create/quick/edit,
+  the detail/edit ones using the invoice number once loaded). Live-
+  verified the title changing correctly across Dashboard → Invoices →
+  Quick invoice.
+- **Files changed:** `App.tsx` (landmarks, `AuthScreen`/`SettingsRoute`
+  extraction, document titles), `lib/ui.tsx` (`FormField`), `lib/ui-tokens.ts`
+  (`FIELD_INPUT_CLASS`), `lib/Dropdown.tsx`, `lib/use-document-title.ts`
+  (new), `features/auth/PasswordField.tsx` (new), `features/auth/LoginForm.tsx`,
+  `features/auth/RegisterForm.tsx`, `features/invoices/InvoiceList.tsx`,
+  `features/invoices/CreateInvoiceForm.tsx`, `features/invoices/QuickInvoiceForm.tsx`,
+  `features/invoices/InvoicesPage.tsx`, `features/customers/CustomerList.tsx`,
+  `features/customers/CustomerForm.tsx`, `features/customers/CustomerDetails.tsx`,
+  `features/customers/CustomersPage.tsx`, `features/payments/PaymentsPage.tsx`,
+  `features/payments/PaymentForm.tsx`, `features/formulas/CategoryForm.tsx`,
+  `features/formulas/CategoriesPage.tsx`, `features/audit/AuditLogPage.tsx`,
+  `features/company/CompanyProfileForm.tsx`, `features/company/CompanyDangerZone.tsx`,
+  `features/company/LogoUploader.tsx`, `features/companies/CompanySwitcher.tsx`,
+  `features/companies/CompanySwitcherDropdown.tsx`, `features/nav/AppNav.tsx`,
+  `features/ledger/CustomerLedgerPanel.tsx`, `features/ledger/CustomerStatementView.tsx`,
+  `features/dashboard/DashboardPage.tsx`.
+- **Tests added:** `test/accessibility.test.ts` (3 cases — document
+  title formatting, and a drift guard between `RegisterForm`'s
+  displayed password minimum and the backend's actual
+  `requireString` rule). This repo has no React Testing Library/jsdom,
+  so DOM-dependent behavior (focus management, menu Escape handling,
+  live-region announcements, landmark counts) was verified live
+  instead, per the established convention — see "Verified live" below.
+- **Verified live** (Playwright, dev DB, multiple freshly-registered
+  test companies): confirmed exactly one `<header>`/`<nav>`/`<main>` on
+  the authenticated shell and one `<main>` on the unauthenticated
+  screen; document title updates correctly across Dashboard → Invoices
+  → Quick invoice; password helper text visible pre-submit and the
+  show/hide toggle flips the input's `type`; submitting an incomplete
+  Quick Invoice focuses the customer select with matching
+  `aria-invalid`/`aria-describedby`; focusing a row's action-menu
+  trigger and pressing Enter opens the menu (contextual
+  `aria-label="Actions for invoice INV-000001"`), and Escape closes it
+  and returns focus to that exact trigger button; 390px mobile
+  screenshot confirms no layout regression and a visible focus ring on
+  a tabbed-to nav link.
+- `npm run typecheck`, `npm run build`, `npm test` (web 117/117 — 3
+  new), and `npm run lint` (zero errors, zero warnings), all run at the
+  repo root after every batch of changes. **UI/UX-09 is COMPLETE.**
+
 ## Known gotchas / things to check before starting work
 
 - **Postgres cluster is often stopped** when a session starts:
@@ -6092,6 +6281,30 @@ formulaConfig shape every category has always stored.
     translation layer.
     See "UI/UX-08 — Replace Raw Formula JSON With Business-Friendly
     Category Setup (Phase 71)" below
+77. UI/UX-09 — Complete Keyboard and Accessibility Support (ninth
+    finding from the UI/UX report): semantic `<header>`/`<nav>`/
+    `<main>` landmarks (one each, never duplicated between the
+    authenticated shell and the new `AuthScreen`); persistent
+    `sr-only` labels on every filter control that previously relied on
+    a placeholder alone; `aria-invalid`/`aria-describedby` wired
+    generically through the shared `FormField`/local `Field`
+    components via `cloneElement`; `role="alert"`/`role="status"`
+    added to every remaining unannounced error/success message across
+    the app; a project-wide focus-visible-ring fix (`FIELD_INPUT_CLASS`
+    plus five other raw-pattern call sites); `InvoiceList.tsx`'s row
+    action menu now closes on Escape and returns focus to its trigger,
+    with a contextual `aria-label` ("Actions for invoice INV-000001")
+    — deliberately no `role="menu"` anywhere, per the task's own
+    "avoid a complex custom menu" guidance; a new shared
+    `PasswordField` (show/hide toggle, correct `autocomplete`) used by
+    both auth forms, showing the *real* backend minimum (8, read
+    directly from `auth.routes.ts`, not the task text's illustrative
+    "12") before submission; a new `useDocumentTitle` hook wired into
+    every route. Accessibility/keyboard only — no change to
+    accounting, invoices, payments, the ledger, company lifecycle, the
+    formula engine, or the schema.
+    See "UI/UX-09 — Complete Keyboard and Accessibility Support
+    (Phase 72)" below
 
 Repo also went through a monorepo restructure (`server/` → `apps/api` +
 new `apps/web` + `packages/shared`) between Phase 1 and Phase 2.

@@ -8,9 +8,15 @@ import type { InvoicePaymentStatus } from '@invoice/shared';
  * tooling's sake.
  */
 
-/** The shared visual recipe for a text/number/date/select control — same height/border/focus ring everywhere. */
+/**
+ * The shared visual recipe for a text/number/date/select control —
+ * same height/border/focus ring everywhere. UI/UX-09 Part 5: the
+ * native outline this replaces (`focus:outline-none`) is restored as
+ * a clearly visible `focus:ring` instead — never just a subtle
+ * border-color change on its own.
+ */
 export const FIELD_INPUT_CLASS =
-  'w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:outline-none disabled:bg-slate-50 disabled:text-slate-400';
+  'w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-400 disabled:bg-slate-50 disabled:text-slate-400';
 
 export type BadgeTone = 'success' | 'warning' | 'danger' | 'neutral' | 'info';
 

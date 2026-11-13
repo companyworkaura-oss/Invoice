@@ -1,12 +1,14 @@
 import type { EmbroideryCategory } from '@invoice/shared';
 import { useState } from 'react';
 import { PageHeader, PrimaryButton } from '../../lib/ui';
+import { useDocumentTitle } from '../../lib/use-document-title';
 import { CategoryForm } from './CategoryForm';
 import { CategoryList } from './CategoryList';
 
 type View = { name: 'list' } | { name: 'form'; category?: EmbroideryCategory };
 
 export function CategoriesPage() {
+  useDocumentTitle('Rates & Categories');
   const [view, setView] = useState<View>({ name: 'list' });
   const [refreshToken, setRefreshToken] = useState(0);
 

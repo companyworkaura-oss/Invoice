@@ -6,6 +6,7 @@ import { useAsyncData } from '../../lib/use-async-list';
 import { MoneyText, PageHeader, PrimaryButton, SecondaryButton, SectionHeading, StatusBadge } from '../../lib/ui';
 import { INVOICE_PAYMENT_STATUS_TONE } from '../../lib/ui-tokens';
 import { getLastInvoiceMode } from '../invoices/last-invoice-mode';
+import { useDocumentTitle } from '../../lib/use-document-title';
 import { formatDashboardPeriodLabel } from './period-label';
 import * as dashboardApi from './api';
 
@@ -28,6 +29,7 @@ const RANGE_LABEL: Record<DashboardRange, string> = {
  * current-balance ones, and authoritative payment-status badges.
  */
 export function DashboardPage() {
+  useDocumentTitle('Dashboard');
   const navigate = useNavigate();
   const [range, setRange] = useState<DashboardRange>('today');
   const [customFrom, setCustomFrom] = useState(todayLocal);

@@ -17,6 +17,7 @@ import { AppNav } from './features/nav/AppNav';
 import { PaymentsPage } from './features/payments/PaymentsPage';
 import { CurrencyProvider } from './lib/currency';
 import { PageHeader, SecondaryButton } from './lib/ui';
+import { useDocumentTitle } from './lib/use-document-title';
 
 type AuthView = 'login' | 'register';
 
@@ -86,21 +87,7 @@ function App() {
   }
 
   if (!me) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-50 p-6">
-        <div className="w-full max-w-sm rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
-          <h1 className="text-lg font-semibold text-slate-900">Embroidery Billing</h1>
-          <p className="mt-1 mb-6 text-sm text-slate-500">
-            {authView === 'login' ? 'Sign in to your account' : 'Create your account'}
-          </p>
-          {authView === 'login' ? (
-            <LoginForm onLoggedIn={refreshMe} onSwitchToRegister={() => setAuthView('register')} />
-          ) : (
-            <RegisterForm onRegistered={refreshMe} onSwitchToLogin={() => setAuthView('login')} />
-          )}
-        </div>
-      </div>
-    );
+    return <AuthScreen authView={authView} setAuthView={setAuthView} onLoggedIn={refreshMe} onRegistered={refreshMe} />;
   }
 
   return (
@@ -124,18 +111,14 @@ function App() {
         filters, and action menus, while w-full + mx-auto still lets it
         shrink to fill a phone/tablet viewport edge-to-edge (minus the
         outer page padding) instead of ever overflowing it.
+
+        UI/UX-09 Part 1: <header> (company switcher/user/logout) and
+        <nav> (AppNav, which already labels itself aria-label="Main")
+        sit outside the single <main> landmark below — exactly one
+        main landmark per page, never duplicated per route.
       */}
       <div className="mx-auto w-full max-w-[1400px] rounded-lg border border-slate-200 bg-white p-3 sm:p-4 lg:p-6 shadow-sm print:max-w-none print:rounded-none print:border-0 print:p-0 print:shadow-none">
-        {/*
-          UI/UX-06 Part 8: a focused header — active company (with its
-          switcher, Part 2) and the logged-in user on the left, Log out
-          on the right. Nothing else competes for space here; every
-          other destination lives in AppNav below, not duplicated here.
-          Log out is hidden on mobile (`hidden sm:block`) — it's one
-          tap away in the "More" menu instead, so the header has room
-          to breathe at 390px.
-        */}
-        <div className="flex items-start justify-between gap-2 print:hidden">
+        <header className="flex items-start justify-between gap-2 print:hidden">
           <div className="min-w-0">
             <CompanySwitcherDropdown
               activeCompanyId={me.company.id}
@@ -151,42 +134,25 @@ function App() {
               Log out
             </SecondaryButton>
           </div>
-        </div>
+        </header>
 
         <AppNav showActivityLog={me.permissions.includes('audit.view')} onLogout={handleLogout} />
 
-        <div className="mt-4 print:mt-0">
+        <main className="mt-4 print:mt-0">
           <Routes>
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
             <Route path="/dashboard" element={<DashboardPage key={me.company.id} />} />
             <Route
               path="/settings"
               element={
-                <div>
-                  <PageHeader
-                    title="Company settings"
-                    subtitle="Company profile, switching/creating companies, and account-level actions"
-                    action={
-                      <SecondaryButton onClick={() => setShowProfile((s) => !s)}>
-                        {showProfile ? 'Hide company profile' : 'Company profile'}
-                      </SecondaryButton>
-                    }
-                  />
-                  {showProfile && (
-                    <div className="mt-4">
-                      <CompanyProfilePanel key={`profile-${me.company.id}`} permissions={me.permissions} />
-                    </div>
-                  )}
-
-                  <CompanyDangerZone
-                    key={`danger-${me.company.id}`}
-                    companyName={me.company.name}
-                    permissions={me.permissions}
-                    onCompanyChanged={refreshMe}
-                  />
-
-                  <CompanySwitcher activeCompanyId={me.company.id} onSwitched={refreshMe} />
-                </div>
+                <SettingsRoute
+                  companyId={me.company.id}
+                  companyName={me.company.name}
+                  permissions={me.permissions}
+                  showProfile={showProfile}
+                  onToggleProfile={() => setShowProfile((s) => !s)}
+                  onCompanyChanged={refreshMe}
+                />
               }
             />
             <Route path="/customers/*" element={<CustomersRoute key={me.company.id} permissions={me.permissions} />} />
@@ -196,10 +162,80 @@ function App() {
             {me.permissions.includes('audit.view') && <Route path="/activity" element={<AuditLogPage key={me.company.id} />} />}
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>
-        </div>
+        </main>
       </div>
     </div>
     </CurrencyProvider>
+  );
+}
+
+function AuthScreen({
+  authView,
+  setAuthView,
+  onLoggedIn,
+  onRegistered,
+}: {
+  authView: AuthView;
+  setAuthView: (view: AuthView) => void;
+  onLoggedIn: () => void;
+  onRegistered: () => void;
+}) {
+  useDocumentTitle(authView === 'login' ? 'Sign in' : 'Create account');
+  return (
+    <main>
+      <div className="flex min-h-screen items-center justify-center bg-slate-50 p-6">
+        <div className="w-full max-w-sm rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
+          <h1 className="text-lg font-semibold text-slate-900">Embroidery Billing</h1>
+          <p className="mt-1 mb-6 text-sm text-slate-500">
+            {authView === 'login' ? 'Sign in to your account' : 'Create your account'}
+          </p>
+          {authView === 'login' ? (
+            <LoginForm onLoggedIn={onLoggedIn} onSwitchToRegister={() => setAuthView('register')} />
+          ) : (
+            <RegisterForm onRegistered={onRegistered} onSwitchToLogin={() => setAuthView('login')} />
+          )}
+        </div>
+      </div>
+    </main>
+  );
+}
+
+/** UI/UX-09 Part 12: its own route component purely so it can set its own document title, same as every other route. */
+function SettingsRoute({
+  companyId,
+  companyName,
+  permissions,
+  showProfile,
+  onToggleProfile,
+  onCompanyChanged,
+}: {
+  companyId: string;
+  companyName: string;
+  permissions: Me['permissions'];
+  showProfile: boolean;
+  onToggleProfile: () => void;
+  onCompanyChanged: () => void;
+}) {
+  useDocumentTitle('Company settings');
+  return (
+    <div>
+      <PageHeader
+        title="Company settings"
+        subtitle="Company profile, switching/creating companies, and account-level actions"
+        action={
+          <SecondaryButton onClick={onToggleProfile}>{showProfile ? 'Hide company profile' : 'Company profile'}</SecondaryButton>
+        }
+      />
+      {showProfile && (
+        <div className="mt-4">
+          <CompanyProfilePanel key={`profile-${companyId}`} permissions={permissions} />
+        </div>
+      )}
+
+      <CompanyDangerZone key={`danger-${companyId}`} companyName={companyName} permissions={permissions} onCompanyChanged={onCompanyChanged} />
+
+      <CompanySwitcher activeCompanyId={companyId} onSwitched={onCompanyChanged} />
+    </div>
   );
 }
 

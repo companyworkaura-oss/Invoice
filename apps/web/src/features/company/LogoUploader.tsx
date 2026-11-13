@@ -49,7 +49,7 @@ export function LogoUploader({ logoUrl, canEdit, onUploaded }: Props) {
           />
         </label>
       )}
-      {error && <p className="text-sm text-red-600">{error}</p>}
+      {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
     </div>
   );
 }

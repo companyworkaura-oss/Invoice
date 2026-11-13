@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { ApiError } from '../../lib/api';
 import { PrimaryButton } from '../../lib/ui';
 import * as authApi from './api';
+import { PasswordField } from './PasswordField';
 
 interface Props {
   onLoggedIn: () => void;
@@ -39,25 +40,26 @@ export function LoginForm({ onLoggedIn, onSwitchToRegister }: Props) {
           id="login-email"
           type="email"
           required
+          autoComplete="username"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
-          className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:outline-none"
+          className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-400"
         />
       </div>
-      <div>
-        <label htmlFor="login-password" className="block text-sm font-medium text-slate-700">
-          Password
-        </label>
-        <input
-          id="login-password"
-          type="password"
-          required
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:outline-none"
-        />
-      </div>
-      {error && <p className="text-sm text-red-600">{error}</p>}
+      <PasswordField
+        id="login-password"
+        label="Password"
+        value={password}
+        onChange={setPassword}
+        autoComplete="current-password"
+        required
+      />
+      {/* UI/UX-09 Part 4: an authentication failure is announced to assistive tech, not just visually shown. */}
+      {error && (
+        <p role="alert" className="text-sm text-red-600">
+          {error}
+        </p>
+      )}
       <PrimaryButton type="submit" disabled={submitting} className="w-full">
         {submitting ? 'Signing in…' : 'Sign in'}
       </PrimaryButton>

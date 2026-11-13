@@ -89,7 +89,7 @@ export function AppNav({ showActivityLog, onLogout }: Props) {
               type="button"
               onClick={toggle}
               aria-expanded={open}
-              aria-haspopup="menu"
+              
               className="shrink-0 rounded-md px-2 py-2.5 text-center text-xs font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-400"
             >
               More ▾

@@ -119,7 +119,7 @@ export function PaymentForm({
             ))}
           </select>
           {customersList.error && (
-            <p className="mt-1 text-xs text-red-600">
+            <p role="alert" className="mt-1 text-xs text-red-600">
               {customersList.error}{' '}
               <button type="button" onClick={customersList.retry} className="underline hover:text-red-900">
                 Retry
@@ -193,7 +193,7 @@ export function PaymentForm({
         />
       </FormField>
 
-      {error && <p className="text-sm text-red-600">{error}</p>}
+      {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
 
       <div className="flex gap-2">
         <PrimaryButton

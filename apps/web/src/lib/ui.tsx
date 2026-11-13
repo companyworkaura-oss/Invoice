@@ -1,5 +1,5 @@
 import { formatMoney } from '@invoice/shared';
-import type { ButtonHTMLAttributes, ReactNode } from 'react';
+import { cloneElement, isValidElement, type ButtonHTMLAttributes, type ReactElement, type ReactNode } from 'react';
 import type { BadgeTone } from './ui-tokens';
 import { useCurrency } from './use-currency';
 
@@ -117,17 +117,38 @@ export function FormField({
   helperText?: string;
   children: ReactNode;
 }) {
+  // UI/UX-09 Part 3: the error/helper text is programmatically
+  // associated with the actual control (aria-describedby), not just
+  // visually adjacent to it — and aria-invalid is set whenever this
+  // field currently has an error, so assistive tech announces both
+  // the moment the control receives focus. `children` is always
+  // exactly one form control across every caller of this component,
+  // so cloning it to add these two attributes never needs a more
+  // invasive API change.
+  const describedById = error || helperText ? `${htmlFor}-description` : undefined;
+  const control =
+    isValidElement(children) && describedById
+      ? cloneElement(children as ReactElement<{ 'aria-invalid'?: boolean; 'aria-describedby'?: string }>, {
+          'aria-invalid': error ? true : undefined,
+          'aria-describedby': describedById,
+        })
+      : children;
+
   return (
     <div>
       <label htmlFor={htmlFor} className="block text-xs font-medium text-slate-600">
         {label}
         {optional && <span className="ml-1 font-normal text-slate-400">(optional)</span>}
       </label>
-      <div className="mt-1">{children}</div>
+      <div className="mt-1">{control}</div>
       {error ? (
-        <p className="mt-1 text-xs text-red-600">{error}</p>
+        <p id={describedById} className="mt-1 text-xs text-red-600">
+          {error}
+        </p>
       ) : helperText ? (
-        <p className="mt-1 text-xs text-slate-400">{helperText}</p>
+        <p id={describedById} className="mt-1 text-xs text-slate-400">
+          {helperText}
+        </p>
       ) : null}
     </div>
   );

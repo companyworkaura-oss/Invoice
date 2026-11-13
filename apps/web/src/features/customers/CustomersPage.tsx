@@ -2,6 +2,7 @@ import type { Customer, Permission } from '@invoice/shared';
 import { useEffect, useState } from 'react';
 import { SuccessBanner } from '../../lib/AsyncState';
 import { PageHeader, PrimaryButton } from '../../lib/ui';
+import { useDocumentTitle } from '../../lib/use-document-title';
 import { CustomerStatementView } from '../ledger/CustomerStatementView';
 import * as customersApi from './api';
 import { CustomerDetails } from './CustomerDetails';
@@ -29,6 +30,7 @@ interface Props {
 }
 
 export function CustomersPage({ permissions, openCustomerId }: Props) {
+  useDocumentTitle('Customers');
   const [view, setView] = useState<View>({ name: 'list' });
   const [refreshToken, setRefreshToken] = useState(0);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);

@@ -62,7 +62,7 @@ export function CompanySwitcherDropdown({ activeCompanyId, activeCompanyName, on
             toggle();
           }}
           aria-expanded={open}
-          aria-haspopup="menu"
+          
           className="flex max-w-[260px] items-center gap-1 rounded-md py-1 pr-1.5 text-left hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-400"
         >
           <span className="truncate text-lg font-semibold text-slate-900">{activeCompanyName}</span>

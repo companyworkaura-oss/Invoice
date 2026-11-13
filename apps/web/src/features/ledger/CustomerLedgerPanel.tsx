@@ -54,7 +54,7 @@ export function CustomerLedgerPanel({ customerId, permissions }: Props) {
         </p>
       </div>
 
-      {actionError && <p className="mt-2 text-sm text-red-600">{actionError}</p>}
+      {actionError && <p role="alert" className="mt-2 text-sm text-red-600">{actionError}</p>}
 
       {ledger.entries.length === 0 ? (
         <p className="mt-2 text-sm text-slate-400">No ledger activity yet.</p>
