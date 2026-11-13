@@ -4837,6 +4837,135 @@ extended to return more fields, not change what it computes).
   `npm run lint` (zero errors, zero warnings). **UI/UX-07 is
   COMPLETE.**
 
+## UI/UX-08 — Replace Raw Formula JSON With Business-Friendly Category Setup (Phase 71)
+
+Eighth UI/UX finding: category setup exposed "formula type"/"formula
+config"/a raw JSON textarea directly to normal shop users — technical
+implementation details with real risk of invalid configuration.
+Frontend-only (plus one backend-irrelevant test extension): the
+formula engine, category schema, and invoice calculation are
+completely unmodified; this is purely a translation layer between
+plain-language fields and the existing `{ expression: string }`
+formulaConfig shape every category has always stored.
+
+- **Backend formula behaviors discovered** (inspected before building
+  anything, per Part 1): `packages/shared/src/formula-engine` is a
+  small, fixed-grammar arithmetic parser/evaluator (`+ - * /`,
+  parens, numeric literals, and exactly six allowed variable names:
+  `stitches, rate, factor, multiplier, divisor, quantity` — never
+  `eval()`/`Function`). A category's `formulaConfig` is a free-form
+  JSON object whose `expression` key is the formula text;
+  `invoice.service.ts`'s `createCategoryInvoiceItem` also treats any
+  *other* numeric key in `formulaConfig` matching one of those
+  variable names as a fixed value for that variable (so
+  `{expression: "stitches/1000*rate*multiplier", multiplier: 2.77}`
+  and baking `2.77` directly into the expression string are both
+  valid and produce identical results) — this app's own seeded
+  example formulas (`example-formulas.ts`: HS/HP, Daman, Patti, Bazu,
+  Dupatta) all use the baked-literal form. `formulaType` is a pure,
+  free-text label the engine never reads (confirmed: no code path
+  branches on its value) — safe to repurpose as descriptive metadata
+  without any functional risk. Category create/update is already
+  gated by `formula.manage` server-side (`category.routes.ts`),
+  authoritatively, for every role that can reach this form at all —
+  nothing needed adding on the frontend for that.
+- **Presets implemented** (`apps/web/src/features/formulas/pricing-
+  presets.ts`, pure + unit-tested): exactly the three patterns the
+  engine already supports and the report names —
+  "Standard stitch rate" (`stitches / 1000 * rate`), "Stitch rate
+  with multiplier" (`stitches / 1000 * rate * <M>`), and "Stitch rate
+  with multiplier and divisor" (`stitches / 1000 * rate * <M> / <D>`)
+  — plus "Advanced / Custom formula" for anything else.
+  `buildFormulaConfigForMethod` builds the exact same baked-literal
+  shape the example formulas already use; `detectPricingMethod` goes
+  the other way, parsing a stored expression with the engine's own
+  `parseFormula` (never a hand-rolled regex that could disagree with
+  it) and pattern-matching the resulting AST — it also recognizes the
+  named-variable form (`* multiplier` + a `multiplier` config key) as
+  the same preset, in case any already-stored category used that
+  shape instead of a baked literal. Anything that doesn't match either
+  shape, or fails to parse at all, reports back `'custom'` — never
+  forced into a preset, never rewritten.
+- **Fields shown per preset**: Standard → Default rate only;
+  Multiplier → Default rate + Multiplier; Multiplier+Divisor →
+  Default rate + Multiplier + Divisor; Custom → none of the friendly
+  fields (Default rate still applies and is kept, just not surfaced
+  as a separate field in that mode since the raw expression already
+  encodes everything) — only the raw JSON textarea, under a
+  "Advanced settings" section. `formulaType` is no longer a free-text
+  input at all (removed the old `<input list="formula-type-
+  suggestions">` entirely) — it's silently auto-derived from the
+  chosen method (`formulaTypeLabelForMethod`) on every save, purely
+  descriptive, exactly as unused by the engine as the old free-text
+  version was.
+- **Legacy/custom formula handling**: opening an existing category
+  runs `detectPricingMethod` against its real stored `formulaConfig`
+  — HS/HP/Daman/Patti/Bazu/Dupatta-shaped categories (and any other
+  category whose expression happens to match one of the three preset
+  shapes) open straight into friendly fields with Multiplier/Divisor
+  pre-filled from the actual stored numbers; anything else opens in
+  "Advanced / Custom formula" mode showing its exact existing JSON,
+  byte-for-byte, in the same raw textarea this form has always had —
+  confirmed live that saving a custom category without touching that
+  textarea round-trips its `formulaConfig` unchanged. A brand-new
+  category (no existing data to detect anything from) defaults
+  straight to "Standard stitch rate" rather than running detection
+  against an empty config (which would otherwise misread as
+  "custom" and open every new category on a blank JSON box — caught
+  and fixed during live verification).
+- **Example preview** (Part 3): a "Sample stitches" field (editable,
+  defaults to 10,000) plus a live "Calculated amount" — for a friendly
+  preset, built via `buildFormulaConfigForMethod` and evaluated with
+  the *exact* `evaluateFormula`/`roundMoney` invoice creation itself
+  calls (imported straight from `@invoice/shared`, nothing
+  reimplemented); for Custom mode, the same preview parses the raw
+  JSON, collects `requiredVariables(expression)`, and fills in
+  whatever the config already bakes in, surfacing a plain-language
+  "add a value for X" message instead of crashing if something's
+  still missing — never a second, possibly-disagreeing calculation
+  path. Verified live: Daman (rate 1.70, multiplier 2.77, 10,000
+  stitches) previews "47.09" and an actual invoice item against that
+  same saved category comes back with `calculatedUnitAmount: "47.09"`
+  — identical, by construction (same function, same inputs).
+- **Validation** (Part 7, `validatePricingFields`): Default rate
+  required + non-negative wherever a friendly method needs one;
+  Multiplier just a valid number; Divisor a valid number *and never
+  zero* — all field-level, shown next to the relevant input via the
+  existing `FormField` `error` prop, checked before anything is ever
+  built into a `formulaConfig` or sent to the server. Custom mode's
+  JSON still goes through the same parse-and-validate-as-an-object
+  check this form already had.
+- **Permissions** (Part 11): no new gate added — `formula.manage` was
+  already required server-side for every write this form makes
+  (create/update/enable/disable), for every role; since every current
+  role that has `formula.view` also has `formula.manage` (see
+  ROLE_PERMISSIONS), there's no existing scenario where a user could
+  reach this form read-only, so no new frontend restriction changes
+  behavior either way. Advanced/Custom mode saves through the exact
+  same `createCategory`/`updateCategory` calls, so it carries the
+  same authorization as every other save this form makes — nothing
+  bypasses it.
+- **No migration, no schema change** (Part 10): `formulaConfig`'s
+  shape is completely unchanged; this task only changed what the
+  *frontend* shows and sends, never what's stored or how invoices
+  read it.
+- **Verified live** (Playwright): created "Daman" via the friendly
+  fields exactly as the acceptance scenario describes (no JSON ever
+  shown), its preview and an actual invoice using it agree exactly
+  (47.09 both times); opened an existing category stored with
+  `stitches / 1000 * rate * 21` and confirmed it opened on "Stitch
+  rate with multiplier" with Multiplier pre-filled `21`, no JSON
+  shown; opened an existing category with a non-preset expression
+  (`(stitches / 1000 * rate) + 5`) and confirmed it opened in Advanced
+  mode with that exact expression in the textarea, a visible warning,
+  a working preview ("15" for rate 1.00 + 10,000 stitches), and an
+  unchanged round-trip on save.
+- `npm run typecheck`, `npm run build`, `npm test` (shared 79/79 + api
+  407/407, unchanged — no backend code touched + web 114/114, 13 new
+  `pricing-presets.test.ts` cases covering all nine of the task's
+  required scenarios), and `npm run lint` (zero errors, zero
+  warnings). **UI/UX-08 is COMPLETE.**
+
 ## Known gotchas / things to check before starting work
 
 - **Postgres cluster is often stopped** when a session starts:
@@ -5940,6 +6069,29 @@ extended to return more fields, not change what it computes).
     accounting/ledger/discount/schema change.
     See "UI/UX-07 — Turn the Dashboard Into a Starting Point for Work
     (Phase 70)" below
+76. UI/UX-08 — Replace Raw Formula JSON With Business-Friendly
+    Category Setup (eighth finding from the UI/UX report): category
+    setup exposed "formula type"/"formula config"/a raw JSON textarea
+    directly to normal shop users. New pure, unit-tested
+    `pricing-presets.ts` translates exactly the three formula patterns
+    the existing engine already supports (Standard stitch rate /
+    with multiplier / with multiplier and divisor — matching HS/HP,
+    Daman, Patti, Bazu, Dupatta) into plain-language "Pricing method"
+    + Multiplier/Divisor fields, building the exact same baked-
+    literal `{expression}` shape every category has always stored
+    and detecting that shape from an existing category's real
+    formula via the engine's own `parseFormula` (never a second,
+    possibly-disagreeing calculation rule or a hand-rolled regex). A
+    formula that doesn't match any preset opens in a collapsed-but-
+    visible "Advanced / Custom formula" mode showing its exact
+    existing JSON, untouched. A live "Example calculation" preview
+    (editable sample stitch count) runs through the real
+    `evaluateFormula`/`roundMoney`, so it can never disagree with what
+    an actual invoice using that category computes. No formula
+    engine/schema/invoice-calculation change — purely a frontend
+    translation layer.
+    See "UI/UX-08 — Replace Raw Formula JSON With Business-Friendly
+    Category Setup (Phase 71)" below
 
 Repo also went through a monorepo restructure (`server/` → `apps/api` +
 new `apps/web` + `packages/shared`) between Phase 1 and Phase 2.
