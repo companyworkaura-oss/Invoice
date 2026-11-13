@@ -4609,6 +4609,118 @@ accounting/calculation/schema/auth change.
   were fixed by splitting into `ui-tokens.ts`/`use-currency.ts` rather
   than suppressed). **UI/UX-05 is COMPLETE.**
 
+## UI/UX-06 — Make Navigation Match Daily Tasks (Phase 69)
+
+Sixth UI/UX finding: "Dashboard" and "Overview" read as two competing
+home screens, "Overview" was really company profile/switching/
+lifecycle settings in disguise, mobile nav was a horizontally-
+overflowing strip that could hide later destinations off-screen,
+company switching sat buried in that settings page rather than near
+the company name, and destructive company actions weren't visually
+separated from everyday nav. Navigation/information-architecture only
+— no accounting/ledger/auth/F02-safety change.
+
+- **"Overview" renamed to "Company settings"** everywhere — the nav
+  label (previously the one place still saying "Overview"; the
+  `/settings` route's own page title already said "Company settings"
+  since UI/UX-05, but the nav link itself hadn't caught up) and the
+  concept generally. There is exactly one destination that can read as
+  "home" (Dashboard) and exactly one for company-level settings
+  (Company settings) — never two competing ones.
+- **Company switcher moved into the header** (`CompanySwitcherDropdown.tsx`,
+  new): a compact "COMPANY NAME ▾" control sitting right next to the
+  company name, opening a small dropdown listing every active company
+  (current one checked/highlighted), each one click-to-switch, plus a
+  "Manage companies" link down to the Company settings page for
+  create/reactivate. Uses the exact same `companiesApi.switchCompany`
+  call and F02 safety behavior the full switcher already used — this
+  is a second, more convenient entry point to the same operation, not
+  a new one. The full `CompanySwitcher` component (create a company,
+  reactivate a deactivated one) stays exactly where it was, on the
+  Company settings page — this header control is deliberately just
+  the everyday "switch to one of my other active companies" action.
+- **New shared `Dropdown`** (`apps/web/src/lib/Dropdown.tsx`):
+  open/close-on-outside-click-or-Escape shell, used by both the header
+  company switcher and the new mobile "More" nav menu — the one real
+  place this task needed that behavior twice. (InvoiceList's
+  pre-existing row-actions "⋮" menu has the same shape but was left as
+  its own local implementation — reaching into already-shipped,
+  already-tested UI/UX-04 code for a navigation task would have been
+  out of scope.)
+- **Desktop nav restructured** (`AppNav.tsx`, new, replacing App.tsx's
+  old inline `NAV_ITEMS` + horizontally-scrolling tab strip): one
+  always-visible primary row — Dashboard, Invoices, Customers,
+  Payments, Rates & Categories (the report's own recommended order;
+  "Rates & Categories" replaces the old "Categories" label, matching
+  CategoriesPage's own UI/UX-05 title) — plus a visually secondary
+  group (Company settings, Activity log) set apart by a border divider,
+  smaller text, and a muted color, so it reads as "also available" but
+  never competes with the primary row. Still a top nav, not a sidebar
+  — the task explicitly allows this when "the existing top nav is
+  substantially simpler and already works," and this app's top nav
+  already did; converting the whole shell to a sidebar for this task
+  alone would have been redesigning for its own sake.
+- **Active state**: the current destination gets a solid background
+  highlight (`bg-slate-900 text-white` on primary items, `bg-slate-100
+  text-slate-900` on secondary ones) — not just a text-color/border
+  difference — plus `aria-current="page"`, which `react-router-dom`'s
+  `NavLink` already sets automatically on whichever link matches the
+  current route; nothing extra had to be wired up for that part.
+- **Mobile nav restructured**: the old `overflow-x-auto` strip (later
+  items — Payments, Audit — could scroll off-screen, with no visible
+  cue anything was off to the side) is gone. A bounded row shows
+  exactly the four most common destinations (Dashboard, Invoices,
+  Customers, Payments) at equal, always-visible weight, plus a "More ▾"
+  button (the new shared `Dropdown`) whose menu holds Rates &
+  Categories, Company settings, Activity log (when permitted), and Log
+  out. Nothing is ever hidden without a visible, labeled way to reach
+  it, and the nav row itself never scrolls horizontally.
+- **Header kept focused** (Part 8): active company + its switcher and
+  the logged-in user's name/role on the left, Log out on the right —
+  Log out is `hidden sm:block` since it's one tap away in the mobile
+  "More" menu instead, keeping the 390px header uncluttered. Nothing
+  else duplicates what AppNav already shows.
+- **Permissions** (Part 9): nav visibility deliberately matches what
+  already existed rather than inventing new gating — the `/settings`
+  route was never permission-gated before this task (it already shows
+  read-only company-profile content to any member; `company.manage`/
+  `company.deactivate`/`company.delete` each already gate their own
+  specific *action* inside that page, not the page itself), so "Company
+  settings" stays unconditionally listed; "Activity log" stays gated
+  by `audit.view`, exactly as the old "Audit" tab already was. Nothing
+  about who can do what changed — only where "Company settings" is
+  labeled and reached from.
+- **Pure nav structure extracted** to `apps/web/src/features/nav/
+  nav-items.ts` (`PRIMARY_NAV_ITEMS`, `MOBILE_PRIMARY_NAV_ITEMS`,
+  `MOBILE_MORE_ONLY_ITEM`, `getSecondaryNavItems(showActivityLog)`) —
+  unit-tested (`nav-items.test.ts`) without a React renderer, same
+  convention as this repo's other extracted decision logic
+  (invoice-list-filters.ts, list-view-state.ts): item order/labels, the
+  mobile primary/"More" split, "Overview" never appearing anywhere,
+  Dashboard appearing exactly once, and Activity log's permission gate.
+- **Routing integration** (Part 7): every nav item is a real
+  `react-router-dom` route already established in UI/UX-03 — nothing
+  here reintroduces local-state-only navigation. Refresh/Back/active-
+  state-from-URL and invoice draft/filter preservation are all
+  unaffected; this task only changed which links exist, how they're
+  grouped, and how the company switcher is reached.
+- **Verified live** (Playwright against a running dev stack, same
+  convention as UI/UX-02 through 05): confirmed no "Overview" text
+  anywhere, all five primary + both secondary labels present on
+  desktop, the header company-switcher dropdown lists companies with
+  the active one checked and includes "Manage companies", the active
+  route gets `aria-current="page"`, no `document.documentElement`
+  horizontal overflow at 1366px or 390px across every page including
+  Company settings, mobile's nav shows exactly the four-item row + a
+  working "More ▾" menu with no internal horizontal scroll, and — the
+  full Scenario B — switching from Company A to a newly created
+  Company B via the header dropdown updates the header immediately and
+  Company A's customer never appears under Company B (genuine
+  `deriveListViewState` "empty", not stale cross-tenant data).
+- `npm run typecheck`, `npm run build`, `npm test` (shared 79/79 + api
+  407/407 + web 94/94 — 7 new `nav-items.test.ts` cases), and `npm run
+  lint` (zero errors, zero warnings). **UI/UX-06 is COMPLETE.**
+
 ## Known gotchas / things to check before starting work
 
 - **Postgres cluster is often stopped** when a session starts:
@@ -5669,6 +5781,25 @@ accounting/calculation/schema/auth change.
     accounting/calculation/schema/auth change.
     See "UI/UX-05 — Strengthen Visual Hierarchy and Readability
     (Phase 68)" below
+74. UI/UX-06 — Make Navigation Match Daily Tasks (information-
+    architecture fix, sixth finding from the UI/UX report): "Overview"
+    (really company profile/switching/lifecycle settings) competed
+    with "Dashboard" as a second home screen, company switching sat
+    buried in that page instead of near the company name, and mobile
+    nav was a horizontally-overflowing strip that could hide later
+    destinations off-screen. Renamed "Overview" to "Company settings"
+    everywhere; moved company switching into a new header dropdown
+    (`CompanySwitcherDropdown.tsx`, same `switchCompany` API/F02 safety
+    as the existing full switcher, which stays on the Company settings
+    page for create/reactivate); rebuilt the nav (`AppNav.tsx`) as one
+    always-visible primary row (Dashboard/Invoices/Customers/Payments/
+    Rates & Categories) plus a visually secondary group (Company
+    settings/Activity log); replaced mobile's overflowing strip with a
+    bounded four-item row plus a "More" menu (new shared `Dropdown`)
+    holding everything else. Active route gets a solid background
+    highlight plus `aria-current="page"`. No accounting/ledger/auth/
+    F02-safety change.
+    See "UI/UX-06 — Make Navigation Match Daily Tasks (Phase 69)" below
 
 Repo also went through a monorepo restructure (`server/` → `apps/api` +
 new `apps/web` + `packages/shared`) between Phase 1 and Phase 2.
