@@ -89,11 +89,16 @@ test('computes today cards, recent lists, and outstanding customers from backend
   assert.equal(res.body.cards.unpaidOrPartialInvoiceCount, 1);
 
   assert.equal(res.body.recentInvoices.length, 1);
+  assert.equal(res.body.recentInvoices[0].customerId, customerId);
   assert.equal(res.body.recentInvoices[0].customerName, 'Dash Customer');
   assert.equal(res.body.recentInvoices[0].totalAmount, '100.00');
+  // UI/UX-07: paymentStatus is the same FIFO-computed status listInvoices
+  // shows — $100 invoice, $40 paid, nothing else on the ledger → PARTIAL.
+  assert.equal(res.body.recentInvoices[0].paymentStatus, 'PARTIAL');
 
   assert.equal(res.body.recentPayments.length, 1);
   assert.equal(res.body.recentPayments[0].id, payment.id);
+  assert.equal(res.body.recentPayments[0].customerId, customerId);
   assert.equal(res.body.recentPayments[0].amount, '40.00');
 
   assert.equal(res.body.customersWithOutstandingBalance.length, 1);
@@ -150,11 +155,22 @@ test('unpaid/partial invoice count applies FIFO: paying off the older invoice le
   assert.equal(res.body.cards.totalReceivable, '50.00');
   assert.equal(res.body.cards.unpaidOrPartialInvoiceCount, 1);
 
+  // UI/UX-07: recentInvoices' own paymentStatus agrees with the FIFO
+  // allocation above — the older ($100) invoice reads PAID even though
+  // nothing was paid "toward" it directly; the newer ($50) one is
+  // still UNPAID, matching listInvoices' identical FIFO math exactly.
+  const older = res.body.recentInvoices.find((inv: { totalAmount: string }) => inv.totalAmount === '100.00');
+  const newer = res.body.recentInvoices.find((inv: { totalAmount: string }) => inv.totalAmount === '50.00');
+  assert.equal(older.paymentStatus, 'PAID');
+  assert.equal(newer.paymentStatus, 'UNPAID');
+
   // A further partial payment into the newer invoice still leaves it (only it) flagged.
   await recordPayment(agent, customerId, '20.00');
   const res2 = await agent.get('/api/dashboard?range=month');
   assert.equal(res2.body.cards.totalReceivable, '30.00');
   assert.equal(res2.body.cards.unpaidOrPartialInvoiceCount, 1);
+  const newer2 = res2.body.recentInvoices.find((inv: { totalAmount: string }) => inv.totalAmount === '50.00');
+  assert.equal(newer2.paymentStatus, 'PARTIAL');
 });
 
 test('a fully paid customer has no outstanding balance and no unpaid invoices', async () => {

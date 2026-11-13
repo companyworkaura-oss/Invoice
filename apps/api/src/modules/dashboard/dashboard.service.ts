@@ -113,14 +113,43 @@ async function getUnpaidOrPartialInvoiceCount(companyId: string): Promise<number
   return Number(rows[0].count);
 }
 
+/**
+ * UI/UX-07: `paymentStatus` here is the exact same FIFO-computed CASE
+ * `listInvoices` (invoice.service.ts) uses — same `fifoPaidCtes`
+ * fragment, same thresholds — so a dashboard "recent invoice" never
+ * shows a payment status that could disagree with the invoice list or
+ * the invoice's own detail page. The FIFO CTEs themselves are scoped
+ * only by company (never by this function's own date period — see
+ * fifoPaidCtes' doc comment): a payment status depends on the
+ * customer's *entire* ledger, not just invoices dated within this
+ * period.
+ */
 async function getRecentInvoices(companyId: string, period: Period): Promise<DashboardRecentInvoice[]> {
   const { rows } = await pool.query<DashboardRecentInvoice>(
-    `SELECT i.id, i.invoice_number AS "invoiceNumber", c.name AS "customerName",
+    `WITH ${fifoPaidCtes('$1')},
+     paid_amounts AS (
+       SELECT
+         o.invoice_id,
+         o.debit - LEAST(o.debit, GREATEST(b.current_balance - COALESCE(o.cumulative_before, 0), 0)) AS paid
+       FROM ordered o
+       JOIN balances b ON b.customer_id = o.customer_id
+      WHERE o.type = 'INVOICE'
+     )
+     SELECT i.id, i.invoice_number AS "invoiceNumber", i.customer_id AS "customerId", c.name AS "customerName",
             i.invoice_date AS "invoiceDate", i.status,
-            COALESCE((SELECT SUM(it.calculated_total) FROM invoice_items it WHERE it.invoice_id = i.id), 0)
-              - i.discount_amount AS "totalAmount"
+            COALESCE(items.total, 0) - i.discount_amount AS "totalAmount",
+            CASE
+              WHEN i.status = 'cancelled' THEN 'CANCELLED'
+              WHEN COALESCE(items.total, 0) - i.discount_amount - COALESCE(pa.paid, 0) <= 0 THEN 'PAID'
+              WHEN COALESCE(pa.paid, 0) > 0 THEN 'PARTIAL'
+              ELSE 'UNPAID'
+            END AS "paymentStatus"
        FROM invoices i
        JOIN customers c ON c.id = i.customer_id
+       LEFT JOIN paid_amounts pa ON pa.invoice_id = i.id
+       LEFT JOIN LATERAL (
+         SELECT SUM(it.calculated_total) AS total FROM invoice_items it WHERE it.invoice_id = i.id
+       ) items ON true
       WHERE i.company_id = $1 AND i.invoice_date BETWEEN $2 AND $3
       ORDER BY i.created_at DESC
       LIMIT ${RECENT_LIMIT}`,
@@ -131,7 +160,7 @@ async function getRecentInvoices(companyId: string, period: Period): Promise<Das
 
 async function getRecentPayments(companyId: string, period: Period): Promise<DashboardRecentPayment[]> {
   const { rows } = await pool.query<DashboardRecentPayment>(
-    `SELECT p.id, c.name AS "customerName", p.amount, p.date, p.payment_method AS "paymentMethod"
+    `SELECT p.id, p.customer_id AS "customerId", c.name AS "customerName", p.amount, p.date, p.payment_method AS "paymentMethod"
        FROM payments p
        JOIN customers c ON c.id = p.customer_id
       WHERE p.company_id = $1 AND p.date BETWEEN $2 AND $3

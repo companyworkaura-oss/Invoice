@@ -360,14 +360,25 @@ export interface DashboardCards {
 export interface DashboardRecentInvoice {
   id: string;
   invoiceNumber: string;
+  customerId: string;
   customerName: string;
   invoiceDate: string;
   totalAmount: Money;
   status: InvoiceStatus;
+  /**
+   * UI/UX-07: the same authoritative, FIFO-computed payment status
+   * `listInvoices`/InvoiceList already show (PAID/PARTIAL/UNPAID, or
+   * CANCELLED for a cancelled invoice) — never re-derived from
+   * `status` + `totalAmount` alone in frontend code, since that would
+   * drift from the real, ledger-aware answer the moment a payment was
+   * allocated to a different invoice under FIFO.
+   */
+  paymentStatus: InvoicePaymentStatus;
 }
 
 export interface DashboardRecentPayment {
   id: string;
+  customerId: string;
   customerName: string;
   amount: Money;
   date: string;

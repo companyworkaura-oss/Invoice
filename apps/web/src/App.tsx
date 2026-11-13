@@ -216,10 +216,21 @@ function CustomersRoute({ permissions }: { permissions: Me['permissions'] }) {
   return <CustomersPage permissions={permissions} openCustomerId={params.get('openCustomerId') ?? undefined} />;
 }
 
-/** Same pattern as CustomersRoute, for the existing "View payments" shortcut (`?customerId=`). */
+/**
+ * Same pattern as CustomersRoute, for the existing "View payments"
+ * shortcut (`?customerId=`) and — UI/UX-07 — the Dashboard's "Record
+ * payment" action (`?new=1`), which should land here with the payment
+ * form already open rather than requiring a second click.
+ */
 function PaymentsRoute({ permissions }: { permissions: Me['permissions'] }) {
   const [params] = useSearchParams();
-  return <PaymentsPage permissions={permissions} initialCustomerId={params.get('customerId') ?? undefined} />;
+  return (
+    <PaymentsPage
+      permissions={permissions}
+      initialCustomerId={params.get('customerId') ?? undefined}
+      openFormOnMount={params.get('new') === '1'}
+    />
+  );
 }
 
 export default App;

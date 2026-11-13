@@ -14,12 +14,14 @@ interface Props {
   permissions: Permission[];
   /** Pre-filters the list to one customer's payments — e.g. when arriving here from an invoice's "View payments" link. */
   initialCustomerId?: string;
+  /** UI/UX-07: the Dashboard's "Record payment" action lands here with the form already open, rather than requiring a second click. */
+  openFormOnMount?: boolean;
 }
 
 const DELETE_CONFIRM = 'Delete this payment? The related ledger entry and balances will be updated. This action cannot be undone.';
 
-export function PaymentsPage({ permissions, initialCustomerId }: Props) {
-  const [showForm, setShowForm] = useState(false);
+export function PaymentsPage({ permissions, initialCustomerId, openFormOnMount = false }: Props) {
+  const [showForm, setShowForm] = useState(openFormOnMount);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);

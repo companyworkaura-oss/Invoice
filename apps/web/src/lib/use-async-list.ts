@@ -39,7 +39,29 @@ export interface AsyncListState<T> {
 }
 
 export function useAsyncList<T>(fetcher: () => Promise<T[]>, deps: unknown[], errorMessage: string): AsyncListState<T> {
-  const [data, setData] = useState<T[] | null>(null);
+  return useAsyncValue(fetcher, deps, errorMessage);
+}
+
+/**
+ * Same loading/refetching/error/retry state machine as useAsyncList,
+ * for a fetch that resolves to one value rather than an array (e.g.
+ * the Dashboard's single summary object) — same five-state
+ * reasoning in this module's doc comment above applies, just without
+ * "zero rows" being a meaningful concept for a single value.
+ */
+export interface AsyncDataState<T> {
+  data: T | null;
+  isFetching: boolean;
+  error: string | null;
+  retry: () => void;
+}
+
+export function useAsyncData<T>(fetcher: () => Promise<T>, deps: unknown[], errorMessage: string): AsyncDataState<T> {
+  return useAsyncValue(fetcher, deps, errorMessage);
+}
+
+function useAsyncValue<T>(fetcher: () => Promise<T>, deps: unknown[], errorMessage: string): AsyncDataState<T> {
+  const [data, setData] = useState<T | null>(null);
   const [isFetching, setIsFetching] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [retryToken, setRetryToken] = useState(0);

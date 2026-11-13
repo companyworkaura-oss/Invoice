@@ -4721,6 +4721,122 @@ separated from everyday nav. Navigation/information-architecture only
   407/407 + web 94/94 — 7 new `nav-items.test.ts` cases), and `npm run
   lint` (zero errors, zero warnings). **UI/UX-06 is COMPLETE.**
 
+## UI/UX-07 — Turn the Dashboard into a Starting Point for Work (Phase 70)
+
+Seventh UI/UX finding: the dashboard mostly displayed information —
+recent-invoice/payment tables with no link to the actual records, no
+strong Create Invoice/Record Payment action, raw `49500.00`-style
+money, period totals not visually distinguished from current account
+balances, and Quick Invoice's detail view still showing embroidery-
+only columns (Category/Stitches) that are meaningless for a manual
+Quick item. Dashboard usability/presentation only — no accounting/
+ledger/discount/schema/auth/WhatsApp/PDF change (one backend query was
+extended to return more fields, not change what it computes).
+
+- **Primary/secondary actions** (Part 1): "Create invoice" (primary)
+  and "Record payment" (secondary) now sit right next to the page
+  title. "Create invoice" opens the last-used mode directly (same
+  `getLastInvoiceMode()` localStorage preference `InvoicesPage`'s own
+  entry buttons already read — read once per mount, not reactively) —
+  one button, not a second competing choice screen. "Record payment"
+  navigates to `/payments?new=1`, a small new `openFormOnMount` prop
+  on `PaymentsPage` (mirrors the existing `?customerId=` pattern) that
+  opens the payment form immediately instead of requiring a second
+  click once there.
+- **Clickable invoices and customers** (Parts 2/3): invoice numbers in
+  Recent Invoices are real `react-router-dom` `<Link>`s to
+  `/invoices/:id` (UI/UX-03's actual route, never local-state
+  navigation); customer names everywhere on the dashboard (Recent
+  Invoices, Recent Payments, Customers With Outstanding Balance) link
+  to `/customers?openCustomerId=...` — the same existing customer
+  statement/account screen InvoiceDetails' "View customer account"
+  already uses, not a new CRM module. This needed two small backend
+  additions: `DashboardRecentInvoice`/`DashboardRecentPayment` gained a
+  `customerId` field (`dashboard.service.ts`'s SQL already joined
+  `customers`, just hadn't selected the id).
+- **Money formatting** (Part 4): every dashboard money value already
+  routes through the same `MoneyText`/`formatMoney` UI/UX-05
+  introduced — this task's backend changes didn't touch that, just
+  extended the one existing formatter's reach (the dashboard cards and
+  tables already used it since UI/UX-05; nothing here was still raw
+  `49500.00`).
+- **Period vs. current balance** (Part 5): the four summary cards
+  split into two explicitly labeled groups — "This period — <label>"
+  (Invoiced this period, Payments received this period) and "Right
+  now (all time)" (Outstanding customer receivables, Unpaid/partial
+  invoices) — never implying both cover the same timeframe. New pure
+  `formatDashboardPeriodLabel(period)` (`period-label.ts`, unit-tested)
+  turns the selected range into a human label: a single date for
+  "Today", "Nov 2026" for a whole calendar month, "28 Oct 2026 – 03 Nov
+  2026" for any other custom range — hand-rolled month names, not
+  `Intl`, so it's deterministic regardless of runtime locale.
+- **Payment status** (Part 6): Recent Invoices now shows the same
+  authoritative, FIFO-computed `paymentStatus` (PAID/PARTIAL/UNPAID/
+  CANCELLED) `listInvoices`/InvoiceList already compute — added to
+  `getRecentInvoices`' SQL using the *exact* same `fifoPaidCtes` +
+  `paid_amounts` CTE pattern `listInvoices` uses (same thresholds, same
+  CASE), scoped only by company (never by the dashboard's own date
+  period — a payment status depends on the customer's entire ledger,
+  not just invoices dated within the selected period). Never
+  re-derived from `status`/`totalAmount` in frontend code. Rendered
+  with the same shared `StatusBadge` + `INVOICE_PAYMENT_STATUS_TONE`
+  map InvoiceList/InvoiceDetails already use.
+- **Recent Invoices table** (Part 7): desktop columns trimmed to
+  exactly what the report recommends — Invoice | Customer | Total |
+  Payment status | Date | (a "View →" action) — money right-aligned
+  via the shared `MoneyText`/`tabular-nums` convention.
+- **Mobile dashboard** (Part 8): Recent Invoices gets its own stacked-
+  card layout below `sm:` (hidden/shown via `hidden sm:block` /
+  `sm:hidden`, same pattern UI/UX-05 established) — one card per
+  invoice, in the exact order the report specifies: Customer, Invoice
+  number, Total, Payment status, Date, "View details →". Recent
+  Payments and Customers With Outstanding Balance keep their existing
+  (narrower, already-safe-at-390px since UI/UX-05) tables — the report
+  only calls out the invoice table specifically for restructuring.
+- **Quick vs. Standard invoice detail** (Part 9): new pure
+  `invoiceItemColumnsForMode(invoiceMode)` (`invoice-detail-columns.ts`,
+  unit-tested) returns exactly `['description', 'quantity',
+  'unitAmount', 'total']` for `'quick'` and the full embroidery column
+  set (`category`, `stitches`, `rate` included) for `'standard'` —
+  driven by the invoice's own server-computed `invoiceMode` (see
+  `invoiceModeFromItems` in invoice.service.ts), never inferred from
+  whether an item happens to carry a `categoryId`. `InvoiceDetails.tsx`
+  now renders its item table and totals-row `colSpan` from this one
+  function instead of a hand-rolled `isQuick` check scattered through
+  the JSX.
+- **Empty/error states** (Part 10): the dashboard's one network fetch
+  now goes through a new `useAsyncData` hook (`use-async-list.ts`'s
+  existing `useAsyncList` state machine, generalized to a single value
+  instead of an array — same loading/refetching/error/retry
+  reasoning) — a failed load shows `ErrorState` + Retry, never "No
+  invoices"; Recent Invoices' truly-empty state shows `EmptyState` +
+  a "Create invoice" action (the same primary action as the page
+  header); Recent Payments/Outstanding Customers show a plain
+  `EmptyState` message (no action — there's no single obvious action
+  for "no payments this period").
+- **Visual hierarchy** (Part 11): no new patterns — the whole page
+  already runs on UI/UX-05's `PageHeader`/`SectionHeading`/
+  `PrimaryButton`/`SecondaryButton`/`StatusBadge`/`MoneyText` kit;
+  this task only changed *what* those pieces are fed, not how they
+  look.
+- **Verified live** (Playwright): Create invoice/Record payment both
+  visible and functional (navigating to the last-used invoice mode
+  and to a payment form that's already open); clicking an invoice
+  number opens `/invoices/:id`; clicking a customer name opens their
+  statement; the period label and "This period"/"Right now" grouping
+  render correctly; no `document.documentElement` horizontal overflow
+  at 390px; a Quick invoice's detail page shows exactly Description/
+  Quantity/Unit Price/Amount with no Category or Stitches column,
+  while a Standard invoice's detail page keeps Category/Stitches/Rate.
+- `npm run typecheck`, `npm run build`, `npm test` (shared 79/79 + api
+  407/407 — existing dashboard tests extended with `customerId`/
+  `paymentStatus` assertions, no new API surface risk — + web 101/101,
+  3 new test files: `period-label.test.ts`, `invoice-detail-
+  columns.test.ts`, plus `use-async-list.ts`'s generalization covered
+  by the existing suites that already exercise `useAsyncList`), and
+  `npm run lint` (zero errors, zero warnings). **UI/UX-07 is
+  COMPLETE.**
+
 ## Known gotchas / things to check before starting work
 
 - **Postgres cluster is often stopped** when a session starts:
@@ -5800,6 +5916,30 @@ separated from everyday nav. Navigation/information-architecture only
     highlight plus `aria-current="page"`. No accounting/ledger/auth/
     F02-safety change.
     See "UI/UX-06 — Make Navigation Match Daily Tasks (Phase 69)" below
+75. UI/UX-07 — Turn the Dashboard Into a Starting Point for Work
+    (dashboard usability/presentation fix, seventh finding from the
+    UI/UX report): recent-invoice/payment tables had no link to the
+    actual records, no strong Create Invoice/Record Payment action,
+    raw `49500.00`-style money, period totals not visually
+    distinguished from current account balances, and Quick Invoice's
+    detail page still showed embroidery-only columns (Category/
+    Stitches) that are meaningless for a manual item. Added primary
+    "Create invoice" (opens the last-used entry mode) / secondary
+    "Record payment" (`/payments?new=1`, opens the form immediately)
+    actions near the title; invoice numbers and customer names on the
+    dashboard are now real links to `/invoices/:id` and
+    `/customers?openCustomerId=...`; `getRecentInvoices`' SQL gained
+    `customerId` and the same FIFO-computed `paymentStatus`
+    `listInvoices` already shows (never re-derived in frontend code);
+    summary cards split into clearly labeled "This period — <human
+    label>" vs. "Right now (all time)" groups; Quick invoices'
+    InvoiceDetails item table now shows only Description/Quantity/
+    Unit Price/Amount (via a new pure `invoiceItemColumnsForMode`,
+    driven by the invoice's own server-computed `invoiceMode`, never
+    inferred from categoryId), Standard invoices unchanged. No
+    accounting/ledger/discount/schema change.
+    See "UI/UX-07 — Turn the Dashboard Into a Starting Point for Work
+    (Phase 70)" below
 
 Repo also went through a monorepo restructure (`server/` → `apps/api` +
 new `apps/web` + `packages/shared`) between Phase 1 and Phase 2.

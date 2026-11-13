@@ -10,6 +10,7 @@ import {
 import { useState } from 'react';
 import { MoneyText, PrimaryButton, SecondaryButton, SectionHeading, StatusBadge } from '../../lib/ui';
 import { INVOICE_PAYMENT_STATUS_TONE } from '../../lib/ui-tokens';
+import { invoiceItemColumnsForMode, type InvoiceItemColumn } from './invoice-detail-columns';
 import { PaymentForm } from '../payments/PaymentForm';
 import * as invoicesApi from './api';
 
@@ -42,6 +43,13 @@ export function InvoiceDetails({
 }: Props) {
   const [showPaymentForm, setShowPaymentForm] = useState(false);
   const canEdit = invoice.status === 'draft' && permissions.includes('invoice.edit');
+  // UI/UX-07 Part 9: invoiceMode is the one reliable discriminator
+  // (server-computed from the items actually saved — see
+  // invoiceModeFromItems in invoice.service.ts), never inferred here
+  // from whether categoryId happens to be set on an item.
+  const isQuick = invoice.invoiceMode === 'quick';
+  const columns = invoiceItemColumnsForMode(invoice.invoiceMode);
+  const showColumn = (c: InvoiceItemColumn) => columns.includes(c);
   const sets = calculateSets(invoice.generalQuantity);
   const formattedGeneralQuantity = formatQuantity(invoice.generalQuantity);
   const hasReferences = Boolean(invoice.billNumber || invoice.lotNumber || invoice.customerLotNumber || invoice.gatePassNumber);
@@ -116,26 +124,30 @@ export function InvoiceDetails({
       </div>
 
       <div className="mt-4 overflow-x-auto">
-      <table className="w-full min-w-[640px] text-sm">
+      <table className="w-full min-w-[480px] text-sm">
         <thead>
           <tr className="border-b border-slate-200 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-            <th className="py-2 pr-2 font-semibold">Category</th>
+            {showColumn('category') && <th className="py-2 pr-2 font-semibold">Category</th>}
             <th className="py-2 pr-2 font-semibold">Description</th>
             <th className="py-2 pr-2 text-right font-semibold">Quantity</th>
-            <th className="py-2 pr-2 text-right font-semibold">Stitches</th>
-            <th className="py-2 pr-2 text-right font-semibold">Rate</th>
-            <th className="py-2 pr-2 text-right font-semibold">Unit amount</th>
-            <th className="py-2 text-right font-semibold">Total</th>
+            {showColumn('stitches') && <th className="py-2 pr-2 text-right font-semibold">Stitches</th>}
+            {showColumn('rate') && <th className="py-2 pr-2 text-right font-semibold">Rate</th>}
+            <th className="py-2 pr-2 text-right font-semibold">{isQuick ? 'Unit Price' : 'Unit amount'}</th>
+            <th className="py-2 text-right font-semibold">{isQuick ? 'Amount' : 'Total'}</th>
           </tr>
         </thead>
         <tbody>
           {invoice.items.map((item) => (
             <tr key={item.id} className="border-b border-slate-100">
-              <td className="py-1.5 pr-2">{item.categoryName}</td>
+              {showColumn('category') && <td className="py-1.5 pr-2">{item.categoryName}</td>}
               <td className="py-1.5 pr-2 text-slate-500">{item.description ?? '—'}</td>
               <td className="py-1.5 pr-2 text-right">{formatNumber(item.quantity)}</td>
-              <td className="py-1.5 pr-2 text-right">{item.stitches}</td>
-              <td className="py-1.5 pr-2 text-right"><MoneyText value={item.rate} showCurrency={false} /></td>
+              {showColumn('stitches') && <td className="py-1.5 pr-2 text-right">{item.stitches}</td>}
+              {showColumn('rate') && (
+                <td className="py-1.5 pr-2 text-right">
+                  <MoneyText value={item.rate} showCurrency={false} />
+                </td>
+              )}
               <td className="py-1.5 pr-2 text-right"><MoneyText value={item.calculatedUnitAmount} showCurrency={false} /></td>
               <td className="py-1.5 text-right"><MoneyText value={item.calculatedTotal} showCurrency={false} /></td>
             </tr>
@@ -143,7 +155,7 @@ export function InvoiceDetails({
         </tbody>
         <tfoot>
           <tr>
-            <td colSpan={6} className="pt-2 text-right text-sm text-slate-500">
+            <td colSpan={isQuick ? 3 : 6} className="pt-2 text-right text-sm text-slate-500">
               Subtotal
             </td>
             <td className="pt-2 text-right text-sm text-slate-700">
@@ -152,7 +164,7 @@ export function InvoiceDetails({
           </tr>
           {invoice.discountType && (
             <tr>
-              <td colSpan={6} className="pt-1 text-right text-sm text-slate-500">
+              <td colSpan={isQuick ? 3 : 6} className="pt-1 text-right text-sm text-slate-500">
                 {invoice.discountType === 'percentage' ? `Discount (${formatNumber(invoice.discountValue)}%)` : 'Discount'}
               </td>
               <td className="pt-1 text-right text-sm text-slate-700">
@@ -161,7 +173,7 @@ export function InvoiceDetails({
             </tr>
           )}
           <tr>
-            <td colSpan={6} className="pt-1 text-right text-sm font-medium text-slate-900">
+            <td colSpan={isQuick ? 3 : 6} className="pt-1 text-right text-sm font-medium text-slate-900">
               Grand Total
             </td>
             <td className="pt-1 text-right text-sm font-semibold text-slate-900">
